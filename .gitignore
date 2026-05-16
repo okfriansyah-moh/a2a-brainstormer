@@ -1,0 +1,187 @@
+# ------------------------------------------------------------
+# OS / File explorer
+# ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ------------------------------------------------------------
+# Editor / IDE
+# ------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+.idea/
+*.iml
+*.suo
+*.user
+*.userossc
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------
+# Logs / runtime dumps
+# ------------------------------------------------------------
+*.log
+*.out
+*.err
+*.pid
+*.pid.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------
+# Environment / secrets
+# Keep explicit templates tracked (example/local.example)
+# ------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.env
+*.secret
+*.secrets
+*.key
+*.pem
+*.p12
+*.crt
+
+# ------------------------------------------------------------
+# Archives / temp files
+# ------------------------------------------------------------
+*.7z
+*.gz
+*.zip
+*.tar
+*.tgz
+*.bz2
+*.rar
+*.tmp
+*.temp
+.cache/
+.tmp/
+
+# ------------------------------------------------------------
+# Go
+# ------------------------------------------------------------
+bin/
+dist/
+cover.out
+coverage.out
+*.coverprofile
+*.test
+*.prof
+*.pprof
+*.trace
+
+# ------------------------------------------------------------
+# Node / JavaScript / TypeScript / SvelteKit
+# ------------------------------------------------------------
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+.vite/
+vitest-results/
+coverage/
+
+# Build output (common)
+build/
+dist-ssr/
+*.tsbuildinfo
+
+# ------------------------------------------------------------
+# Python (for tooling/subscripts, if introduced)
+# ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ------------------------------------------------------------
+# Java / Kotlin / Gradle (if introduced)
+# ------------------------------------------------------------
+.gradle/
+out/
+
+# ------------------------------------------------------------
+# Rust / C/C++ (if introduced)
+# ------------------------------------------------------------
+target/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# ------------------------------------------------------------
+# Terraform / cloud local state (if introduced)
+# ------------------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# ------------------------------------------------------------
+# Docker / containers / local infra
+# ------------------------------------------------------------
+.docker/
+docker-data/
+*.local.yml
+compose.override.yml
+
+# ------------------------------------------------------------
+# Databases / local app data
+# ------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+*.rdb
+
+# ------------------------------------------------------------
+# Test artifacts
+# ------------------------------------------------------------
+test-results/
+playwright-report/
+
+# ------------------------------------------------------------
+# AI-assisted development artifacts
+# ------------------------------------------------------------
+.parallel-dev/
+.aider*
+.cursor/
+.claude/
+.roo/
+.copilot/
+.promptfoo/
+.llm/
+
+# Ignore local chat transcript/debug artifacts (user machine paths)
+transcripts/
+debug-logs/
+
+# ------------------------------------------------------------
+# Keep git itself clean
+# ------------------------------------------------------------
+.git-credentials
