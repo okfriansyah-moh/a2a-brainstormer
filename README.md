@@ -1,86 +1,290 @@
 # a2a-brainstorm
 
-Deterministic multi-agent brainstorming platform that turns an initial idea into two engineering artifacts:
+A deterministic multi-agent design IDE — not a chatbot. Input an idea, run an ordered pipeline of agents, detect convergence, and emit engineering artifacts.
 
-- `architecture.md`
-- `roadmap.md`
+**This is NOT a chat application.** It is a structured workspace that coordinates multiple LLM-backed agents through a deterministic iteration loop to produce consistent, reviewable design artifacts.
 
-The system uses an ordered N-agent pipeline (minimum 2 agents), A2A message-based communication, and convergence rules to iteratively refine output quality.
+Outputs:
 
-## What This Project Is
+- `architecture.md` — component design, data flows, technology choices
+- `roadmap.md` — phased execution plan with milestones and risks
 
-- A structured design workspace, not a chat app
-- A Go modular monolith backend with vertical-slice modules
-- Multiple Go agent services connected through `github.com/a2aproject/a2a-go/v2`
-- A SvelteKit frontend for session orchestration and side-by-side agent outputs
-- PostgreSQL-backed canonical state, agent registry, and iteration history
+---
 
-## Core Objective
+## Prerequisites
 
-Input a product idea, run deterministic multi-agent iterations, detect convergence, and emit final design artifacts.
+| Tool                    | Version                  |
+| ----------------------- | ------------------------ |
+| Go                      | 1.26+                    |
+| Node.js                 | 20+                      |
+| pnpm                    | 9+                       |
+| Docker + docker-compose | latest                   |
+| PostgreSQL              | 16 (provided via Docker) |
 
-Pipeline intent:
+---
 
-`idea -> ordered agent passes -> merge -> convergence check -> markdown artifacts`
+## Quick Start
 
-## High-Level Architecture
+```bash
+# 1. Start the database
+make up
 
-```text
-Frontend (SvelteKit)
-        |
-        v
-Backend (Go 1.26 modular monolith)
-        |
-        v
-A2A agents (Go services, role-based dispatch)
-        |
-        v
-LLM providers (Copilot-first, Claude-ready)
+# 2. Run migrations
+make migrate
 
-PostgreSQL stores canonical state and iteration records
-Markdown module generates architecture.md and roadmap.md
+# 3. Start the backend
+go run ./backend/cmd/server
+
+# 4. Start an agent (in a separate terminal)
+go run ./agent/cmd/server
+
+# 5. Start the frontend (in a separate terminal)
+cd frontend && pnpm dev
 ```
 
-## Technical Stack
+The backend API is available at `http://localhost:8080`.  
+The frontend is available at `http://localhost:5173`.
 
-- Backend: Go 1.26
-- A2A SDK: `github.com/a2aproject/a2a-go/v2`
-- Frontend: SvelteKit + TypeScript + TailwindCSS
-- Database: PostgreSQL 16 (`pgx/v5`, `sqlc`)
-- Deployment: Docker + docker-compose
+---
 
-## Architectural Rules (Summary)
+## Environment Variables
 
-- Modular monolith with strict module boundaries
-- Vertical slice per module (`handler.go`, `service.go`, `repository.go`, `model.go`)
-- No cross-module internal imports
-- No direct LLM SDK calls outside provider boundary (`LLMProvider` interface)
-- Credential refs store env var names only (never raw keys)
-- Deterministic and idempotent iteration behavior is mandatory
+### Backend (`backend/cmd/server`)
 
-## Planned Backend Modules
+| Variable                    | Required | Example                                          | Description                                                 |
+| --------------------------- | -------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `DATABASE_URL`              | ✅       | `postgres://user:pass@localhost:5432/brainstorm` | PostgreSQL connection string                                |
+| `PORT`                      | ❌       | `8080`                                           | HTTP listen port (default: 8080)                            |
+| `GLOBAL_LLM_PROVIDER`       | ✅       | `copilot`                                        | Default LLM provider (`copilot` or `claude`)                |
+| `GLOBAL_LLM_MODEL`          | ✅       | `gpt-4o`                                         | Default model name                                          |
+| `GLOBAL_LLM_CREDENTIAL_REF` | ✅       | `COPILOT_API_KEY`                                | Env var name that holds the API key                         |
+| `MAX_ITERATIONS`            | ❌       | `10`                                             | Max pipeline iterations per session (default: 10)           |
+| `CONVERGENCE_THRESHOLD`     | ❌       | `0.02`                                           | Confidence delta below which pipeline halts (default: 0.02) |
+| `AGENT_ENDPOINTS`           | ✅       | `http://localhost:9090`                          | Comma-separated list of agent base URLs                     |
 
-- `session`: session lifecycle and setup
-- `iteration`: orchestration loop and dispatch sequence
-- `agent`: registry, role config, and A2A dispatch integration
-- `state`: canonical state model, validation, merge
-- `convergence`: stop-condition engine
-- `markdown`: final artifact generation
+### Agent binary (`agent/cmd/server`)
 
-## Current Status
+| Variable          | Required | Example      | Description                      |
+| ----------------- | -------- | ------------ | -------------------------------- |
+| `AGENT_PORT`      | ❌       | `9090`       | HTTP listen port (default: 9090) |
+| `COPILOT_API_KEY` | \*       | `sk-...`     | API key for the Copilot provider |
+| `CLAUDE_API_KEY`  | \*       | `sk-ant-...` | API key for the Claude provider  |
 
-- Blueprint complete: `docs/A2A-agent-Brainstorm.md`
-- Implementation plan complete: `docs/PLAN.md`
-- Governance in place: `AGENTS.md` and `.github/copilot-instructions.md`
-- Implementation tasks (Task 1-15) are defined and ready to execute
+\* At least one LLM API key is required depending on which `GLOBAL_LLM_PROVIDER` is configured.
 
-## Repository Docs
+### Frontend (`frontend/`)
 
-- Architecture blueprint: `docs/A2A-agent-Brainstorm.md`
-- Execution plan: `docs/PLAN.md`
-- Agent and skill governance: `AGENTS.md`
-- Copilot execution rules: `.github/copilot-instructions.md`
+| Variable            | Required | Example                 | Description                                         |
+| ------------------- | -------- | ----------------------- | --------------------------------------------------- |
+| `VITE_API_BASE_URL` | ❌       | `http://localhost:8080` | Backend base URL (default: `http://localhost:8080`) |
 
-## Next Step
+> **Security rule:** API keys are never stored in source code, config files, or the database.
+> `GLOBAL_LLM_CREDENTIAL_REF` holds the **env var name** only; the key is resolved at runtime.
 
-Start implementation from Task 1 in `docs/PLAN.md` and follow task ordering through Task 15 with validation gates at each phase.
+---
+
+## Agent Setup and Scaling
+
+The system requires **at minimum 2 agents** per session. Agents are Go services running the `agent/cmd/server` binary.
+
+### Running a single agent locally
+
+```bash
+AGENT_PORT=9090 COPILOT_API_KEY=<key> go run ./agent/cmd/server
+```
+
+### Running multiple agents
+
+```bash
+# Agent 1
+AGENT_PORT=9090 COPILOT_API_KEY=<key> go run ./agent/cmd/server &
+
+# Agent 2
+AGENT_PORT=9091 CLAUDE_API_KEY=<key> go run ./agent/cmd/server &
+```
+
+### Registering agents with the backend
+
+```bash
+curl -X POST http://localhost:8080/agents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Builder Agent",
+    "endpoint": "http://localhost:9090",
+    "default_role": "build",
+    "system_prompt": "You are an expert software architect.",
+    "llm_config": {
+      "provider": "copilot",
+      "model": "gpt-4o",
+      "credential_ref": "COPILOT_API_KEY"
+    }
+  }'
+```
+
+Agents serve their `AgentCard` at `/.well-known/agent.json`. The backend resolves this automatically when dispatching tasks.
+
+### Absent credential behavior
+
+If a required credential env var is absent at startup, the agent binary is marked **unavailable**. There is no silent fallback to another provider.
+
+---
+
+## Running a Brainstorm Session
+
+```bash
+# 1. Register at least 2 agents (see above)
+
+# 2. Create a session
+curl -X POST http://localhost:8080/sessions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "idea": "A real-time collaborative document editor with conflict resolution",
+    "agent_ids": ["<agent-1-id>", "<agent-2-id>"],
+    "max_iterations": 5
+  }'
+
+# 3. Run an iteration
+curl -X POST http://localhost:8080/sessions/<session-id>/iterate
+
+# 4. Get current state
+curl http://localhost:8080/sessions/<session-id>
+
+# 5. Finalize and export artifacts
+curl -X POST http://localhost:8080/sessions/<session-id>/finalize
+```
+
+---
+
+## Architecture
+
+````text
+┌─────────────────────────────────────────────┐
+│              Frontend (SvelteKit)            │
+# a2a-brainstorm
+
+Deterministic multi-agent design IDE (not a chatbot). The system runs an ordered agent pipeline and produces design artifacts such as architecture and roadmap outputs.
+
+This repository is operated primarily with Docker Compose and Makefile targets.
+
+## Prerequisites
+
+- Docker + Docker Compose
+- GNU Make
+- Node.js 20+ and pnpm 9+ (frontend UI only)
+- psql CLI (for `make migrate`)
+
+## Quick Start (Docker + Makefile)
+
+1. Copy environment file.
+
+```bash
+cp .env.example .env
+````
+
+2. Set required API keys in `.env` (`COPILOT_API_KEY` or `CLAUDE_API_KEY`).
+
+3. Start infrastructure and services.
+
+```bash
+make up
+```
+
+4. Apply SQL migrations.
+
+```bash
+make migrate
+```
+
+5. Start frontend UI.
+
+```bash
+make frontend
+```
+
+Endpoints:
+
+- Backend API: http://localhost:8080
+- Agent A2A card: http://localhost:9090/.well-known/agent.json
+- Frontend: http://localhost:5173
+
+## Makefile Commands
+
+Build and checks:
+
+- `make build` - build backend
+- `make build-agent` - build agent
+- `make test` - run backend + agent tests
+- `make lint` - run go vet (backend + agent) and frontend type check
+- `make check` - full build + vet + frontend check/build
+
+Runtime:
+
+- `make up` - start docker compose services
+- `make down` - stop docker compose services
+- `make migrate` - apply SQL migrations from [migrations](migrations)
+- `make frontend` - run frontend dev server
+- `make frontend-build` - build frontend production bundle
+
+## Environment Variables
+
+Core backend variables:
+
+- `DATABASE_URL` (required)
+- `BACKEND_PORT` (default `8080`)
+- `GLOBAL_LLM_PROVIDER` (default `copilot`)
+- `GLOBAL_LLM_MODEL` (default `gpt-4o`)
+- `GLOBAL_LLM_CREDENTIAL_REF` (default `COPILOT_API_KEY`)
+- `AGENT_ENDPOINTS` (comma-separated)
+- `MAX_ITERATIONS` (default `10`)
+- `CONVERGENCE_THRESHOLD` (default `0.02`)
+
+Core agent variables:
+
+- `AGENT_PORT` (default `9090`)
+- `AGENT_LLM_PROVIDER` (default `copilot`)
+- `AGENT_LLM_MODEL` (default `gpt-4o`)
+- `AGENT_LLM_CREDENTIAL_REF` (default `COPILOT_API_KEY`)
+
+Secrets:
+
+- `COPILOT_API_KEY`
+- `CLAUDE_API_KEY`
+
+Frontend variable:
+
+- `VITE_API_BASE_URL` (default `http://localhost:8080`)
+
+Security rules:
+
+- Never commit real API keys.
+- `*_CREDENTIAL_REF` stores an env var name, not a raw key value.
+
+## Local Workflow
+
+Daily start:
+
+```bash
+make up
+make migrate
+make frontend
+```
+
+Daily stop:
+
+```bash
+make down
+```
+
+Quality gate:
+
+```bash
+make test
+make lint
+make check
+```
+
+## Architecture Reference
+
+See [docs/A2A-agent-Brainstorm.md](docs/A2A-agent-Brainstorm.md) for the full architecture and invariants.
+
+See [docs/PLAN.md](docs/PLAN.md) for implementation task breakdown.

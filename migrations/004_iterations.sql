@@ -1,0 +1,3 @@
+-- Migration: 004_iterations
+-- Populated by Task 9 — Iteration Engine + Convergence
+-- Tables: iteration_records (stores per-pass state snapshots)

@@ -6,11 +6,11 @@ description: "Enforces ordered N-agent pipeline dispatch, role assignment rules,
 
 ## Purpose
 
-This skill governs `backend/modules/iteration/engine.go`, `backend/modules/agent/role.go`, and `backend/modules/agent/client.go`. The project uses a fixed-order, sequential pipeline — roles are assigned at session creation, not at runtime. The original two-agent alternation rule (`i%2 parity`) was superseded by the dynamic N-agent model described in `docs/PLAN.md §8.4`.
+This skill governs `backend/internal/modules/iteration/engine.go`, `backend/internal/modules/agent/role.go`, and `backend/internal/modules/agent/client.go`. The project uses a fixed-order, sequential pipeline — roles are assigned at session creation, not at runtime. The original two-agent alternation rule (`i%2 parity`) was superseded by the dynamic N-agent model described in `docs/PLAN.md §8.4`.
 
 ## Rules
 
-1. **Roles are fixed at session creation.** `backend/modules/session/service.go:CreateSession` assigns roles from `req.RoleOverrides` (if provided) or `agent.DefaultRoles(len(agentIDs))`. Roles must not change between iterations. See `docs/PLAN.md §8.4`: "Roles are fixed at session creation — no runtime alternation."
+1. **Roles are fixed at session creation.** `backend/internal/modules/session/service.go:CreateSession` assigns roles from `req.RoleOverrides` (if provided) or `agent.DefaultRoles(len(agentIDs))`. Roles must not change between iterations. See `docs/PLAN.md §8.4`: "Roles are fixed at session creation — no runtime alternation."
 
 2. **Each agent receives the previous agent's output, not the original state.** In `iteration/engine.go`, the inner loop passes `current` (updated by the preceding agent) to each subsequent agent. The base `state` is only used for `convergence.Check` comparison after a full pipeline pass.
 
@@ -18,7 +18,7 @@ This skill governs `backend/modules/iteration/engine.go`, `backend/modules/agent
 
 4. **State is persisted once per full pipeline pass, not per agent.** Call `persistState` after all agents in a pass have run, not inside the agent dispatch loop. Reference: `docs/PLAN.md §8.4`.
 
-5. **`agent.DefaultRoles(n)` governs role distribution.** For new sessions without `role_overrides`, use `modules/agent/role.go:DefaultRoles(agentCount)`. Do not hardcode `RoleBuilder` / `RoleReviewer` assignments outside this function.
+5. **`agent.DefaultRoles(n)` governs role distribution.** For new sessions without `role_overrides`, use `internal/modules/agent/role.go:DefaultRoles(agentCount)`. Do not hardcode `RoleBuilder` / `RoleReviewer` assignments outside this function.
 
 6. **`ValidRole(r Role)` must be called before dispatch.** In `agent/service.go:RegisterAgent` and session creation, validate every role against the allowlist: `RoleBuilder`, `RoleReviewer`, `RoleRefiner`, `RoleDevilsAdvocate` (see `docs/PLAN.md §8.13`).
 

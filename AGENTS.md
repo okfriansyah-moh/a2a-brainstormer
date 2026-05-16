@@ -237,16 +237,24 @@ Each task in `docs/PLAN.md` lists exactly the files it owns under `### Files to 
 
 ## Validation Requirement
 
-Every task and every agent session must end with a passing validation step:
+Every task and every agent session must end with **all 9 quality gate steps** executed in order. Each step must reach **zero findings** before the next begins.
 
-| Layer        | Command                                             |
-| ------------ | --------------------------------------------------- |
-| Backend      | `go build ./...` + `go vet ./...`                   |
-| Agent binary | `go build ./...` + `go vet ./...`                   |
-| Frontend     | `pnpm check` + `pnpm build`                         |
-| Tests        | `go test ./...` (backend) + `go test ./...` (agent) |
+### Mandatory Final Todo Sequence (ordered, non-skippable)
 
-No task is complete until its validation passes.
+| Step | Action               | Command / Check                                                           |
+| ---- | -------------------- | ------------------------------------------------------------------------- |
+| 1    | **Check test cases** | Identify tests that cover changed code; create any that are missing       |
+| 2    | **Run test cases**   | `go test ./...` (backend/agent) · `pnpm test` (frontend)                  |
+| 3    | **Fix test cases**   | Zero test failures required before proceeding                             |
+| 4    | **Check security**   | Review for OWASP Top 10, secrets exposure, injection, input validation    |
+| 5    | **Fix security**     | Zero security findings required before proceeding                         |
+| 6    | **Check linter**     | `go vet ./...` (backend/agent) · `pnpm lint` (frontend)                   |
+| 7    | **Fix linter**       | Zero linter warnings/errors required before proceeding                    |
+| 8    | **Check errors**     | `go build ./...` (backend/agent) · `pnpm check` + `pnpm build` (frontend) |
+| 9    | **Fix errors**       | Zero compile/type errors required before marking task complete            |
+
+> **A task is NOT complete until all 9 steps show zero findings.**
+> These steps must be explicit todo items in `manage_todo_list` — not just mentally assumed.
 
 ---
 
@@ -275,15 +283,40 @@ Source files are named after the **domain concept or behavior** they implement �
 | `helpers.go`    | `prompt_assembly.go`     | Disambiguates the specific logic |
 | `b2_test.go`    | `merge_strategy_test.go` | Names the behavior under test    |
 
+### Duplicate Package Declaration Guard
+
+Automated formatters (editors, CI tools) sometimes prepend a bare `package <name>` line **before** the doc-comment block of a `.go` file. This produces a duplicate `package` declaration and causes the compile error:
+
+```
+expected declaration, found 'package'
+```
+
+**Rule:** After every file creation or edit, check that line 1 of each `.go` file is either the doc comment (`// Package …`) or the single `package` declaration — never both. If a stray `package` line appears before the doc comment, remove it immediately before proceeding.
+
+Example of the broken pattern (FORBIDDEN):
+
+```go
+package llm           ← stray duplicate injected by formatter
+// Package llm …
+package llm           ← real declaration
+```
+
+Correct form:
+
+```go
+// Package llm …
+package llm
+```
+
 ---
 
 ## Module Boundary Rules
 
 See `.github/skills/modularity/SKILL.md` for full rules. Summary:
 
-- `backend/modules/<name>/` — vertical slice: `handler.go`, `service.go`, `repository.go`, `model.go`
+- `backend/internal/modules/<name>/` — vertical slice: `handler.go`, `service.go`, `repository.go`, `model.go`
 - Modules communicate only via types from `backend/internal/shared/` or their own exported service interface
-- No module imports another module's internal packages (no `modules/session` → `modules/agent/repository`)
+- No module imports another module's internal packages (no `internal/modules/session` → `internal/modules/agent/repository`)
 - All DB access goes through the module's own repository, not another module's repository
 - `backend/internal/platform/` is shared infrastructure; any module may import it
 

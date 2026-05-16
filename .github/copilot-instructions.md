@@ -35,12 +35,12 @@ When generating code, refer to these documents for exact schemas, interfaces, an
 - Single deployable, single repo, single database
 - Entry point: `backend/cmd/server/main.go`
 - No microservices, no inter-process RPC between backend modules
-- Module structure: `backend/modules/<name>/handler.go + service.go + repository.go + model.go`
+- Module structure: `backend/internal/modules/<name>/handler.go + service.go + repository.go + model.go`
 
 ### Module Communication
 
 - Modules communicate only through their own exported service interfaces
-- No module imports another module's internal packages (`modules/session` must not import `modules/agent/repository`)
+- No module imports another module's internal packages (`internal/modules/session` must not import `internal/modules/agent/repository`)
 - No raw `map[string]any` crossing module boundaries — use typed structs
 - Shared platform infrastructure lives in `backend/internal/platform/` — any module may import it
 - Shared types (used by multiple modules) live in `backend/internal/shared/`
@@ -202,7 +202,7 @@ Reference skills by path in any prompt:
 ## Development Rules
 
 1. **No production code before design.** Present a design, get approval, then implement. (`brainstorming` skill)
-2. **Vertical slice per module.** `handler.go + service.go + repository.go + model.go` per module under `backend/modules/`.
+2. **Vertical slice per module.** `handler.go + service.go + repository.go + model.go` per module under `backend/internal/modules/`.
 3. **No cross-module internal imports.** Modules may only import `backend/internal/platform/`, `backend/internal/shared/`, and their own internal packages.
 4. **All DB access through the module's own repository.** No raw SQL outside `repository.go` files.
 5. **LLMProvider interface is the only LLM call boundary.** No direct SDK imports outside `platform/llm/`.
@@ -215,15 +215,16 @@ Reference skills by path in any prompt:
 
 ## Forbidden Patterns
 
-| Category     | Forbidden                                                                                                                  |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| Architecture | Microservices between backend modules, inter-module RPC, shared mutable global state                                       |
-| Database     | ORM frameworks (`gorm`, `ent`), direct driver imports in `modules/`, SQL string concat                                     |
-| LLM          | Direct Copilot/Claude SDK calls in `modules/` or `agent/internal/executor/`                                                |
-| Config       | Hardcoded API keys, hardcoded ports, hardcoded model names, `os.Getenv` outside config                                     |
-| Credentials  | Storing raw API keys anywhere other than environment variables                                                             |
-| State        | Per-agent mutable global state; non-deterministic ID generation (UUID v4 for new IDs is fine; never use timestamps as IDs) |
-| Naming       | Task codes as file names (`phase4.go`, `b3_test.go`), single-letter files (`h.go`)                                         |
+| Category     | Forbidden                                                                                                                                                                                                                                                                                                                                          |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture | Microservices between backend modules, inter-module RPC, shared mutable global state                                                                                                                                                                                                                                                               |
+| Database     | ORM frameworks (`gorm`, `ent`), direct driver imports in `internal/modules/`, SQL string concat                                                                                                                                                                                                                                                    |
+| LLM          | Direct Copilot/Claude SDK calls in `internal/modules/` or `agent/internal/executor/`                                                                                                                                                                                                                                                               |
+| Config       | Hardcoded API keys, hardcoded ports, hardcoded model names, `os.Getenv` outside config                                                                                                                                                                                                                                                             |
+| Credentials  | Storing raw API keys anywhere other than environment variables                                                                                                                                                                                                                                                                                     |
+| State        | Per-agent mutable global state; non-deterministic ID generation (UUID v4 for new IDs is fine; never use timestamps as IDs)                                                                                                                                                                                                                         |
+| Naming       | Task codes as file names (`phase4.go`, `b3_test.go`), single-letter files (`h.go`)                                                                                                                                                                                                                                                                 |
+| File format  | Duplicate `package` declaration at line 1 — automated formatters sometimes prepend a bare `package <name>` line before the doc-comment block, causing `expected declaration, found 'package'` compile errors. **Always check line 1 of every `.go` file for a stray `package` declaration before the doc comment.** Remove the duplicate if found. |
 
 ---
 
@@ -249,14 +250,14 @@ a2a-brainstorm/
 │   │   │   ├── http/                ← net/http server, CORS, middleware
 │   │   │   ├── llm/                 ← LLMProvider interface + impls + resolver
 │   │   │   └── a2a/                 ← a2aclient factory, AgentCard resolver
-│   │   └── shared/                  ← types shared across modules
-│   └── modules/
-│       ├── session/
-│       ├── iteration/
-│       ├── agent/
-│       ├── state/
-│       ├── convergence/
-│       └── markdown/
+│   │   ├── shared/                  ← types shared across modules
+│   │   └── modules/                 ← domain modules (vertical slices)
+│   │       ├── session/
+│   │       ├── iteration/
+│   │       ├── agent/
+│   │       ├── state/
+│   │       ├── convergence/
+│   │       └── markdown/
 ├── agent/
 │   ├── go.mod
 │   ├── agentcard.go
@@ -310,14 +311,24 @@ Name source files after the **domain concept or behavior** they implement.
 
 ## Validation Gates
 
-Every implementation session must end with all applicable gates passing:
+Every implementation session must end with **all 9 quality gate steps** executed in order. Each step must reach **zero findings** before the next begins.
 
-| Layer        | Gate Command                      |
-| ------------ | --------------------------------- |
-| Backend      | `go build ./...` + `go vet ./...` |
-| Agent binary | `go build ./...` + `go vet ./...` |
-| Frontend     | `pnpm check` + `pnpm build`       |
-| Tests        | `go test ./...`                   |
+### Mandatory Final Todo Sequence (ordered, non-skippable)
+
+| Step | Action               | Command / Check                                                           |
+| ---- | -------------------- | ------------------------------------------------------------------------- |
+| 1    | **Check test cases** | Identify tests that cover changed code; create any that are missing       |
+| 2    | **Run test cases**   | `go test ./...` (backend/agent) · `pnpm test` (frontend)                  |
+| 3    | **Fix test cases**   | Zero test failures required before proceeding                             |
+| 4    | **Check security**   | Review for OWASP Top 10, secrets exposure, injection, input validation    |
+| 5    | **Fix security**     | Zero security findings required before proceeding                         |
+| 6    | **Check linter**     | `go vet ./...` (backend/agent) · `pnpm lint` (frontend)                   |
+| 7    | **Fix linter**       | Zero linter warnings/errors required before proceeding                    |
+| 8    | **Check errors**     | `go build ./...` (backend/agent) · `pnpm check` + `pnpm build` (frontend) |
+| 9    | **Fix errors**       | Zero compile/type errors required before marking task complete            |
+
+> **A task is NOT complete until all 9 steps show zero findings.**
+> These steps must be explicit todo items in `manage_todo_list` — not just mentally assumed.
 
 ---
 

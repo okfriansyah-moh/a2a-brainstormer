@@ -1,12 +1,12 @@
 ---
 name: convergence-engine-patterns
 type: skill
-description: "Enforces correct multi-condition convergence detection, delta-confidence threshold evaluation, and stop logic in backend/modules/convergence/engine.go."
+description: "Enforces correct multi-condition convergence detection, delta-confidence threshold evaluation, and stop logic in backend/internal/modules/convergence/engine.go."
 ---
 
 ## Purpose
 
-This skill governs `backend/modules/convergence/engine.go`. Convergence is the termination mechanism for the brainstorm pipeline. It is a **pure function module** — no DB access, no side effects — that evaluates whether the canonical state has stabilized enough to stop iterating. The rules come from `docs/PLAN.md §8.6` and `docs/A2A-agent-Brainstorm.md §11`.
+This skill governs `backend/internal/modules/convergence/engine.go`. Convergence is the termination mechanism for the brainstorm pipeline. It is a **pure function module** — no DB access, no side effects — that evaluates whether the canonical state has stabilized enough to stop iterating. The rules come from `docs/PLAN.md §8.6` and `docs/A2A-agent-Brainstorm.md §11`.
 
 ## Rules
 
@@ -20,7 +20,7 @@ This skill governs `backend/modules/convergence/engine.go`. Convergence is the t
 
 5. **`HasNewCriticalRisks` compares by risk text hash, not object identity.** A risk is "new critical" if its normalized text hash appears in `next.Risks` with `severity == "critical"` but not in `prev.Risks`. Use the same deduplication hash as `state/merge.go`.
 
-6. **`IsExecutionPlanComplete` uses a two-part heuristic.** A plan is complete when: all steps have a non-empty description AND no step title appears in `state.OpenQuestions`. This mirrors the merge validator logic in `modules/state/validator.go`.
+6. **`IsExecutionPlanComplete` uses a two-part heuristic.** A plan is complete when: all steps have a non-empty description AND no step title appears in `state.OpenQuestions`. This mirrors the merge validator logic in `internal/modules/state/validator.go`.
 
 7. **Persistent oscillation is surfaced via `open_questions`, not by forcing convergence.** If the same field has been toggled for 3+ iterations, `state/merge.go` adds it to `OpenQuestions`. `convergence.Check` then naturally fails condition (b) until the user resolves it.
 
@@ -44,5 +44,5 @@ This skill governs `backend/modules/convergence/engine.go`. Convergence is the t
 [ ] Threshold read from platform/config.GetConvergenceThreshold() (default 0.02)
 [ ] HasNewCriticalRisks uses normalized text hash, not object pointer comparison
 [ ] IsExecutionPlanComplete checks non-empty description AND no OpenQuestions reference
-[ ] No convergence.Check import of modules/state/repository or any DB package
+[ ] No convergence.Check import of internal/modules/state/repository or any DB package
 ```
