@@ -209,7 +209,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 1 — Project Scaffold
+### Task 1 — Project Scaffold <!-- ✅ Task 1 completed -->
 
 **Goal:** Initialize the Go workspace, both Go modules (backend + agent), SvelteKit frontend shell, docker-compose, and the Makefile.
 
@@ -241,6 +241,8 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ### Task 2 — Platform: Config + DB + Logger
 
+<!-- ✅ Task 2 completed -->
+
 **Goal:** Build the foundational platform services that every module imports — environment config, PostgreSQL connection pool, migration runner, and structured logger.
 
 **Files to create:**
@@ -270,6 +272,8 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 ---
 
 ### Task 3 — Platform: LLM Abstraction
+
+<!-- ✅ Task 3 completed -->
 
 **Goal:** Define the `LLMProvider` interface, the tiered config resolver, and the Copilot provider implementation that all agents and future providers implement.
 
@@ -323,7 +327,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 **Prompt context needed:** Blueprint §5 (A2A Layer), §7 (A2A Interaction Model), §8.3 in this PLAN
 
----
+<!-- ✅ Task 4 completed -->
 
 ### Task 5 — State Module
 
@@ -331,16 +335,16 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 **Files to create:**
 
-- `backend/modules/state/model.go` — see §8.1 for exact JSON structure
+- `backend/internal/modules/state/model.go` — see §8.1 for exact JSON structure
   - `CanonicalState` struct with all fields: `Idea`, `Architecture`, `ExecutionPlan []Step`, `Risks []Risk`, `Assumptions []string`, `OpenQuestions []string`, `Metrics StateMetrics`, `Meta StateMeta`
   - `StateMeta` includes `Iteration int`, `Agents []AgentMeta` (not fixed `agentA`/`agentB`)
   - `AgentMeta` includes `AgentID`, `Name`, `Role`, `Provider`, `Model`, `Skills []string` (names only)
   - All `json` tags must match §8.1 exactly — downstream agents depend on this shape
-- `backend/modules/state/merge.go` — see §8.5
+- `backend/internal/modules/state/merge.go` — see §8.5
   - `Merge(base, incoming CanonicalState) CanonicalState`
   - Rules: union risks (deduplicate by text hash), remove resolved risks, collapse duplicate plan steps, reject steps with vague text (< 10 words)
   - Stability rule: if both agree on a field value → lock it (do not overwrite with identical content)
-- `backend/modules/state/validator.go`
+- `backend/internal/modules/state/validator.go`
   - `Validate(s CanonicalState) error` — rejects malformed state; enforces non-empty idea, confidence in [0,1]
 
 **Validation:**
@@ -350,9 +354,9 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 **Prompt context needed:** Blueprint §8 (Canonical State), §10 (Merge Strategy), §8.1 and §8.5 in this PLAN
 
----
+<!-- ✅ Task 5 completed -->
 
-### Task 6 — Agent Module: Models, Repository, and DB Schema
+### Task 6 — Agent Module: Models, Repository, and DB Schema <!-- ✅ Task 6 completed -->
 
 **Goal:** Define the Agent and Skill domain models, create all DB migration files for the agent registry, and implement the repository layer.
 
@@ -362,15 +366,15 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
   - `CREATE TABLE agents (id, name, description, default_role, system_prompt, llm_config JSONB, endpoint, created_at)`
   - `CREATE TABLE skills (id, name, description, prompt, created_at)`
   - `CREATE TABLE agent_skills (agent_id, skill_id, PRIMARY KEY(agent_id, skill_id))`
-- `backend/modules/agent/model.go` — see §8.13 for Role constants
+- `backend/internal/modules/agent/model.go` — see §8.13 for Role constants
   - `Agent` struct: all fields matching `agents` table + `Skills []Skill` (loaded on GET)
   - `Skill` struct: `ID`, `Name`, `Description`, `Prompt`, `CreatedAt` — see §8.14
   - `Role` type (`string`) + constants: `RoleBuilder`, `RoleReviewer`, `RoleRefiner`, `RoleDevilsAdvocate` — see §8.13
   - `LLMConfig` struct: imported from `internal/platform/llm` — do not duplicate
-- `backend/modules/agent/role.go`
+- `backend/internal/modules/agent/role.go`
   - `DefaultRoles(agentCount int) []Role` — distributes roles by count; see §8.13 distribution table
   - `ValidRole(r Role) bool` — allowlist check
-- `backend/modules/agent/repository.go`
+- `backend/internal/modules/agent/repository.go`
   - `CreateAgent`, `GetAgent`, `ListAgents`, `UpdateAgent`, `DeleteAgent`
   - `CreateSkill`, `GetSkill`, `ListSkills`, `DeleteSkill`
   - `AttachSkill(agentID, skillID)`, `DetachSkill(agentID, skillID)`, `GetAgentSkills(agentID) []Skill`
@@ -386,23 +390,23 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 7 — Agent Module: Service, Handler, and A2A Dispatch
+### Task 7 — Agent Module: Service, Handler, and A2A Dispatch <!-- ✅ Task 7 completed -->
 
 **Goal:** Implement the agent service (business logic + skill assembly + A2A dispatch), the HTTP handler (CRUD REST API for agents and skills), and `client.go` (the A2A dispatch function).
 
 **Files to create:**
 
-- `backend/modules/agent/service.go`
+- `backend/internal/modules/agent/service.go`
   - `RegisterAgent(ctx, req) (Agent, error)` — validates endpoint reachable via `/health` or AgentCard fetch
   - `GetAgent`, `ListAgents`, `DeleteAgent`, `UpdateAgent`
   - `CreateSkill`, `ListSkills`, `DeleteSkill`, `AttachSkill`, `DetachSkill`, `GetAgentSkills`
   - `ResolveActiveSkills(agentID uuid, overrides []uuid) []Skill` — if overrides present use them; empty override = disable all; absent = use default attached skills
   - `CheckAvailability(agent Agent) error` — validates credential ref env var is set; marks agent unavailable otherwise
-- `backend/modules/agent/client.go` — see §8.3 for dispatch pseudocode
+- `backend/internal/modules/agent/client.go` — see §8.3 for dispatch pseudocode
   - `Dispatch(ctx, agent Agent, role Role, activeSkills []Skill, sessionLLMOverride *LLMConfig, state CanonicalState) (CanonicalState, error)`
   - Internally: resolves tiered LLM config → assembles system prompt → builds `BrainstormPayload` → calls `platform/a2a.SendPayload()` → extracts updated state
   - `BuildSystemPrompt(base string, skills []Skill) string` — concatenates skill `.Prompt` fragments; see §8.14
-- `backend/modules/agent/handler.go`
+- `backend/internal/modules/agent/handler.go`
   - REST handlers for all agent + skill endpoints; see §8.7 for full route list
   - Input validation on all IDs (valid UUID), names (non-empty), prompts (non-empty)
   - Returns `400` on validation failure, `404` on not-found, `409` on name conflict
@@ -416,7 +420,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 8 — Session Module
+### Task 8 — Session Module <!-- ✅ Task 8 completed -->
 
 **Goal:** Implement the session lifecycle — create session, bind agents, store idea, manage status — with full DB schema.
 
@@ -425,21 +429,21 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `migrations/003_sessions.sql` — see §8.11
   - `CREATE TABLE sessions (id, idea TEXT, status TEXT, max_iterations INT, created_at, updated_at)`
   - `CREATE TABLE session_agents (session_id, agent_id, position INT, role TEXT, llm_override JSONB, skill_overrides JSONB, PRIMARY KEY(session_id, agent_id))`
-- `backend/modules/session/model.go`
+- `backend/internal/modules/session/model.go`
   - `Session` struct; `SessionAgent` struct (includes `Position`, `Role`, `LLMOverride`, `SkillOverrides`)
   - `CreateSessionRequest` — validated input shape; see §8.7 for `POST /sessions` body
   - Minimum 2 agents enforced in request validation
-- `backend/modules/session/repository.go`
+- `backend/internal/modules/session/repository.go`
   - `CreateSession`, `GetSession`, `ListSessions`
   - `CreateSessionAgents(sessionID, agents []SessionAgent)`
   - `GetOrderedAgents(sessionID) []SessionAgent` — ordered by `position ASC`
-- `backend/modules/session/service.go`
+- `backend/internal/modules/session/service.go`
   - `CreateSession(ctx, req CreateSessionRequest) (Session, error)`
     - Validates ≥ 2 agent IDs
     - Assigns roles: uses `req.RoleOverrides` if provided, otherwise `agent.DefaultRoles(len(agentIDs))`
     - Validates all agent IDs exist and are available
   - `GetSession(ctx, id) (Session, error)`
-- `backend/modules/session/handler.go`
+- `backend/internal/modules/session/handler.go`
   - `POST /sessions`, `GET /sessions/{id}`, `POST /sessions/{id}/finalize`
 
 **Validation:**
@@ -452,27 +456,27 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 9 — Iteration Engine + Convergence
+### Task 9 — Iteration Engine + Convergence <!-- ✅ Task 9 completed -->
 
 **Goal:** Implement the deterministic N-agent iteration pipeline and the convergence detection engine.
 
 **Files to create:**
 
-- `backend/modules/convergence/engine.go` — see §8.6
+- `backend/internal/modules/convergence/engine.go` — see §8.6
   - `Check(prev, next CanonicalState) bool` — returns true (converged) when all stop conditions met; see §8.6
   - `ConfidenceDelta(prev, next CanonicalState) float64` — `|next.Metrics.Confidence - prev.Metrics.Confidence|`
   - `HasNewCriticalRisks(prev, next CanonicalState) bool`
   - `IsExecutionPlanComplete(s CanonicalState) bool` — heuristic: all steps have non-empty description and no open questions reference them
-- `backend/modules/iteration/engine.go` — see §8.4 for exact algorithm
+- `backend/internal/modules/iteration/engine.go` — see §8.4 for exact algorithm
   - `Run(ctx, session Session, initialState CanonicalState) (CanonicalState, error)`
   - Ordered pipeline: for each iteration, pass state through every ordered agent sequentially; each agent receives the output of the previous
   - Calls `agent.Dispatch()` for each agent; aggregates via `state.Merge()`
   - Calls `convergence.Check()` after each full pipeline pass; breaks when true
   - Updates `state.Meta.Iteration` each pass
   - Persists state after each full pipeline pass (not per-agent)
-- `backend/modules/iteration/service.go`
+- `backend/internal/modules/iteration/service.go`
   - `TriggerIteration(ctx, sessionID uuid) (CanonicalState, error)` — loads session + state, calls engine, persists result
-- `backend/modules/iteration/handler.go`
+- `backend/internal/modules/iteration/handler.go`
   - `POST /sessions/{id}/iterate` → triggers one iteration and returns updated state
 
 **Validation:**
@@ -485,13 +489,13 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 10 — Markdown Generator + Backend Wire-up
+### Task 10 — Markdown Generator + Backend Wire-up <!-- ✅ Task 10 completed -->
 
 **Goal:** Implement the markdown output generator and wire all modules into `cmd/server/main.go` with the HTTP router.
 
 **Files to create:**
 
-- `backend/modules/markdown/generator.go`
+- `backend/internal/modules/markdown/generator.go`
   - `GenerateArchitecture(s CanonicalState) (string, error)` — renders `architecture.md` from `s.Architecture` + `s.ExecutionPlan`
   - `GenerateRoadmap(s CanonicalState) (string, error)` — renders `roadmap.md` from `s.ExecutionPlan` + timeline
   - `WriteArtifacts(s CanonicalState, outputDir string) error` — writes both files atomically (tmp → rename)
@@ -516,7 +520,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 11 — Agent Service Binary
+### Task 11 — Agent Service Binary <!-- ✅ Task 11 completed -->
 
 **Goal:** Build the standalone agent binary — `agentcard.go` declaration, `BrainstormExecutor` implementing `a2asrv.AgentExecutor`, LLM provider, and HTTP server wiring.
 
@@ -552,7 +556,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 12 — Frontend: Scaffold, Stores, and API Client
+### Task 12 — Frontend: Scaffold, Stores, and API Client <!-- ✅ Task 12 completed -->
 
 **Goal:** Set up the SvelteKit project with TypeScript types, all Svelte stores, and the API service layer that all pages import.
 
@@ -587,7 +591,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 13 — Frontend: Session Workspace
+### Task 13 — Frontend: Session Workspace <!-- ✅ Task 13 completed -->
 
 **Goal:** Build the main session workspace — agent panels, control panel, state viewer, and iteration timeline.
 
@@ -618,7 +622,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 14 — Frontend: Agent Registry and Skill Manager
+### Task 14 — Frontend: Agent Registry and Skill Manager <!-- ✅ Task 14 completed -->
 
 **Goal:** Build the agent registry management page and the skill library manager page.
 
@@ -651,20 +655,20 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 15 — Integration Tests, Documentation, and Final Validation
+### Task 15 — Integration Tests, Documentation, and Final Validation <!-- ✅ Task 15 completed -->
 
 **Goal:** End-to-end integration tests covering the full iteration pipeline, documentation, and the Definition of Done checklist.
 
 **Files to create:**
 
-- `backend/modules/iteration/engine_test.go`
+- `backend/internal/modules/iteration/engine_test.go`
   - Mock `AgentExecutor`: accepts `BrainstormPayload`, returns incremented confidence each call
   - Test: 2-agent session, run engine for 5 iterations, assert convergence triggers before `maxIter`
   - Test: verify ordered pipeline — agent at `position=0` is always called before `position=1`
-- `backend/modules/agent/client_test.go`
+- `backend/internal/modules/agent/client_test.go`
   - Mock a2aclient; assert `BuildSystemPrompt` concatenates base + skill fragments in correct order
   - Assert `Dispatch` resolves tiered LLM config (session override > agent-level > global)
-- `backend/modules/state/merge_test.go`
+- `backend/internal/modules/state/merge_test.go`
   - Test: deduplication of risks, collapse of duplicate plan steps, rejection of vague output
 - `agent/internal/executor/executor_test.go`
   - Mock `LLMProvider`; assert `Execute` emits `Submitted → Working → ArtifactUpdate → Completed` event sequence

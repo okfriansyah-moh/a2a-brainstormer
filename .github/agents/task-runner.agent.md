@@ -102,12 +102,12 @@ Deep knowledge refs:   → §8.X cross-references mentioned in file bullet point
 
 From `docs/PLAN.md` §8, load every sub-section referenced in the task. Always load:
 
-- **§8.1** — Canonical state model (affects Tasks touching `modules/state`, agents, iteration engine)
+- **§8.1** — Canonical state model (affects Tasks touching `internal/modules/state`, agents, iteration engine)
 - **§8.2** — Go interfaces: `LLMProvider` (affects Tasks touching `internal/platform/llm`, agent services)
-- **§8.3** — A2A task contract (affects Tasks touching `internal/platform/a2a`, `modules/agent`, agent services)
-- **§8.4** — Iteration engine algorithm (affects Tasks touching `modules/iteration`)
-- **§8.5** — Merge strategy rules (affects Tasks touching `modules/state/merge.go`)
-- **§8.6** — Convergence conditions (affects Tasks touching `modules/convergence`)
+- **§8.3** — A2A task contract (affects Tasks touching `internal/platform/a2a`, `internal/modules/agent`, agent services)
+- **§8.4** — Iteration engine algorithm (affects Tasks touching `internal/modules/iteration`)
+- **§8.5** — Merge strategy rules (affects Tasks touching `internal/modules/state/merge.go`)
+- **§8.6** — Convergence conditions (affects Tasks touching `internal/modules/convergence`)
 
 ### Step 3 — Identify File Ownership
 
@@ -127,23 +127,61 @@ For each file:
 3. If it does not exist: create it fresh
 4. Write production-ready code following the standards below
 
-### Step 5 — Run Validation
+### Step 5 — Mandatory Quality Gate (ORDERED — all 9 steps required)
 
-**Backend / Agent (Go):**
+Every task todo list **must end** with these 9 steps executed in this exact order. Each step must reach **zero findings** before the next step begins.
 
-```bash
-go build ./...   # zero build errors — MANDATORY for every backend/agent task
-go vet ./...     # zero vet issues
-```
+**5.1 — Check test cases**
+Identify which tests exist for the changed code. If tests are missing, create them now.
 
-**Frontend (SvelteKit):**
+**5.2 — Run test cases**
 
 ```bash
-pnpm check       # zero svelte-check errors — MANDATORY for every frontend task
-pnpm build       # clean production build
+# Backend / Agent
+go test ./...
+
+# Frontend
+pnpm test
 ```
 
-If any errors occur, fix in your owned files only, then re-run until clean.
+**5.3 — Fix test cases**
+Fix every failing test. Zero test failures required before proceeding.
+
+**5.4 — Check security**
+Review all new/changed code for OWASP Top 10 violations: input validation, injection, secrets exposure, auth bypass. Verify `os.Getenv` is not called outside `config.go`.
+
+**5.5 — Fix security**
+Remediate every security finding. Zero findings required before proceeding.
+
+**5.6 — Check linter**
+
+```bash
+# Backend / Agent
+go vet ./...
+
+# Frontend
+pnpm lint
+```
+
+**5.7 — Fix linter**
+Fix every linter warning and error. Zero issues required before proceeding.
+
+**5.8 — Check errors (build)**
+
+```bash
+# Backend / Agent
+go build ./...
+
+# Frontend
+pnpm check
+pnpm build
+```
+
+**5.9 — Fix errors**
+Resolve every compile error and type error. Zero build errors required.
+
+> **RULE: Only after all 9 steps show zero findings may you proceed to Step 6.**
+> **Fix in your owned files only — never touch files owned by another task.**
 
 ### Step 6 — Report
 
@@ -154,9 +192,11 @@ If any errors occur, fix in your owned files only, then re-run until clean.
 - ✅ path/to/file.go
 - ✅ path/to/other.go
 
-### Validation
-- ✅ go build ./...: 0 errors
-- ✅ go vet ./...: 0 issues
+### Quality Gate
+- ✅ Tests: 0 failures
+- ✅ Security: 0 findings
+- ✅ Linter: 0 issues
+- ✅ Build: 0 errors
 
 ### Notes
 {Implementation decisions, quirks, §8 cross-references used}
@@ -168,7 +208,7 @@ If any errors occur, fix in your owned files only, then re-run until clean.
 
 Safe parallel pairs — tasks with no shared files and no import dependency:
 
-- Example: `modules/convergence/engine.go` + `modules/markdown/generator.go` (both depend on state model but don't import each other)
+- Example: `internal/modules/convergence/engine.go` + `internal/modules/markdown/generator.go` (both depend on state model but don't import each other)
 
 Never parallelize:
 
@@ -199,8 +239,8 @@ os.Getenv("PORT")                 // use internal/platform/config
 
 **Go rules for this codebase:**
 
-- Vertical slice: handler → service → repository → model, all inside the same `modules/<name>/` directory
-- Platform layer (`internal/platform/`) provides shared infrastructure — never import a `modules/` package from `internal/platform/`
+- Vertical slice: handler → service → repository → model, all inside the same `internal/modules/<name>/` directory
+- Platform layer (`internal/platform/`) provides shared infrastructure — never import an `internal/modules/` package from `internal/platform/`
 - LLM calls always go through `LLMProvider` interface — never call Copilot/Claude APIs directly
 - A2A calls always go through the wrapper in `internal/platform/a2a/` — never call `a2a-go` directly in modules
 - Agent roles (`build` | `review`) are injected per request — never hardcode them

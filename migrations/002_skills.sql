@@ -1,0 +1,3 @@
+-- Migration: 002_skills
+-- Reserved for additional skill-related schema changes after Task 6
+-- See 001_agents.sql for the initial skills table definition

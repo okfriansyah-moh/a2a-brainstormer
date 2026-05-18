@@ -432,23 +432,64 @@ You **must use the askQuestion tool** to obtain explicit user approval.
 
 ---
 
+# 5.5. Mandatory Final Todo Steps — Completion Quality Gate
+
+**HARD RULE: Before any task can be marked complete, the following steps MUST appear as the final todo items and MUST all be checked off in order. No exceptions.**
+
+## Required Final Todo Sequence
+
+Every task's todo list MUST end with ALL of the following items, executed in this exact order:
+
+```
+- [ ] Check test cases      → identify which tests exist / should exist for the changed code
+- [ ] Run test cases        → execute the full test suite (`go test ./...` or `pnpm test`)
+- [ ] Fix test cases        → fix any failing tests (ZERO failures required)
+- [ ] Check security        → review for OWASP Top 10, secrets exposure, injection, input validation
+- [ ] Fix security          → remediate every security finding before proceeding
+- [ ] Check linter          → run `go vet ./...` / `golangci-lint run` / `pnpm lint`
+- [ ] Fix linter            → fix every linter warning and error
+- [ ] Check errors          → run `go build ./...` / `pnpm check` / `pnpm build`; read all diagnostics
+- [ ] Fix errors            → resolve every compile error and type error
+```
+
+## Rules
+
+1. **These 9 steps are non-negotiable** — they are not optional, not skippable, not combinable.
+2. **Order is enforced** — tests before security, security before lint, lint before errors.
+3. **Each "fix" step must reduce findings to zero** before moving to the next check step.
+4. **If a fix introduces a new error**, re-run the affected check step before continuing.
+5. **Zero is the only acceptable count** for test failures, security findings, linter errors, and build errors.
+6. **These steps must be in the todo list** — not just mentally checked — visible in `manage_todo_list`.
+
+## Anti-Patterns (FORBIDDEN)
+
+```
+❌ Saying "done" while any of these 9 steps is still not-started or in-progress
+❌ Combining "check + fix" into a single todo (they are separate checkpoints)
+❌ Skipping test steps because "it's a small change"
+❌ Skipping security steps because "it's internal code"
+❌ Running build check before linter check
+❌ Marking a fix step complete when findings still remain
+```
+
+---
+
 # 6. Completion Confirmation
 
-Once approval is received and no issues remain, confirm that the implementation is:
+Once all 9 mandatory final todo steps are completed and approval is received, confirm that the implementation is:
 
 - Complete
 - Secure
 - Verified
-- To-do list checked
+- To-do list fully checked off (including all 9 final quality gate steps)
 
 And has passed:
 
-- Security review
-- Verification checks
-- Quality gates
-- Make sure todo list is fully checked off
-- Make sure all issues are remediated
-- Make sure codebase error-free and production-ready
+- ✅ Tests: zero failures
+- ✅ Security: zero findings
+- ✅ Linter: zero warnings/errors
+- ✅ Build: zero errors
+- Make sure codebase is error-free and production-ready
 - Do not make duplicate files with suffix 2, example : readme 2.md, implementation_roadmap 2.md, etc. If you need to update the content, update the original file instead of creating a new one.
 - Do not make duplicate folders with suffix 2, example : docs 2/, etc. If you need to add new content, add it to the original folder instead of creating a new one.
 
