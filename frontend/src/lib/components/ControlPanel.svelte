@@ -77,7 +77,8 @@
 
     {#if converged}
       <span class="text-xs font-medium text-green-700">
-        ✓ Convergence reached — agents agree. Finalize or iterate further.
+        ✓ Convergence reached - agents agree. Finalize or inject feedback to
+        continue.
       </span>
     {/if}
   </div>

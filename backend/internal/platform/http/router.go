@@ -11,19 +11,21 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
-	agenthandler "a2a-brainstorm/backend/internal/modules/agent"
-	iterhandler "a2a-brainstorm/backend/internal/modules/iteration"
-	sesshandler "a2a-brainstorm/backend/internal/modules/session"
 )
+
+// RouteRegistrar is implemented by module handlers that can register routes on
+// a shared ServeMux.
+type RouteRegistrar interface {
+	RegisterRoutes(mux *http.ServeMux)
+}
 
 // Deps carries all handler dependencies that NewRouter needs to wire the
 // application together. Each field is the concrete handler produced by the
 // respective module.
 type Deps struct {
-	AgentHandler     *agenthandler.Handler
-	SessionHandler   *sesshandler.Handler
-	IterationHandler *iterhandler.Handler
+	AgentHandler     RouteRegistrar
+	SessionHandler   RouteRegistrar
+	IterationHandler RouteRegistrar
 	Logger           *slog.Logger
 }
 

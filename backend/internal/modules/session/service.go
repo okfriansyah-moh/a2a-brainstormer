@@ -55,9 +55,8 @@ func NewServiceWithDeps(repo *Repository, agents agentProvider, logger *slog.Log
 //   - Each agent must pass CheckAvailability (credential env var present).
 //   - Each role override (if given) must pass agent.ValidRole.
 //
-// On success, the Session row and all SessionAgent rows are persisted in a
-// single logical operation (repository is called twice but both writes are
-// atomic from the caller's perspective — any error aborts the session).
+// On success, the Session row and all SessionAgent rows are persisted in one
+// database transaction.
 func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error) {
 	if req.Idea == "" {
 		return Session{}, errors.New("idea is required")
@@ -105,14 +104,11 @@ func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest) (
 		maxIter = 10
 	}
 
-	// Persist the session row.
-	sess, err := s.repo.CreateSession(ctx, Session{
+	// Build the session row to be persisted transactionally with session_agents.
+	sessionInput := Session{
 		Idea:          req.Idea,
 		Status:        StatusActive,
 		MaxIterations: maxIter,
-	})
-	if err != nil {
-		return Session{}, fmt.Errorf("create session: %w", err)
 	}
 
 	// Assign roles: use overrides when present, otherwise DefaultRoles distribution.
@@ -127,7 +123,7 @@ func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest) (
 	sessionAgents := make([]SessionAgent, len(unique))
 	for i, id := range unique {
 		sa := SessionAgent{
-			SessionID: sess.ID,
+			SessionID: "",
 			AgentID:   id,
 			Position:  i,
 			Role:      string(roles[i]),
@@ -141,11 +137,10 @@ func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest) (
 		sessionAgents[i] = sa
 	}
 
-	if err := s.repo.CreateSessionAgents(ctx, sessionAgents); err != nil {
-		return Session{}, fmt.Errorf("create session: bind agents: %w", err)
+	sess, err := s.repo.CreateSessionWithAgents(ctx, sessionInput, sessionAgents)
+	if err != nil {
+		return Session{}, fmt.Errorf("create session: %w", err)
 	}
-
-	sess.Agents = sessionAgents
 
 	s.logger.InfoContext(ctx, "session created",
 		slog.String("session_id", sess.ID),

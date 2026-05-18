@@ -1,5 +1,10 @@
 .PHONY: build build-agent up down migrate test frontend lint check
 
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
 # ── Go ──────────────────────────────────────────────────────────────────────
 build:
 	cd backend && go build ./...

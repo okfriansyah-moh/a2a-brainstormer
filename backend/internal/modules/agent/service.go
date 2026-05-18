@@ -266,10 +266,11 @@ func (s *Service) ResolveActiveSkills(ctx context.Context, agentID string, overr
 // ── internal helpers ──────────────────────────────────────────────────────────
 
 // checkEndpointReachable performs a lightweight HTTP GET to the agent's
-// AgentCard URL ({endpoint}/.well-known/agent.json) with the context deadline
-// (capped at 5 seconds) to confirm the agent is live before registration.
+// AgentCard URL ({endpoint}/.well-known/agent-card.json) with the context
+// deadline (capped at 5 seconds) to confirm the agent is live before
+// registration.
 func (s *Service) checkEndpointReachable(ctx context.Context, endpoint string) error {
-	checkURL := endpoint + "/.well-known/agent.json"
+	checkURL := endpoint + "/.well-known/agent-card.json"
 	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

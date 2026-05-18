@@ -85,14 +85,14 @@ make frontend
 Use these URLs:
 
 - Backend health: http://localhost:8080/health
-- Agent card: http://localhost:9090/.well-known/agent.json
+- Agent card: http://localhost:9090/.well-known/agent-card.json
 - Frontend UI: http://localhost:5173
 
 Optional terminal checks:
 
 ```bash
 curl -s http://localhost:8080/health
-curl -s http://localhost:9090/.well-known/agent.json
+curl -s http://localhost:9090/.well-known/agent-card.json
 ```
 
 ## 6) Daily Commands
@@ -160,6 +160,27 @@ Note: compose service-load-balancing behavior depends on your Docker setup. For 
 docker compose logs postgres
 docker compose logs backend
 docker compose logs agent
+```
+
+5. Port already in use (another project is running):
+
+- Error usually looks like `Bind for 0.0.0.0:5432 failed: port is already allocated`.
+- Change host port mappings in `.env` (do not change container internal ports):
+
+```env
+POSTGRES_HOST_PORT=15432
+BACKEND_HOST_PORT=18080
+AGENT_HOST_PORT=19090
+DATABASE_URL=postgres://postgres:postgres@localhost:15432/a2a_brainstorm?sslmode=disable
+AGENT_ENDPOINTS=http://localhost:19090
+```
+
+- Restart services after changing ports:
+
+```bash
+make down
+make up
+make migrate
 ```
 
 ## 9) Where to Read Next

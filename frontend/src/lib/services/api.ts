@@ -4,9 +4,8 @@
  * Security rules:
  *  - No secrets or credentials are ever included in requests (the backend
  *    resolves credentials from env vars server-side).
- *  - The base URL is configurable via the VITE_API_BASE_URL env var so that
- *    dev, staging, and production can point to different backends without
- *    rebuilding the frontend.
+ *  - The base URL is configurable via the VITE_API_BASE_URL env var at build
+ *    time so each deployment can target the intended backend.
  *  - Throws `ApiError` on any non-2xx response so callers can handle errors
  *    uniformly without inspecting raw Response objects.
  *

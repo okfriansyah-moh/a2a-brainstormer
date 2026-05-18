@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"a2a-brainstorm/backend/internal/modules/state"
@@ -58,6 +59,38 @@ func (r *Repository) CreateSession(ctx context.Context, s Session) (Session, err
 		stateJSON,
 	)
 	return scanSession(row)
+}
+
+// CreateSessionWithAgents persists a session row and its ordered session_agents
+// rows in a single transaction. This prevents partially-created sessions when
+// agent binding fails after session insert.
+func (r *Repository) CreateSessionWithAgents(ctx context.Context, s Session, agents []SessionAgent) (Session, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Session{}, fmt.Errorf("create session tx: begin: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	sess, err := createSessionWithQuerier(ctx, tx, s)
+	if err != nil {
+		return Session{}, err
+	}
+
+	for i := range agents {
+		agents[i].SessionID = sess.ID
+	}
+	if err := createSessionAgentsWithQuerier(ctx, tx, agents); err != nil {
+		return Session{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Session{}, fmt.Errorf("create session tx: commit: %w", err)
+	}
+
+	sess.Agents = agents
+	return sess, nil
 }
 
 // GetSession returns the session with the given ID, including its ordered
@@ -149,7 +182,40 @@ func (r *Repository) UpdateState(ctx context.Context, id string, cs *state.Canon
 // CreateSessionAgents inserts all agent bindings for a session in a single
 // batch. Uses ON CONFLICT DO NOTHING for idempotent re-runs.
 func (r *Repository) CreateSessionAgents(ctx context.Context, agents []SessionAgent) error {
-	const q = `
+	return createSessionAgentsWithQuerier(ctx, r.pool, agents)
+}
+
+type queryRowExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func createSessionWithQuerier(ctx context.Context, q queryRowExecer, s Session) (Session, error) {
+	const insertSession = `
+		INSERT INTO sessions (idea, status, max_iterations, current_state)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, idea, status, max_iterations, current_state, created_at, updated_at`
+
+	stateJSON, err := marshalState(s.CurrentState)
+	if err != nil {
+		return Session{}, fmt.Errorf("create session: marshal state: %w", err)
+	}
+
+	row := q.QueryRow(ctx, insertSession,
+		s.Idea,
+		s.Status,
+		s.MaxIterations,
+		stateJSON,
+	)
+	created, err := scanSession(row)
+	if err != nil {
+		return Session{}, fmt.Errorf("create session: %w", err)
+	}
+	return created, nil
+}
+
+func createSessionAgentsWithQuerier(ctx context.Context, q queryRowExecer, agents []SessionAgent) error {
+	const insertSessionAgent = `
 		INSERT INTO session_agents
 		    (session_id, agent_id, position, role, llm_override, skill_overrides)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -165,7 +231,7 @@ func (r *Repository) CreateSessionAgents(ctx context.Context, agents []SessionAg
 			return fmt.Errorf("create session agents: marshal skill overrides: %w", err)
 		}
 
-		_, err = r.pool.Exec(ctx, q,
+		_, err = q.Exec(ctx, insertSessionAgent,
 			a.SessionID,
 			a.AgentID,
 			a.Position,
