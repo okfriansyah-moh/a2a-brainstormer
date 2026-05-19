@@ -2,7 +2,7 @@
 
 Beginner-friendly local startup guide for a2a-brainstorm.
 
-This guide uses Docker and Makefile commands as the default workflow.
+All Docker operations use Makefile targets. Do not run `docker compose` commands directly.
 
 ## 1) What You Are Running
 
@@ -27,8 +27,6 @@ Install these tools first:
 Quick checks:
 
 ```bash
-docker --version
-docker compose version
 make --version
 node --version
 pnpm --version
@@ -60,25 +58,25 @@ GLOBAL_LLM_CREDENTIAL_REF=COPILOT_API_KEY
 AGENT_LLM_CREDENTIAL_REF=COPILOT_API_KEY
 ```
 
-## 4) Start Everything (Docker + Make)
+## 4) Start Everything (One Command)
 
-1. Start docker services:
-
-```bash
-make up
-```
-
-2. Apply SQL migrations:
+From the project root:
 
 ```bash
-make migrate
+make start
 ```
 
-3. Start frontend in a second terminal:
+This single command:
 
-```bash
-make frontend
-```
+1. Starts all Docker services — `postgres`, `backend`, `agent`, `frontend`
+2. Waits for the database to be healthy
+3. Applies all SQL migrations automatically
+
+Endpoints once everything is up:
+
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8080
+- Agent card: http://localhost:9090/.well-known/agent-card.json
 
 ## 5) Verify It Works
 
@@ -97,12 +95,10 @@ curl -s http://localhost:9090/.well-known/agent-card.json
 
 ## 6) Daily Commands
 
-Start day:
+Start day (everything in one command):
 
 ```bash
-make up
-make migrate
-make frontend
+make start
 ```
 
 Quality checks:
@@ -116,18 +112,22 @@ make check
 Stop day:
 
 ```bash
-make down
+make docker-down
 ```
 
 ## 7) Multi-Agent Local Scaling
 
-If you want more than one agent container:
+If you want more than one agent container, use the `docker-scale` target. The default is 2 replicas; pass `SCALE=N` to override:
 
 ```bash
-docker compose up -d --scale agent=2
+# Start with 2 agent replicas (default)
+make docker-scale
+
+# Start with 3 agent replicas
+make docker-scale SCALE=3
 ```
 
-Then set backend agent endpoints to both instances in `.env`, for example:
+Then set backend agent endpoints in `.env`:
 
 ```env
 AGENT_ENDPOINTS=http://agent:9090,http://agent:9090
@@ -139,7 +139,7 @@ Note: compose service-load-balancing behavior depends on your Docker setup. For 
 
 1. `make migrate` fails with connection error:
 
-- Ensure `make up` is already running.
+- Ensure `make docker-up` is already running.
 - Ensure `DATABASE_URL` points to localhost port 5432 for host-side migration command.
 
 2. Backend starts but session creation fails due to unavailable agent:
@@ -157,9 +157,16 @@ Note: compose service-load-balancing behavior depends on your Docker setup. For 
 - Check container logs with:
 
 ```bash
-docker compose logs postgres
-docker compose logs backend
-docker compose logs agent
+make docker-logs-postgres
+make docker-logs-backend
+make docker-logs-agent
+make docker-logs-frontend
+```
+
+- Or tail all services at once:
+
+```bash
+make docker-logs
 ```
 
 5. Port already in use (another project is running):
@@ -178,8 +185,7 @@ AGENT_ENDPOINTS=http://localhost:19090
 - Restart services after changing ports:
 
 ```bash
-make down
-make up
+make docker-restart
 make migrate
 ```
 
