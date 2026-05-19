@@ -177,12 +177,12 @@ func (s *Service) ListSessions(ctx context.Context) (ListSessionsResponse, error
 }
 
 // toSessionListItem maps a full Session to its summary representation.
-// Idea is truncated at a word-safe boundary up to 120 characters.
+// Idea is truncated at a rune-safe boundary up to 120 runes.
 // Confidence and CurrentIteration are extracted from CurrentState when present.
 func toSessionListItem(sess Session) SessionListItem {
 	idea := sess.Idea
-	if len(idea) > 120 {
-		idea = idea[:120]
+	if runes := []rune(idea); len(runes) > 120 {
+		idea = string(runes[:120])
 	}
 
 	item := SessionListItem{
@@ -192,7 +192,7 @@ func toSessionListItem(sess Session) SessionListItem {
 		MaxIterations: sess.MaxIterations,
 		CreatedAt:     sess.CreatedAt,
 		UpdatedAt:     sess.UpdatedAt,
-		AgentCount:    len(sess.Agents),
+		AgentCount:    sess.AgentCount,
 	}
 
 	if sess.CurrentState != nil {

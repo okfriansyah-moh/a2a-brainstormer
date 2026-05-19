@@ -19,6 +19,13 @@
   --blur: blur(8px);
   --shadow-md: 0 10px 30px rgba(35, 46, 82, 0.1);
   --line: rgba(168, 174, 199, 0.3);
+  --line-solid: #cfd8ea;
+  --danger-bg: #fff0f3;
+  --danger-line: #f5c6d0;
+  --warn-bg: #fff8ec;
+  --warn-line: #f5d589;
+  --waiting-bg: #e7eefc;
+  --waiting-ink: #2b4f8f;
 }
 
 /* ─── Global Reset & Typography ─────────────────────────────────── */

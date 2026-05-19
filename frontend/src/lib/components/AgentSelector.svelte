@@ -238,10 +238,10 @@
 <style>
   /* ── Pool layout ─────────────────────────────────────────────────────── */
   .pool {
-    border: 1px solid #cfd8ea;
+    border: 1px solid var(--line-solid);
     border-radius: 12px;
     overflow: hidden;
-    background: #fff;
+    background: white;
   }
 
   .pool-invalid {

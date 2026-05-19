@@ -115,12 +115,18 @@ func (r *Repository) GetSession(ctx context.Context, id string) (Session, error)
 	return s, nil
 }
 
-// ListSessions returns all sessions ordered newest-first. Agents are not loaded.
+// ListSessions returns all sessions ordered newest-first. Agents are not loaded;
+// AgentCount is populated via a subquery so callers can display the count without
+// issuing N+1 queries per session.
 func (r *Repository) ListSessions(ctx context.Context) ([]Session, error) {
 	const q = `
-		SELECT id, idea, status, max_iterations, current_state, created_at, updated_at
-		FROM sessions
-		ORDER BY created_at DESC`
+		SELECT s.id, s.idea, s.status, s.max_iterations, s.current_state,
+		       s.created_at, s.updated_at,
+		       COUNT(sa.agent_id)::int AS agent_count
+		FROM sessions s
+		LEFT JOIN session_agents sa ON sa.session_id = s.id
+		GROUP BY s.id
+		ORDER BY s.created_at DESC`
 
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {
@@ -130,9 +136,22 @@ func (r *Repository) ListSessions(ctx context.Context) ([]Session, error) {
 
 	var sessions []Session
 	for rows.Next() {
-		s, err := scanSession(rows)
-		if err != nil {
+		var (
+			s         Session
+			stateJSON []byte
+		)
+		if err := rows.Scan(
+			&s.ID, &s.Idea, &s.Status, &s.MaxIterations, &stateJSON,
+			&s.CreatedAt, &s.UpdatedAt, &s.AgentCount,
+		); err != nil {
 			return nil, fmt.Errorf("list sessions: scan: %w", err)
+		}
+		if len(stateJSON) > 0 && string(stateJSON) != "null" {
+			var cs state.CanonicalState
+			if err := json.Unmarshal(stateJSON, &cs); err != nil {
+				return nil, fmt.Errorf("list sessions: unmarshal state: %w", err)
+			}
+			s.CurrentState = &cs
 		}
 		sessions = append(sessions, s)
 	}

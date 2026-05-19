@@ -37,26 +37,27 @@
   $: stageStatuses = computeStageStatuses(
     $sessionStore.agents,
     $sessionStore.loading,
+    currentIteration,
   );
 
   function computeStageStatuses(
     agents: SessionAgent[],
     loading: boolean,
+    iteration: number,
   ): Array<"done" | "running" | "waiting"> {
-    const statuses: Array<"done" | "running" | "waiting"> = [];
-    let runnerAssigned = false;
-
-    for (const agent of agents) {
-      if (agent.output) {
-        statuses.push("done");
-      } else if (loading && !runnerAssigned) {
-        statuses.push("running");
-        runnerAssigned = true;
-      } else {
-        statuses.push("waiting");
-      }
+    // The backend does not return per-agent outputs — only a single
+    // CanonicalState after the full pipeline pass. After any completed
+    // iteration all agents have contributed, so they are all "done".
+    // While a pass is in flight the first stage is "running"; the rest wait.
+    if (!loading && iteration > 0) {
+      return agents.map(() => "done" as const);
     }
-    return statuses;
+    if (loading) {
+      return agents.map((_, i): "running" | "waiting" =>
+        i === 0 ? "running" : "waiting",
+      );
+    }
+    return agents.map(() => "waiting" as const);
   }
 
   function stageOutputText(agent: SessionAgent): string {
@@ -401,7 +402,7 @@
   }
 
   .stage-connector-dim {
-    background: #eaedf4;
+    background: var(--bg-1);
   }
 
   .no-agents {
@@ -500,15 +501,15 @@
   }
 
   .banner-error {
-    background: #fff0f3;
+    background: var(--danger-bg);
     color: var(--danger);
-    border: 1px solid #f5c6d0;
+    border: 1px solid var(--danger-line);
   }
 
   .banner-warn {
-    background: #fff8ec;
+    background: var(--warn-bg);
     color: var(--warn);
-    border: 1px solid #f5d589;
+    border: 1px solid var(--warn-line);
   }
 
   /* ── Responsive ── */

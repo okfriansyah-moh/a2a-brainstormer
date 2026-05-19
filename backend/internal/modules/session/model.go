@@ -29,6 +29,8 @@ const (
 // Session is the top-level aggregate for a brainstorm run.
 // CurrentState is nil until the first iteration pipeline pass completes.
 // Agents is populated on single-session GET requests; it is omitted on list responses.
+// AgentCount is populated only by ListSessions (via a subquery COUNT); it is
+// zero on single-session GET responses (use len(Agents) there instead).
 type Session struct {
 	ID            string                `json:"id"`
 	Idea          string                `json:"idea"`
@@ -38,6 +40,7 @@ type Session struct {
 	CreatedAt     time.Time             `json:"created_at"`
 	UpdatedAt     time.Time             `json:"updated_at"`
 	Agents        []SessionAgent        `json:"agents,omitempty"`
+	AgentCount    int                   `json:"-"` // list-only, not serialised
 }
 
 // SessionAgent represents one agent binding within a session.

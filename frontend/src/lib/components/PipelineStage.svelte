@@ -102,17 +102,17 @@
 
   .stage-done .stage-num {
     background: var(--ok);
-    color: #fff;
+    color: white;
   }
 
   .stage-running .stage-num {
     background: var(--accent-2);
-    color: #fff;
+    color: white;
   }
 
   .stage-waiting .stage-num {
-    background: #e7eefc;
-    color: #2b4f8f;
+    background: var(--waiting-bg);
+    color: var(--waiting-ink);
   }
 
   .stage-name {

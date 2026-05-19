@@ -152,8 +152,9 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate markdown content for the response body and optionally write
-	// the artifact files to disk. Both operations are non-fatal: a failure
-	// leaves the session in approved status with empty markdown fields.
+	// the artifact files to disk. Artifact write failure is non-fatal (the
+	// session remains approved), but content generation failure is returned
+	// as 500 because the finalize response body depends on it.
 	var archContent, roadmapContent string
 	if h.markdown != nil && sess.CurrentState != nil {
 		arch, road, merr := h.markdown.GenerateContent(*sess.CurrentState)
@@ -163,10 +164,11 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 					slog.String("session_id", id),
 					slog.Any("error", merr))
 			}
-		} else {
-			archContent = arch
-			roadmapContent = road
+			writeError(w, http.StatusInternalServerError, "markdown generation failed")
+			return
 		}
+		archContent = arch
+		roadmapContent = road
 
 		if h.outputDir != "" {
 			if werr := h.markdown.WriteArtifacts(*sess.CurrentState, h.outputDir); werr != nil {

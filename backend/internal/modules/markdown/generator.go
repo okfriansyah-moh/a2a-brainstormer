@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
-	"time"
 
 	"a2a-brainstorm/backend/internal/modules/state"
 )
@@ -92,14 +92,13 @@ func GenerateRoadmap(s state.CanonicalState) (string, error) {
 		return b.String(), nil
 	}
 
-	now := time.Now()
 	b.WriteString("## Milestones\n\n")
 	b.WriteString("| # | Step | Description | Target |\n")
 	b.WriteString("|---|------|-------------|--------|\n")
 
 	for i, step := range s.ExecutionPlan {
-		// Simple relative timeline: each step is estimated at +1 week from now.
-		target := now.AddDate(0, 0, (i+1)*7).Format("2006-01-02")
+		// Relative timeline: each step is +1 week from project start.
+		target := fmt.Sprintf("Week %d", i+1)
 		desc := step.Description
 		if len(desc) > 80 {
 			desc = desc[:77] + "..."
@@ -222,10 +221,15 @@ func writeAtomic(destPath, content string) error {
 }
 
 // writeMap writes the key-value pairs of a map[string]any as Markdown
-// bullet points into the builder.
+// bullet points into the builder. Keys are sorted for deterministic output.
 func writeMap(b *strings.Builder, m map[string]any) {
-	for k, v := range m {
-		b.WriteString(fmt.Sprintf("- **%s**: %v\n", k, v))
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		b.WriteString(fmt.Sprintf("- **%s**: %v\n", k, m[k]))
 	}
 	b.WriteString("\n")
 }
