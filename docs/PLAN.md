@@ -1,10 +1,11 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 1.0
-> **Date:** 2026-05-12
+> **Version:** 1.1
+> **Date:** 2026-05-12 (updated with UI redesign tasks)
 > **Author:** Core, Data and AI Team
 > **Status:** Ready for Implementation
 > **Source of Truth:** `docs/A2A-agent-Brainstorm.md`
+> **Change in v1.1:** Added Tasks 16–25 — Polished UI redesign matching `frontend/mockups/future-polished-mockup.html`. New routes: `/settings`, `/history`, `/session/[id]/finalize`. New components: `PipelineStage`, `ConfidenceBar`, `CanonicalStatePanel`, `RiskBoard`, `WarningModal`. Backend addition: `GET /sessions` list endpoint + markdown content return.
 
 ---
 
@@ -194,17 +195,33 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
           ▼                                                 ▼
     Task 11 (Agent Service Binary)          Task 12 (Frontend: Scaffold + Stores + API)
                                                             │
-                                                            ▼
-                                            Task 13 (Frontend: Session Workspace)
-                                                            │
-                                                            ▼
-                                            Task 14 (Frontend: Agent Registry + Skills)
-                                                            │
-                                          ┌─────────────────┴──────────────┐
-                                          │                                  │
-                                      Task 11                           Task 15
-                                   (must complete               (Integration Tests + Docs)
-                                   before Task 15)
+                                                ┌───────────┴────────────────┐
+                                                ▼                            ▼
+                                     Task 13 (Session Workspace)  Task 16 (Design System)
+                                                │                            │
+                                                ▼                 ┌──────────┼──────────┐
+                                     Task 14 (Agent Registry)     ▼          ▼          ▼
+                                                │         Task 17 (Home) Task 20  Task 23
+                                                │         (Home redesign) (Settings) (History)
+                                                │                 │
+                                                ▼                 ▼
+                                     Task 15 (Integration)  Task 18 (Session Pipeline)
+                                                                  │
+                                                     ┌────────────┴───────────────────────────┐
+                                                     ▼                                         ▼
+                                          Task 19 (BE: List + Artifact)           Task 22 (Roles+Modal)
+                                                     │                                         │
+                                                     ├──────────────────────────┐              │
+                                                     ▼                          ▼              ▼
+                                          Task 20 (Settings)           Task 23 (History)  Task 24 (Finalize)
+                                                     │
+                                                     ▼
+                                          Task 21 (Agent+Skill Forms)
+                                                     │
+                                              All Tasks 16–24
+                                                     │
+                                                     ▼
+                                          Task 25 (Navigation + Final Validation)
 ```
 
 ---
@@ -703,25 +720,374 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
+---
+
+### Task 16 — Frontend: Design System Foundation <!-- not started -->
+
+**Goal:** Establish the visual design system — CSS custom properties, Google Fonts, global gradient background, glassmorphism panel/card primitives, button styles, and artboard layout — that all subsequent UI tasks depend on. This is a pure style layer; no functional logic changes.
+
+**Files to create / modify:**
+
+- `frontend/src/app.css` — replace gray Tailwind palette with warm/blue CSS custom properties:
+  - `--bg-0: #f5efe4`, `--bg-1: #e8ecf7`, `--ink-900: #151b2f`, `--ink-700: #2d3655`, `--ink-500: #5a6282`, `--ink-300: #a8aec7`
+  - `--accent: #0bb6d9`, `--accent-2: #1f7ae0`, `--ok: #1b9f66`, `--warn: #d48806`, `--danger: #ce3158`
+  - Full-page background: `radial-gradient(1200px 600px at 10% 10%, #fff8ec, transparent), radial-gradient(900px 500px at 90% 10%, #e8f7ff, transparent), linear-gradient(135deg, #f5efe4, #e8ecf7)`
+  - `.artboard`: `min(1300px, 94vw)` centered, `margin: 28px auto`
+  - `.topbar`: `background: rgba(255,255,255,0.85)`, `backdrop-filter: blur(12px)`, sticky
+  - `.panel`: `background: rgba(255,255,255,0.72)`, `backdrop-filter: blur(8px)`, `border-radius: 18px`, `box-shadow: 0 10px 30px rgba(35,46,82,0.1)`
+  - `.card`: same as `.panel` with `border-radius: 14px`
+  - Heading font: Space Grotesk; body font: IBM Plex Sans; mono font: IBM Plex Mono
+  - Button base classes: `.btn-primary` (gradient `--accent→--accent-2`), `.btn-ghost`, `.btn-danger`
+  - Role badge classes: `.badge-build`, `.badge-review`, `.badge-refine`, `.badge-devils-advocate`
+  - Status chip classes: `.chip-live`, `.chip-ok`, `.chip-warn`, `.chip-danger`
+- `frontend/src/routes/+layout.svelte` — add Google Fonts `<link>` preconnect + stylesheet for IBM Plex Sans (300,400,500), IBM Plex Mono (400), Space Grotesk (500,700); add `<div class="topbar">` wrapper with logo + nav slots
+- `frontend/tailwind.config.ts` — extend theme colors with the CSS token names so Tailwind utility classes map to them: `colors: { accent: 'var(--accent)', 'accent-2': 'var(--accent-2)', ok: 'var(--ok)', warn: 'var(--warn)', danger: 'var(--danger)', 'bg-0': 'var(--bg-0)', 'bg-1': 'var(--bg-1)' }`
+
+**Design system spec:** see §8.16
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Visual smoke: page background is warm-to-blue gradient; fonts render as IBM Plex Sans
+
+**Prompt context needed:** §8.16 in this PLAN, `docs/A2A-agent-Brainstorm.md §20`
+
+---
+
+### Task 17 — Frontend: Home View Redesign <!-- not started -->
+
+**Goal:** Redesign the session-creation home page to match the mockup exactly — topbar, hero panel, 2-column grid (iterations left, agent pool right with inline checkbox rows), gradient CTA button, and estimated-runtime hint.
+
+**Files to modify:**
+
+- `frontend/src/routes/+page.svelte` — full redesign:
+  - Topbar: `<header class="topbar">` with "A2A Brainstorm" logo + nav links ("Session History" → `/history`, "⚙ Settings" → `/settings`) + animated Live chip (green pulsing dot)
+  - Hero `.panel` centered in `.artboard`, max-width `920px`
+  - Idea textarea with char count (no hard limit; show chars used)
+  - 2-col grid below textarea:
+    - Left col: "Max Iterations" `<input type="number" min="1" max="20">` — defaults to 5
+    - Right col: "Agent Pool" — inline checkbox rows, one per agent from `agentRegistryStore.agents`; each row shows agent name, role badge, provider/model label; min-2 enforcement (disable Start if < 2 checked)
+  - "Start Session" `<button class="btn-primary">` with gradient; disabled + spinner while loading
+  - "Estimated runtime: ~N min" computed hint: `N = checkedAgentCount * iterations * 0.5` minutes; shown below button
+  - On submit: call `createSession` → navigate to `/session/{id}`
+  - Inline validation: highlight if < 2 agents selected (soft red border on pool + tooltip)
+- `frontend/src/lib/components/AgentSelector.svelte` — keep file but replace implementation with the inline pool layout to remain compatible with any code that imports it; it can be a thin wrapper rendering the checkbox rows
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Renders correctly with 0, 1, and 3+ agents in registry
+
+**Prompt context needed:** §8.7 (POST /sessions body), §8.9 (agentRegistryStore shape), §8.16, `docs/A2A-agent-Brainstorm.md §20`
+
+---
+
+### Task 18 — Frontend: Session View + Sequential Pipeline Components <!-- not started -->
+
+**Goal:** Redesign the session workspace to show a sequential N-agent pipeline with pass summary bar (Pipeline Pass N/M, confidence %), per-stage done/running/waiting states with mono log blocks and summaries, inline canonical state panel, and risk board.
+
+**Files to create / modify:**
+
+- `frontend/src/routes/session/[id]/+page.svelte` — full redesign:
+  - Pass summary bar (sticky top): "Pipeline Pass N / M" label + agent count chip + `<ConfidenceBar>` showing `state.metrics.confidence * 100`% + animated shimmer while loading
+  - Vertical sequential pipeline panel (`.panel`): one `<PipelineStage>` per agent, separated by connector lines (solid for done→running, dashed for running→waiting)
+  - After pipeline panel: 2-col bottom row — left 2/3 `<CanonicalStatePanel>`, right 1/3 `<RiskBoard>`
+  - Control bar (sticky bottom): "Run Next Iteration" button (disabled while loading or converged), "Inject Feedback" button (opens inline textarea), "Finalize Session" button → navigates to `/session/{id}/finalize`
+  - Stage state derivation from `sessionStore.state`:
+    - After a completed iterate call: all agents show `stage-done` with their output derived from `state.meta.agents`
+    - During loading (iterate in flight): last agent shows `stage-running`, others show `stage-done`; agents not yet called show `stage-waiting`
+    - Injected feedback textarea: plain text, sent as additional context in next iterate call (append to idea)
+  - Subscribe to `sessionStore`; call `loadSession` on mount
+- `frontend/src/lib/components/PipelineStage.svelte` — **new** (replaces `AgentPanel.svelte`):
+  - Props: `agent: SessionAgent`, `status: 'done' | 'running' | 'waiting'`, `output?: string`, `summary?: string`
+  - CSS class applied to root: `.stage-done`, `.stage-running`, `.stage-waiting`
+  - Done: green check icon, mono log block (dark bg `#1a1d2e`, IBM Plex Mono text), green summary block with `<CheckCircle>` icon
+  - Running: animated dots (three dots CSS keyframe blink), mono log block with blinking cursor
+  - Waiting: dimmed opacity 0.5, dashed border
+  - Role badge at top-right: `.badge-{role}` class
+- `frontend/src/lib/components/ConfidenceBar.svelte` — **new**:
+  - Props: `value: number` (0–100), `animating: boolean`
+  - Segmented progress bar: green fill, animating shimmer when `animating=true`
+  - Label shows "Confidence N%"
+- `frontend/src/lib/components/CanonicalStatePanel.svelte` — **new** (replaces `StateView.svelte`):
+  - Props: `state: CanonicalState | null`
+  - Sections as mini-cards: Idea, Architecture, Execution Plan (accordion), Assumptions, Open Questions
+  - Uses `.card` class for each section
+- `frontend/src/lib/components/RiskBoard.svelte` — **new**:
+  - Props: `risks: Risk[]`
+  - Shows risk title + severity badge (`.chip-danger` / `.chip-warn`) + description
+  - Empty state: "No risks identified" with shield icon
+- **Deprecate** (keep files but add `@deprecated` comment + redirect to new components in comments):
+  - `frontend/src/lib/components/AgentPanel.svelte` — deprecated; use `PipelineStage.svelte`
+  - `frontend/src/lib/components/ControlPanel.svelte` — deprecated; logic inlined into session page
+  - `frontend/src/lib/components/StateView.svelte` — deprecated; replaced by `CanonicalStatePanel.svelte`
+  - `frontend/src/lib/components/Timeline.svelte` — deprecated; replaced by pass summary bar in session page
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Session page renders with 0-agent state (loading), 2-agent done state, 2-agent in-progress state
+
+**Prompt context needed:** §8.1 (CanonicalState shape), §8.9 (sessionStore shape), §8.13 (role constants), §8.16, `docs/A2A-agent-Brainstorm.md §20`
+
+---
+
+### Task 19 — Backend: Session List Endpoint + Artifact Content Return <!-- not started -->
+
+**Goal:** Add the missing `GET /sessions` list endpoint (required by history view) and update `POST /sessions/{id}/finalize` to return the generated markdown content in the response body (required by the finalize/export view download buttons). Neither change breaks the existing iteration flow.
+
+**Files to modify:**
+
+- `backend/internal/modules/session/model.go`
+  - Add `SessionListItem` struct: `ID`, `Idea` (truncated to 120 chars in service), `Status`, `MaxIterations`, `CurrentIteration int` (from `current_state.meta.iteration`), `Confidence float64` (from `current_state.metrics.confidence`), `AgentCount int`, `CreatedAt`, `UpdatedAt`
+  - Add `ListSessionsResponse` struct: `Sessions []SessionListItem`, `Total int`
+  - Add `FinalizeResponse` struct: `SessionID`, `ArchitectureMarkdown string`, `RoadmapMarkdown string`, `Status string`
+- `backend/internal/modules/session/repository.go`
+  - Add `ListSessions(ctx) ([]Session, error)` — `SELECT id, idea, status, max_iterations, current_state, created_at, updated_at FROM sessions ORDER BY created_at DESC`
+- `backend/internal/modules/session/service.go`
+  - Add `ListSessions(ctx) (ListSessionsResponse, error)` — maps DB rows → `SessionListItem` (extracts confidence + iteration from JSONB `current_state`); truncates idea to 120 chars
+  - Update `FinalizeSession(ctx, id) (FinalizeResponse, error)` — call `markdown.GenerateContent(state)` (see below) and include returned strings in response
+- `backend/internal/modules/session/handler.go`
+  - Add `GET /sessions` handler: calls `service.ListSessions`; returns `200 + ListSessionsResponse`; no auth (same as all other endpoints)
+  - Update `POST /sessions/{id}/finalize` handler: returns `FinalizeResponse` JSON (previously returned `204`)
+- `backend/internal/modules/markdown/generator.go`
+  - Add `GenerateContent(s CanonicalState) (arch string, roadmap string, error)` — same logic as `WriteArtifacts` but returns strings instead of writing files; `WriteArtifacts` calls this internally
+- `backend/internal/platform/http/router.go`
+  - Register `GET /sessions` route
+- `frontend/src/lib/types.ts`
+  - Add `SessionListItem` interface matching `SessionListItem` Go struct
+  - Update `FinalizeResponse` interface to include `architecture_markdown` and `roadmap_markdown`
+- `frontend/src/lib/services/api.ts`
+  - Add `listSessions(): Promise<SessionListItem[]>`
+  - Update `finalizeSession` return type to `FinalizeResponse`
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `curl -s http://localhost:8080/sessions | jq .` returns `{"sessions":[], "total":0}` when DB is empty
+- `cd frontend && pnpm check`: zero errors
+
+**Prompt context needed:** §8.7 (endpoint definitions), §8.11 (DB schema), §8.16, Task 10 (markdown generator)
+
+---
+
+### Task 20 — Frontend: Settings View — Agents + Skills Tabs <!-- not started -->
+
+**Goal:** Build the unified `/settings` page with tabbed navigation replacing the separate `/agents` and `/skills` routes. The agents tab shows the full agent table (name, role, provider/model, skill count, status, actions). The skills tab shows the skill library table. Old routes redirect to the new page.
+
+**Files to create / modify:**
+
+- `frontend/src/routes/settings/+page.svelte` — **new**:
+  - Topbar nav with back-link to `/`
+  - Tab bar: "Agents" | "Skills" | "Roles" (3 tabs; roles tab implemented in Task 22)
+  - **Agents tab**: table rows — Name, Default Role (badge), Provider/Model, Skills count, Status chip (`.chip-ok` / `.chip-warn`), Edit → `/settings/agent/{id}`, Delete (shows `WarningModal`)
+  - **Skills tab**: table rows — Name, Domain (derived from first word of description), Description (truncated 80 chars), Used By (N agents chip), Edit → `/settings/skill/{id}`, Delete
+  - Load data on mount: `getAgents()` + `getSkills()` → write to `agentRegistryStore`
+  - Empty states: "No agents registered yet. Add one →" link button; same for skills
+  - Preserve existing `SkillManager.svelte` usage by keeping the component but wrapping it inside the tab (or deprecate and inline)
+- `frontend/src/routes/agents/+page.svelte` — replace full content with `<script>import { goto } from '$app/navigation'; goto('/settings?tab=agents', { replaceState: true });</script>`
+- `frontend/src/routes/skills/+page.svelte` — replace full content with `<script>import { goto } from '$app/navigation'; goto('/settings?tab=skills', { replaceState: true });</script>`
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Navigating to `/agents` or `/skills` redirects to `/settings?tab=agents` or `/settings?tab=skills`
+
+**Prompt context needed:** §8.7 (agent/skill API), §8.9 (agentRegistryStore), §8.16, Task 14 (original agent/skill pages)
+
+---
+
+### Task 21 — Frontend: Agent Form + Skill Form Views <!-- not started -->
+
+**Goal:** Build the agent creation/edit form view and skill creation/edit form view, matching the mockup — card-based forms with all fields, skill assignment pool for agents, and save/cancel navigation.
+
+**Files to create:**
+
+- `frontend/src/routes/settings/agent/new/+page.svelte` — **new**:
+  - Form fields: Name (text), Role (select from role constants), Provider (select: copilot / claude), Model (text), Endpoint URL (text), System Prompt (textarea), Description (text)
+  - "Assign Skills" section: checkbox list from `agentRegistryStore.skills`; pre-checked defaults empty (none)
+  - On submit: call `createAgent(req)` → `attachSkill(agentId, skillId)` for each checked skill → navigate to `/settings?tab=agents`
+  - On cancel: navigate back to `/settings?tab=agents`
+- `frontend/src/routes/settings/agent/[id]/+page.svelte` — **new**:
+  - Same form pre-populated; on load: `getAgent(id)` + `getAgentSkills(id)` to get current attachment
+  - On submit: `updateAgent` + diff skill attachments (call `attachSkill`/`detachSkill` for changes)
+  - Shows "Delete Agent" button (`.btn-danger`); confirms with `WarningModal`
+- `frontend/src/routes/settings/skill/new/+page.svelte` — **new**:
+  - Form fields: Name (text), Description (text), Prompt (textarea, labeled "Prompt Fragment — this text is appended to the agent's system prompt when the skill is active")
+  - On submit: `createSkill(req)` → navigate to `/settings?tab=skills`
+- `frontend/src/routes/settings/skill/[id]/+page.svelte` — **new**:
+  - Pre-populated form; `updateSkill` on submit; delete with `WarningModal`
+  - "Attached Agents" read-only info: lists agents that have this skill
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Form validation: name required, prompt required, skill-less submit shows inline error
+
+**Prompt context needed:** §8.7 (agent/skill API endpoints), §8.9 (agentRegistryStore), §8.13 (role catalog), §8.14 (skill injection), §8.16
+
+---
+
+### Task 22 — Frontend: Roles Tab + Warning Modal <!-- not started -->
+
+**Goal:** Add the Roles tab to the Settings view (displaying all four built-in roles as read-only reference cards — no custom role CRUD yet) and implement the reusable `WarningModal` component used by agent/skill deletion flows and the "discard changes?" navigation guard.
+
+**Files to create / modify:**
+
+- `frontend/src/lib/components/WarningModal.svelte` — **new**:
+  - Props: `open: boolean`, `title: string`, `body: string`, `confirmLabel: string`, `confirmDanger: boolean`, `onConfirm: () => void`, `onDismiss: () => void`
+  - Renders semi-transparent overlay (`rgba(0,0,0,0.35)`) + centered `.panel` modal (max-width 480px)
+  - Icon: warning triangle (amber) or danger circle (red) depending on `confirmDanger`
+  - Footer: "Dismiss" (`.btn-ghost`) + confirmLabel (`.btn-primary` or `.btn-danger`)
+  - Keyboard: `Escape` key triggers `onDismiss`; focus-trap inside modal
+- `frontend/src/lib/stores/uiStore.ts` — **new**:
+  - `uiStore` writable: `{ modalOpen: boolean, modalTitle: string, modalBody: string, modalConfirmLabel: string, modalConfirmDanger: boolean, onModalConfirm: (() => void) | null }`
+  - Actions: `openModal(opts)`, `closeModal()`
+- `frontend/src/routes/settings/+page.svelte` — update to add **Roles tab**:
+  - Four read-only role cards: BUILD, REVIEW, REFINE, DEVILS ADVOCATE
+  - Each card shows: role badge, behavior description (from §8.13), "System Role" chip (`.chip-ok`)
+  - "Custom roles coming soon" info callout at bottom of tab
+  - Import and use `<WarningModal>` for delete confirmations on Agents and Skills tabs
+- `frontend/src/routes/+layout.svelte` — mount `<WarningModal>` at top level, bound to `uiStore`
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Modal opens/closes correctly; Escape key dismisses; confirm triggers callback
+
+**Prompt context needed:** §8.13 (role catalog + behavior), §8.16
+
+---
+
+### Task 23 — Frontend: Session History View <!-- not started -->
+
+**Goal:** Build the `/history` route — 4 stat cards (sessions completed, avg confidence, docs generated, avg iterations) + searchable/filterable session table linking to the finalize/export view.
+
+**Files to create:**
+
+- `frontend/src/routes/history/+page.svelte` — **new**:
+  - Topbar with back-link to `/`
+  - 4 stat cards (`.card` class) in a horizontal row:
+    - "Sessions Completed" — count of sessions with `status: 'approved' | 'converged'`
+    - "Avg Confidence" — mean of `confidence` across all sessions
+    - "Docs Generated" — count of sessions with `status: 'approved'`
+    - "Avg Iterations" — mean of `current_iteration` across all sessions
+  - Live search `<input>` — filters the session table by idea text client-side (no debounce needed)
+  - Sessions table columns: Title (idea truncated), Date (`created_at` formatted), Iterations, Confidence (pill: green ≥ 0.8, amber ≥ 0.5, red < 0.5), Agents (count chip), Status chip, "View →" link → `/session/{id}/finalize` for approved, `/session/{id}` otherwise
+  - Load on mount: `listSessions()` → compute stats client-side
+  - Empty state: "No sessions yet. Start one on the home page" with link
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Search filters rows reactively; stats re-render on filter (show filtered count vs total)
+
+**Prompt context needed:** §8.7 (GET /sessions), `SessionListItem` type from Task 19, §8.16
+
+---
+
+### Task 24 — Frontend: Finalize/Export View <!-- not started -->
+
+**Goal:** Build the `/session/{id}/finalize` route — animated markdown generation log panel, output file cards with Pending → Running → Done state transitions, preview panes, copy-to-clipboard, and download buttons.
+
+**Files to create:**
+
+- `frontend/src/routes/session/[id]/finalize/+page.svelte` — **new**:
+  - On mount: check `sessionStore.session_id`; if not matching `params.id`, call `getSession(id)` to reload
+  - "Finalize Session" header with session idea subtitle
+  - "Generate Documents" button (`.btn-primary`) — triggers finalize flow; disabled while in progress or already done
+  - Markdown Generator log panel (`.panel` with dark background `#1a1d2e`, monospace text):
+    - Simulated streaming log lines using `setTimeout` intervals (no real SSE needed): "Analyzing canonical state...", "Extracting architecture decisions...", "Generating architecture.md...", "Generating roadmap.md...", "Writing artifacts... Done ✓"
+    - Each line appends every 400ms until complete; shows animated blinking cursor while in progress
+    - Green "DONE" badge (`.chip-ok`) appears when all lines shown
+  - Two output cards side by side after generation completes:
+    - **architecture.md card**: title + "Architecture Document" description + preview pane (textarea `readonly`, pre-populated from `FinalizeResponse.architecture_markdown`) + "Copy" button (clipboard API) + "Download" button (creates `Blob` → `URL.createObjectURL` → `<a download>` click)
+    - **roadmap.md card**: same structure for `FinalizeResponse.roadmap_markdown`
+  - Done bar at bottom: "Download All" button (triggers both downloads) + "New Session" button → navigate to `/`
+  - If session is already `status: 'approved'`: skip generation step, show cards with previously generated content (requires store to cache `FinalizeResponse`); show "Already finalized" chip
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean build
+- Log panel streams correctly; download creates valid `.md` file; clipboard copy works
+
+**Prompt context needed:** `FinalizeResponse` type from Task 19, §8.16, Task 18 (session view flow)
+
+---
+
+### Task 25 — Frontend: Navigation Wiring + Final UI Validation <!-- not started -->
+
+**Goal:** Wire all views together with consistent topbar navigation, update `+layout.svelte` with the global nav and modal mount, run all frontend tests, confirm zero linter/type errors, and update documentation.
+
+**Files to modify:**
+
+- `frontend/src/routes/+layout.svelte` — final version:
+  - Global topbar: "A2A Brainstorm" logo → `/`, nav links: "Session History" → `/history`, "⚙ Settings" → `/settings`; active link highlight via `$page.url.pathname`
+  - Mount `<WarningModal>` bound to `uiStore` (from Task 22)
+  - Import global CSS (already imported in existing layout)
+- `frontend/src/routes/session/[id]/+page.svelte` — add "← Sessions" back-link in pass summary bar
+- `frontend/src/lib/services/api.test.ts` — add test cases for `listSessions` (mock empty + populated response) and `finalizeSession` (mock `FinalizeResponse` with markdown content)
+- `README.md` — update Frontend section:
+  - New route table: `/` (Home), `/session/{id}` (Session workspace), `/session/{id}/finalize` (Export), `/settings` (Agents + Skills + Roles), `/history` (Session history)
+  - Note: `/agents` and `/skills` redirect to `/settings`
+  - List new components: `PipelineStage`, `ConfidenceBar`, `CanonicalStatePanel`, `RiskBoard`, `WarningModal`
+
+**Final UI Validation Checklist:**
+
+- [ ] `cd frontend && pnpm check` — zero svelte-check errors
+- [ ] `cd frontend && pnpm build` — clean production build
+- [ ] `cd frontend && pnpm test` — all API service tests pass
+- [ ] `cd backend && go build ./...` — zero errors (Task 19 additions)
+- [ ] `cd backend && go vet ./...` — zero issues
+- [ ] `cd backend && go test ./...` — all tests pass
+- [ ] Navigate `/agents` → redirects to `/settings?tab=agents`
+- [ ] Navigate `/skills` → redirects to `/settings?tab=skills`
+- [ ] Create session → session workspace shows pipeline stages
+- [ ] Session history renders stat cards from `GET /sessions`
+- [ ] Finalize flow → log streams → download buttons create `.md` files
+
+**Prompt context needed:** All Tasks 16–24, §8.7, §8.16, §8.17
+
+---
+
 ## 6. Task Summary
 
-| Task | Name                                       | Key Files                                                                         | Depends On       | Complexity |
-| ---- | ------------------------------------------ | --------------------------------------------------------------------------------- | ---------------- | ---------- |
-| 1    | Project Scaffold                           | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold             | —                | Low        |
-| 2    | Platform: Config + DB + Logger             | `platform/config/`, `platform/db/`, `platform/logger/`                            | Task 1           | Low        |
-| 3    | Platform: LLM Abstraction                  | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                           | Task 2           | Medium     |
-| 4    | Platform: A2A Layer                        | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                    | Task 2           | Medium     |
-| 5    | State Module                               | `modules/state/model.go`, `merge.go`, `validator.go`                              | Tasks 3, 4       | Medium     |
-| 6    | Agent Module: Models + DB Schema           | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`            | Tasks 1, 5       | Medium     |
-| 7    | Agent Module: Service + Handler + Dispatch | `modules/agent/service.go`, `handler.go`, `client.go`                             | Tasks 6, 3, 4    | High       |
-| 8    | Session Module                             | `modules/session/*`, `003_sessions.sql`                                           | Task 7           | Medium     |
-| 9    | Iteration Engine + Convergence             | `iteration/engine.go`, `convergence/engine.go`                                    | Tasks 5, 7, 8    | High       |
-| 10   | Markdown + Backend Wire-up                 | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`          | Tasks 9, 8       | Medium     |
-| 11   | Agent Service Binary                       | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`          | Tasks 3, 4       | High       |
-| 12   | Frontend: Scaffold + Stores + API Client   | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                  | Task 1           | Medium     |
-| 13   | Frontend: Session Workspace                | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte` | Task 12          | Medium     |
-| 14   | Frontend: Agent Registry + Skills          | `AgentSelector.svelte`, `SkillManager.svelte`, routes                             | Task 12          | Medium     |
-| 15   | Integration Tests + Docs                   | `*_test.go` files, `README.md`                                                    | Tasks 11, 13, 14 | Medium     |
+| Task | Name                                         | Key Files                                                                                                                     | Depends On       | Complexity |
+| ---- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------- | ---------- |
+| 1    | Project Scaffold                             | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                         | —                | Low        |
+| 2    | Platform: Config + DB + Logger               | `platform/config/`, `platform/db/`, `platform/logger/`                                                                        | Task 1           | Low        |
+| 3    | Platform: LLM Abstraction                    | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                       | Task 2           | Medium     |
+| 4    | Platform: A2A Layer                          | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                | Task 2           | Medium     |
+| 5    | State Module                                 | `modules/state/model.go`, `merge.go`, `validator.go`                                                                          | Tasks 3, 4       | Medium     |
+| 6    | Agent Module: Models + DB Schema             | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                        | Tasks 1, 5       | Medium     |
+| 7    | Agent Module: Service + Handler + Dispatch   | `modules/agent/service.go`, `handler.go`, `client.go`                                                                         | Tasks 6, 3, 4    | High       |
+| 8    | Session Module                               | `modules/session/*`, `003_sessions.sql`                                                                                       | Task 7           | Medium     |
+| 9    | Iteration Engine + Convergence               | `iteration/engine.go`, `convergence/engine.go`                                                                                | Tasks 5, 7, 8    | High       |
+| 10   | Markdown + Backend Wire-up                   | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                      | Tasks 9, 8       | Medium     |
+| 11   | Agent Service Binary                         | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                      | Tasks 3, 4       | High       |
+| 12   | Frontend: Scaffold + Stores + API Client     | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                              | Task 1           | Medium     |
+| 13   | Frontend: Session Workspace                  | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                             | Task 12          | Medium     |
+| 14   | Frontend: Agent Registry + Skills            | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                         | Task 12          | Medium     |
+| 15   | Integration Tests + Docs                     | `*_test.go` files, `README.md`                                                                                                | Tasks 11, 13, 14 | Medium     |
+| 16   | Frontend: Design System Foundation           | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                             | Task 12          | Low        |
+| 17   | Frontend: Home View Redesign                 | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                 | Task 16          | Medium     |
+| 18   | Frontend: Session View + Pipeline Components | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte` | Tasks 16, 17     | High       |
+| 19   | Backend: Session List + Artifact Content     | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                | Tasks 10, 12     | Medium     |
+| 20   | Frontend: Settings View (Agents+Skills Tabs) | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                        | Tasks 16, 19     | Medium     |
+| 21   | Frontend: Agent Form + Skill Form Views      | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                      | Task 20          | Medium     |
+| 22   | Frontend: Roles Tab + Warning Modal          | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                       | Task 20          | Medium     |
+| 23   | Frontend: Session History View               | `routes/history/+page.svelte`                                                                                                 | Tasks 16, 19     | Medium     |
+| 24   | Frontend: Finalize/Export View               | `routes/session/[id]/finalize/+page.svelte`                                                                                   | Tasks 19, 22     | Medium     |
+| 25   | Frontend: Navigation Wiring + Final UI Val   | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                  | Tasks 16–24      | Medium     |
 
 ---
 
@@ -1223,3 +1589,281 @@ A task session is "done" when:
 - [ ] No raw API key appears anywhere in source, test fixtures, or config files
 - [ ] No `os.Getenv()` call appears outside `platform/config/config.go` (backend) or `internal/config/config.go` (agent)
 - [ ] All cross-module calls go through service interfaces, not repositories (modules do not import each other's repositories)
+
+---
+
+### 8.16 Frontend Design System Specification
+
+All UI tasks (Tasks 16–25) must use the following design tokens and component classes. Never hard-code color values inline; always reference the CSS custom property.
+
+**Color tokens (defined in `frontend/src/app.css` `:root`):**
+
+```css
+:root {
+  --bg-0: #f5efe4; /* warm cream — page background base */
+  --bg-1: #e8ecf7; /* cool blue-grey — page background accent */
+  --ink-900: #151b2f; /* near-black — primary text */
+  --ink-700: #2d3655; /* dark — secondary headings */
+  --ink-500: #5a6282; /* mid — secondary text */
+  --ink-300: #a8aec7; /* light — placeholders, borders */
+  --accent: #0bb6d9; /* cyan — primary interactive */
+  --accent-2: #1f7ae0; /* blue — gradient end, links */
+  --ok: #1b9f66; /* green — success, done state */
+  --warn: #d48806; /* amber — warning, review state */
+  --danger: #ce3158; /* red — error, delete action */
+  --surface: rgba(255, 255, 255, 0.72); /* glassmorphism card fill */
+  --blur: blur(8px); /* backdrop blur */
+  --shadow-md: 0 10px 30px rgba(35, 46, 82, 0.1);
+}
+```
+
+**Page background (set on `<body>` or `<main>`):**
+
+```css
+background:
+  radial-gradient(1200px 600px at 10% 10%, #fff8ec, transparent),
+  radial-gradient(900px 500px at 90% 10%, #e8f7ff, transparent),
+  linear-gradient(135deg, #f5efe4, #e8ecf7);
+min-height: 100vh;
+```
+
+**Artboard (page-width container):**
+
+```css
+.artboard {
+  width: min(1300px, 94vw);
+  margin: 28px auto;
+}
+```
+
+**Panel / Card primitives:**
+
+```css
+.panel {
+  background: var(--surface);
+  backdrop-filter: var(--blur);
+  border-radius: 18px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  padding: 28px;
+}
+.card {
+  background: var(--surface);
+  backdrop-filter: var(--blur);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(35, 46, 82, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  padding: 20px;
+}
+```
+
+**Topbar:**
+
+```css
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(168, 174, 199, 0.3);
+  padding: 0 40px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+```
+
+**Button classes:**
+
+```css
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 24px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-700);
+  border: 1.5px solid var(--ink-300);
+  border-radius: 10px;
+  padding: 9px 20px;
+  cursor: pointer;
+}
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+```
+
+**Role badges:**
+
+```css
+.badge-build {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.badge-review {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge-refine {
+  background: #d1fae5;
+  color: #065f46;
+}
+.badge-devils-advocate {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+/* common: border-radius 6px, padding 2px 8px, font-size 0.72rem, font-weight 600 */
+```
+
+**Status / info chips:**
+
+```css
+.chip-live {
+  background: #d1fae5;
+  color: var(--ok);
+}
+.chip-ok {
+  background: #d1fae5;
+  color: var(--ok);
+}
+.chip-warn {
+  background: #fef3c7;
+  color: var(--warn);
+}
+.chip-danger {
+  background: #fee2e2;
+  color: var(--danger);
+}
+/* common: border-radius 20px, padding 3px 10px, font-size 0.75rem, font-weight 600 */
+```
+
+**Pipeline stage states:**
+
+```css
+.stage-done {
+  border-left: 3px solid var(--ok);
+  opacity: 1;
+}
+.stage-running {
+  border-left: 3px solid var(--accent);
+  opacity: 1;
+}
+.stage-waiting {
+  border-left: 3px solid var(--ink-300);
+  opacity: 0.5;
+}
+```
+
+**Mono log block (inside PipelineStage and finalize view):**
+
+```css
+.log-block {
+  background: #1a1d2e;
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  color: #a8d8ea;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+```
+
+**Typography:**
+
+```css
+body {
+  font-family: "IBM Plex Sans", sans-serif;
+  color: var(--ink-900);
+}
+h1,
+h2,
+h3 {
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--ink-900);
+}
+code,
+pre,
+kbd {
+  font-family: "IBM Plex Mono", monospace;
+}
+```
+
+**Google Fonts import (in `<head>`):**
+
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@300;400;500&family=Space+Grotesk:wght@500;700&display=swap"
+  rel="stylesheet"
+/>
+```
+
+---
+
+### 8.17 Frontend Route Map (v1.1)
+
+Complete route structure after Tasks 16–25. All routes are SvelteKit `+page.svelte` files under `frontend/src/routes/`.
+
+| Route                    | File                                        | Purpose                                       | New in v1.1 |
+| ------------------------ | ------------------------------------------- | --------------------------------------------- | ----------- |
+| `/`                      | `routes/+page.svelte`                       | Session creation — idea input + agent pool    | Redesigned  |
+| `/session/[id]`          | `routes/session/[id]/+page.svelte`          | Session workspace — sequential pipeline view  | Redesigned  |
+| `/session/[id]/finalize` | `routes/session/[id]/finalize/+page.svelte` | Export view — generation log + download cards | **New**     |
+| `/settings`              | `routes/settings/+page.svelte`              | Unified agents + skills + roles management    | **New**     |
+| `/settings/agent/new`    | `routes/settings/agent/new/+page.svelte`    | Create agent form                             | **New**     |
+| `/settings/agent/[id]`   | `routes/settings/agent/[id]/+page.svelte`   | Edit agent form                               | **New**     |
+| `/settings/skill/new`    | `routes/settings/skill/new/+page.svelte`    | Create skill form                             | **New**     |
+| `/settings/skill/[id]`   | `routes/settings/skill/[id]/+page.svelte`   | Edit skill form                               | **New**     |
+| `/history`               | `routes/history/+page.svelte`               | Session history — stats + searchable table    | **New**     |
+| `/agents`                | `routes/agents/+page.svelte`                | Redirect → `/settings?tab=agents`             | Redirect    |
+| `/skills`                | `routes/skills/+page.svelte`                | Redirect → `/settings?tab=skills`             | Redirect    |
+
+**Component tree (v1.1):**
+
+```
+routes/+layout.svelte
+  └── <WarningModal>                       (global modal, from uiStore)
+  └── <slot />
+
+routes/+page.svelte (Home)
+  └── inline agent pool (AgentSelector.svelte — simplified)
+
+routes/session/[id]/+page.svelte (Session)
+  ├── <ConfidenceBar>                      (pass summary bar)
+  ├── <PipelineStage> × N                  (replaces AgentPanel)
+  ├── <CanonicalStatePanel>                (replaces StateView)
+  └── <RiskBoard>
+
+routes/session/[id]/finalize/+page.svelte (Export)
+  └── (log panel + output cards — self-contained)
+
+routes/settings/+page.svelte (Settings)
+  └── (Agents tab / Skills tab / Roles tab — self-contained)
+
+routes/history/+page.svelte (History)
+  └── (stat cards + table — self-contained)
+```
+
+**Deprecated components (kept for build compatibility, marked `@deprecated`):**
+
+| Component             | Replaced By                      |
+| --------------------- | -------------------------------- |
+| `AgentPanel.svelte`   | `PipelineStage.svelte`           |
+| `ControlPanel.svelte` | Inline in session page           |
+| `StateView.svelte`    | `CanonicalStatePanel.svelte`     |
+| `Timeline.svelte`     | Pass summary bar in session page |

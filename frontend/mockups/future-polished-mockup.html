@@ -1,0 +1,1748 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A2A Brainstorm - Future Polished Mockup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-0: #f5efe4;
+        --bg-1: #e8ecf7;
+        --ink-900: #151b2f;
+        --ink-700: #3f4967;
+        --ink-500: #66708d;
+        --line: #d5dcec;
+        --card: rgba(255, 255, 255, 0.72);
+        --card-solid: #ffffff;
+        --accent: #0bb6d9;
+        --accent-2: #1f7ae0;
+        --ok: #1b9f66;
+        --warn: #d48806;
+        --danger: #ce3158;
+        --shadow: 0 10px 30px rgba(35, 46, 82, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", sans-serif;
+        color: var(--ink-900);
+        background:
+          radial-gradient(1200px 600px at 10% 10%, #fff8ec 0%, transparent 70%),
+          radial-gradient(900px 500px at 90% 10%, #e8f7ff 0%, transparent 65%),
+          linear-gradient(135deg, var(--bg-0), var(--bg-1));
+      }
+
+      .page {
+        width: min(1300px, 94vw);
+        margin: 28px auto;
+        padding: 0;
+      }
+
+      .view {
+        display: none;
+      }
+
+      .view.active {
+        display: block;
+      }
+
+      .artboard {
+        margin: 0 0 28px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        overflow: hidden;
+        background: var(--card-solid);
+        box-shadow: var(--shadow);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 22px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+        backdrop-filter: blur(8px);
+      }
+
+      .title {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+
+      .subtitle {
+        color: var(--ink-500);
+        font-size: 13px;
+        margin-top: 2px;
+      }
+
+      .nav {
+        display: flex;
+        gap: 14px;
+        color: var(--ink-700);
+        font-weight: 500;
+        font-size: 14px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 11px;
+        border-radius: 999px;
+        border: 1px solid #cdebf1;
+        background: #eefbff;
+        color: #0f829d;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #09b57f;
+      }
+
+      .content {
+        padding: 28px;
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+      }
+
+      .hero {
+        max-width: 920px;
+        margin: 6px auto 0;
+        padding: 22px;
+      }
+
+      h2 {
+        margin: 0;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 24px;
+      }
+
+      .muted {
+        color: var(--ink-500);
+        font-size: 14px;
+      }
+
+      .sp-14 {
+        margin-top: 14px;
+      }
+
+      .sp-18 {
+        margin-top: 18px;
+      }
+
+      textarea,
+      input,
+      select {
+        width: 100%;
+        border: 1px solid #cfd8ea;
+        border-radius: 12px;
+        background: #fff;
+        color: var(--ink-900);
+        padding: 11px 12px;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 104px;
+        resize: none;
+      }
+
+      .field-label {
+        font-weight: 600;
+        font-size: 13px;
+        margin-bottom: 7px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .grid-2 {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .pool {
+        border: 1px solid #d6deed;
+        border-radius: 12px;
+        background: #fbfcff;
+        padding: 10px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .agent-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 9px 10px;
+        border: 1px solid #e2e8f5;
+        border-radius: 10px;
+        background: #fff;
+      }
+
+      .left {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+
+      .checkbox {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        border: 1px solid #86a4da;
+        background: #ddebff;
+        display: inline-block;
+      }
+
+      .btn-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+      }
+
+      .kickoff {
+        margin-top: 18px;
+        border: 1px solid #d4deef;
+        border-radius: 14px;
+        background: #fbfdff;
+        padding: 14px;
+      }
+
+      .kickoff-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .kickoff-title {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .pill {
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 11px;
+        font-weight: 600;
+        border: 1px solid #cde6ff;
+        background: #edf6ff;
+        color: #2b66a7;
+      }
+
+      .progress-grid {
+        margin-top: 10px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .progress-row {
+        display: grid;
+        grid-template-columns: 130px 1fr 52px;
+        align-items: center;
+        gap: 10px;
+        font-size: 12px;
+      }
+
+      .bar {
+        height: 8px;
+        border-radius: 999px;
+        background: #e7eef9;
+        overflow: hidden;
+      }
+
+      .fill {
+        height: 100%;
+        border-radius: 999px;
+      }
+
+      .fill-a { width: 92%; background: linear-gradient(90deg, #1f7ae0, #0bb6d9); }
+      .fill-b { width: 76%; background: linear-gradient(90deg, #c7901f, #efb449); }
+      .fill-c { width: 54%; background: linear-gradient(90deg, #1f9f70, #48c58f); }
+
+      .exchange {
+        margin-top: 12px;
+        border-top: 1px dashed #d7e1f2;
+        padding-top: 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .msg {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+      }
+
+      .from {
+        min-width: 56px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #38537f;
+      }
+
+      .bubble {
+        flex: 1;
+        border: 1px solid #d9e3f4;
+        border-radius: 10px;
+        padding: 8px 9px;
+        background: #fff;
+        font-size: 12px;
+        color: #3f4d6f;
+      }
+
+      .ts {
+        font-family: "IBM Plex Mono", monospace;
+        color: #7c89a8;
+        font-size: 11px;
+      }
+
+      .btn {
+        border: 1px solid transparent;
+        border-radius: 11px;
+        padding: 11px 14px;
+        font-weight: 600;
+        font-size: 14px;
+        cursor: default;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent-2), var(--accent));
+        color: white;
+        box-shadow: 0 10px 18px rgba(20, 124, 220, 0.28);
+      }
+
+      .btn-soft {
+        border-color: #ced8ea;
+        background: #fff;
+        color: var(--ink-700);
+      }
+
+      .workspace {
+        display: grid;
+        gap: 14px;
+      }
+
+      .agent-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(180px, 1fr));
+        gap: 12px;
+      }
+
+      .agent-card {
+        border: 1px solid var(--line);
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 10px;
+      }
+
+      .agent-name {
+        display: flex;
+        justify-content: space-between;
+        font-weight: 600;
+      }
+
+      .role {
+        font-size: 11px;
+        border-radius: 999px;
+        padding: 4px 7px;
+        color: #fff;
+      }
+
+      .r-build { background: #1f7ae0; }
+      .r-review { background: #c7901f; }
+      .r-refine { background: #1f9f70; }
+
+      .code {
+        margin-top: 8px;
+        border-radius: 9px;
+        border: 1px solid #dae2f2;
+        background: #f9fbff;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        line-height: 1.45;
+        color: #415070;
+        padding: 8px;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px;
+      }
+
+      .controls .actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .status {
+        color: #177b56;
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 12px;
+      }
+
+      .state {
+        padding: 14px;
+      }
+
+      .state h3,
+      .table h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+        font-family: "Space Grotesk", sans-serif;
+      }
+
+      .mini {
+        border: 1px solid #e0e7f2;
+        border-radius: 10px;
+        background: #fff;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+
+      .timeline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--ink-700);
+      }
+
+      .step {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #e7eefc;
+        color: #2b4f8f;
+        font-weight: 700;
+      }
+
+      .step.active {
+        background: #1f7ae0;
+        color: #fff;
+      }
+
+      .connector {
+        width: 22px;
+        height: 2px;
+        background: #c8d6f0;
+      }
+
+      .table {
+        padding: 14px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid #e4eaf5;
+        padding: 10px 6px;
+        text-align: left;
+      }
+
+      th {
+        color: var(--ink-500);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+      }
+
+      .status-ok { color: var(--ok); font-weight: 600; }
+      .status-warn { color: var(--warn); font-weight: 600; }
+
+      .link {
+        border: 0;
+        background: transparent;
+        color: var(--ink-700);
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .link:hover {
+        color: var(--accent-2);
+      }
+
+      @media (max-width: 1000px) {
+        .agent-strip,
+        .split,
+        .grid-2 {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .btn-action {
+        border: 1px solid #ced8ea;
+        background: #fff;
+        border-radius: 7px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--ink-700);
+        margin-right: 4px;
+        font-family: inherit;
+      }
+
+      .btn-action:hover { background: #f0f4ff; }
+
+      .btn-delete {
+        border-color: #f5c6d0;
+        color: var(--danger);
+      }
+
+      .btn-delete:hover { background: #fff0f3; }
+
+      .feedback-box { margin-top: 0; }
+
+      /* ── Sequential pipeline ── */
+      .pass-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+      .pass-label { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 16px; }
+      .pass-sub { color: var(--ink-500); font-size: 12px; margin-top: 3px; }
+      .conf-wrap { text-align: right; }
+      .conf-pct { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 18px; }
+      .conf-bar { height: 6px; background: #e7eef9; border-radius: 999px; width: 140px; overflow: hidden; margin-top: 5px; }
+      .conf-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #1f7ae0, #0bb6d9); transition: width 0.6s ease; }
+      .pipeline { padding: 0; overflow: hidden; }
+      .stage { padding: 16px 18px; }
+      .stage-header { display: flex; justify-content: space-between; align-items: center; }
+      .stage-left { display: flex; align-items: center; gap: 12px; }
+      .stage-num { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; background: #e7eefc; color: #2b4f8f; flex-shrink: 0; transition: background 0.3s, color 0.3s; }
+      .stage-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+      .stage-model { color: var(--ink-500); font-size: 12px; margin-top: 2px; }
+      .stage-badge { font-size: 11px; border-radius: 999px; padding: 3px 8px; color: #fff; font-weight: 700; }
+      .sb-build { background: #1f7ae0; }
+      .sb-review { background: #c7901f; }
+      .sb-refine { background: #1f9f70; }
+      .stage-status { font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 999px; white-space: nowrap; transition: all 0.3s; }
+      .s-done { background: #e6f7ef; color: var(--ok); border: 1px solid #b8e8d0; }
+      .s-run { background: #edf6ff; color: var(--accent-2); border: 1px solid #b8d8ff; }
+      .s-wait { background: #f3f5fa; color: var(--ink-500); border: 1px solid var(--line); }
+      .stage-body { margin-top: 12px; margin-left: 40px; }
+      .stage-log { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #415070; background: #f9fbff; border: 1px solid #dae2f2; border-radius: 9px; padding: 10px 12px; line-height: 1.65; }
+      .stage-summary { margin-top: 8px; background: #f0f9f4; border: 1px solid #b8e8d0; border-radius: 9px; padding: 9px 12px; font-size: 13px; color: #1a7a50; }
+      .stage-connector { height: 1px; background: #d5dcec; margin: 0 18px; }
+      .stage-connector-dim { height: 1px; background: #eaedf4; margin: 0 18px; }
+      .stage-waiting { opacity: 0.4; }
+      .stage-done .stage-num { background: var(--ok); color: #fff; }
+      .stage-running .stage-num { background: var(--accent-2); color: #fff; }
+      @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+      .dots { animation: blink 1.2s infinite; }
+      .run-bar { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px; }
+      .run-left { display: flex; gap: 8px; }
+      .feedback-panel { padding: 14px; }
+      .feedback-label { font-weight: 600; font-size: 13px; margin-bottom: 8px; color: var(--ink-700); }
+
+      /* Finalize / export view */
+      .gen-panel { padding: 18px 20px; }
+      .gen-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      .gen-panel-title { font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 15px; color: var(--ink-900); }
+      .gen-badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
+      .gen-badge.gen-running { background: #e8f0fe; color: #2563eb; }
+      .gen-badge.gen-done { background: #e6f9f0; color: #16a34a; }
+      .gen-log { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink-700); line-height: 1.85; background: var(--bg-1); border-radius: 8px; padding: 14px 16px; max-height: 200px; overflow-y: auto; }
+      .gen-entry { padding: 1px 0; }
+      .gen-entry.gen-running-line { color: #2563eb; }
+      .gen-entry.gen-done-line { color: #16a34a; }
+      .output-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+      .output-card { background: #fff; border: 1.5px solid #e3e9f4; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; }
+      .output-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+      .output-file { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 14px; color: var(--ink-900); }
+      .output-desc { font-size: 12px; color: var(--ink-500); margin-bottom: 12px; }
+      .output-status { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 99px; }
+      .os-pending { background: #f3f4f6; color: var(--ink-500); }
+      .os-running { background: #e8f0fe; color: #2563eb; }
+      .os-done { background: #e6f9f0; color: #16a34a; }
+      .output-preview { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--ink-700); background: var(--bg-1); border-radius: 8px; padding: 12px 14px; min-height: 120px; white-space: pre; line-height: 1.75; flex: 1; }
+
+      /* Settings view — tabs */
+      .settings-tabs { display: flex; gap: 2px; border-bottom: 1.5px solid #e3e9f4; margin-bottom: 20px; padding: 0; }
+      .stab { background: none; border: none; padding: 9px 18px; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink-500); cursor: pointer; border-bottom: 2.5px solid transparent; margin-bottom: -1.5px; border-radius: 0; }
+      .stab:hover { color: var(--ink-900); }
+      .stab.active { color: var(--accent); border-bottom-color: var(--accent); }
+      .spanel { display: none; }
+      .spanel.active { display: block; }
+      .table-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      .table-toolbar h3 { margin: 0; }
+
+      /* Skill / Role form — asset section */
+      .asset-row { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+      .asset-row input { flex: 1; }
+      .btn-remove { background: none; border: none; color: var(--ink-400); font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; margin-top: 8px; }
+      .btn-remove:hover { color: var(--danger); }
+      .btn-add-asset { background: none; border: 1px dashed #ced8ea; border-radius: 7px; padding: 6px 14px; font-size: 12px; color: var(--ink-500); cursor: pointer; font-family: inherit; width: 100%; margin-top: 4px; }
+      .btn-add-asset:hover { background: #f5f7ff; border-color: var(--accent); color: var(--accent); }
+      .role-badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+      .rb-system { background: #f0f4ff; color: #3b5ede; }
+      .rb-custom { background: #fdf0ff; color: #8b3fc8; }
+      /* Warning modal */
+      .modal-overlay { display:none; position:fixed; inset:0; background:rgba(10,14,26,.52); z-index:999; align-items:center; justify-content:center; }
+      .modal-overlay.open { display:flex; }
+      .modal { background:var(--bg-0); border:1.5px solid #e3e9f4; border-radius:14px; padding:28px 28px 24px; max-width:380px; width:90%; box-shadow:0 8px 40px rgba(0,0,0,.18); }
+      .modal-icon { font-size:28px; margin-bottom:12px; }
+      .modal-title { font-family:'Space Grotesk',sans-serif; font-size:17px; font-weight:700; color:var(--ink-900); margin-bottom:8px; }
+      .modal-body { font-size:14px; color:var(--ink-500); line-height:1.55; margin-bottom:22px; }
+      .modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+
+      /* Session history page */
+      .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+      .stat-card { background:var(--bg-1); border:1.5px solid #e3e9f4; border-radius:10px; padding:16px 18px; }
+      .stat-val { font-family:'Space Grotesk',sans-serif; font-size:28px; font-weight:700; color:var(--ink-900); line-height:1; margin-bottom:4px; }
+      .stat-label { font-size:12px; color:var(--ink-500); }
+      .history-search { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+      .history-search input { flex:1; border:1.5px solid #dde4f0; border-radius:8px; padding:8px 12px; font-size:14px; background:var(--bg-1); color:var(--ink-900); outline:none; }
+      .history-search input:focus { border-color:var(--accent); }
+      .out-chip { display:inline-block; font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; background:#d1fae5; color:#065f46; margin-right:4px; font-family:'IBM Plex Mono',monospace; }
+      .conf-pill { display:inline-block; font-size:12px; font-weight:700; padding:2px 10px; border-radius:20px; }
+      .cp-high { background:#d1fae5; color:#065f46; }
+      .cp-mid  { background:#fef3c7; color:#92400e; }
+      .agent-chip { display:inline-block; font-size:11px; padding:2px 8px; border-radius:20px; background:#e0e7ff; color:#3730a3; margin-right:3px; }
+      @media(max-width:700px){ .stat-grid{ grid-template-columns:repeat(2,1fr); } }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+
+      <!-- HOME VIEW -->
+      <div id="home-view" class="view active">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">A2A Brainstorm</div>
+              <div class="subtitle">Deterministic Multi-Agent Design Workspace</div>
+            </div>
+            <div class="nav">
+              <button class="link" type="button" data-nav="history-view">Session History</button>
+              <button class="link" type="button" data-nav="settings-view">&#9881; Settings</button>
+              <span class="chip"><span class="dot"></span>Live</span>
+            </div>
+          </div>
+          <div class="content">
+            <div class="panel hero">
+              <h2>Start New Design Session</h2>
+              <p class="muted sp-14">
+                Turn a raw idea into architecture and roadmap through controlled
+                agent iterations.
+              </p>
+
+              <div class="sp-18">
+                <div class="field-label">Product Idea</div>
+                <textarea>Build a pricing orchestration platform for multi-region SaaS tenants, with policy-based metering, plan simulation, and migration-safe rollout controls.</textarea>
+              </div>
+
+              <div class="grid grid-2 sp-18">
+                <div>
+                  <div class="field-label">Max Iterations</div>
+                  <input value="7" />
+                </div>
+                <div>
+                  <div class="field-label">Agent Pool</div>
+                  <div class="pool">
+                    <div class="agent-row">
+                      <div class="left"><span class="checkbox"></span>Atlas (build)</div>
+                      <small>copilot / gpt-4o</small>
+                    </div>
+                    <div class="agent-row">
+                      <div class="left"><span class="checkbox"></span>Critic (review)</div>
+                      <small>claude / sonnet</small>
+                    </div>
+                    <div class="agent-row">
+                      <div class="left"><span class="checkbox"></span>Stitch (refine)</div>
+                      <small>copilot / gpt-4o-mini</small>
+                    </div>
+                    <div class="agent-row">
+                      <div class="left"><span style="background:#fff" class="checkbox"></span>Chaos (devil's advocate)</div>
+                      <small>copilot / gpt-4o</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="btn-row">
+                <button class="btn btn-primary" type="button" data-nav="session-view">Start Session</button>
+                <span class="muted">Estimated runtime: 2m 40s</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="session-view" class="view">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">Sessions / SaaS Pricing Orchestration</div>
+              <div class="subtitle" id="session-subtitle">Pass 1 of 7 — Iteration in progress</div>
+            </div>
+          </div>
+
+          <div class="content workspace">
+
+            <!-- Pass summary bar -->
+            <div class="pass-header">
+              <div>
+                <div class="pass-label">Pipeline Pass <span id="pipeline-pass">1</span> / 7</div>
+                <div class="pass-sub">Sequential &middot; 3 agents &middot; Ordered by position</div>
+              </div>
+              <div class="conf-wrap">
+                <div style="color:var(--ink-500);font-size:11px;text-align:right;margin-bottom:4px">Confidence</div>
+                <div class="conf-pct"><span id="confidence-val">74</span>%</div>
+                <div class="conf-bar"><div class="conf-fill" id="conf-fill" style="width:74%"></div></div>
+              </div>
+            </div>
+
+            <!-- Sequential agent pipeline -->
+            <div class="panel pipeline">
+
+              <!-- Stage 1: Atlas — Complete -->
+              <div class="stage stage-done" id="stage-1">
+                <div class="stage-header">
+                  <div class="stage-left">
+                    <span class="stage-num">1</span>
+                    <div>
+                      <div class="stage-name">Atlas <span class="stage-badge sb-build">BUILD</span></div>
+                      <div class="stage-model">copilot / gpt-4o</div>
+                    </div>
+                  </div>
+                  <span class="stage-status s-done">&#10003; Complete</span>
+                </div>
+                <div class="stage-body">
+                  <div class="stage-log">Received session context: pricing orchestration for multi-region SaaS tenants.<br/>Identified 3 core components: control-plane, pricing-engine, ledger adapter.<br/>Drafted initial architecture with 8 execution steps and phased rollout controls.<br/>Flagged 2 open questions: snapshot consistency model, tenant isolation boundary.</div>
+                  <div class="stage-summary"><strong>Contribution:</strong> Proposed architecture split and 8-step execution plan. Updated state: idea, architecture, execution_plan fields.</div>
+                </div>
+              </div>
+
+              <div class="stage-connector"></div>
+
+              <!-- Stage 2: Critic — Running -->
+              <div class="stage stage-running" id="stage-2">
+                <div class="stage-header">
+                  <div class="stage-left">
+                    <span class="stage-num">2</span>
+                    <div>
+                      <div class="stage-name">Critic <span class="stage-badge sb-review">REVIEW</span></div>
+                      <div class="stage-model">claude / sonnet</div>
+                    </div>
+                  </div>
+                  <span class="stage-status s-run">&#x27F3; Running</span>
+                </div>
+                <div class="stage-body">
+                  <div class="stage-log">Received state from Atlas. Reviewing architecture and execution plan...<br/>Detected risk: cross-region snapshot delay can break invoice determinism.<br/><span class="dots">Evaluating tenant isolation gap and migration rollback surface...</span></div>
+                </div>
+              </div>
+
+              <div class="stage-connector stage-connector-dim"></div>
+
+              <!-- Stage 3: Stitch — Waiting -->
+              <div class="stage stage-waiting" id="stage-3">
+                <div class="stage-header">
+                  <div class="stage-left">
+                    <span class="stage-num">3</span>
+                    <div>
+                      <div class="stage-name">Stitch <span class="stage-badge sb-refine">REFINE</span></div>
+                      <div class="stage-model">copilot / gpt-4o-mini</div>
+                    </div>
+                  </div>
+                  <span class="stage-status s-wait">&#x29D6; Waiting</span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Optional feedback — no inner submit; Run Next Iteration is the single action -->
+            <div id="feedback-box" style="display:none">
+              <div class="panel feedback-panel">
+                <div class="feedback-label">Optional Feedback for Next Iteration</div>
+                <textarea id="feedback-text" placeholder="Add constraints, corrections, or guidance for the next iteration..."></textarea>
+              </div>
+            </div>
+
+            <!-- Single control bar -->
+            <div class="panel run-bar">
+              <div class="run-left">
+                <button class="btn btn-primary" type="button" id="btn-next-iter">Run Next Iteration</button>
+                <button class="btn btn-soft" type="button" id="btn-inject">Inject Feedback</button>
+                <button class="btn btn-soft" type="button" data-nav="finalize-view">Finalize Session</button>
+              </div>
+              <div class="status" id="convergence-status">Convergence trending positive. Finalize now or inject constraints.</div>
+            </div>
+
+            <!-- Canonical State + Risk Board -->
+            <div class="split">
+              <div class="panel state">
+                <h3>Canonical State</h3>
+                <div class="mini"><strong>Idea</strong><br />Policy-based metering with tenant-safe rollout controls.</div>
+                <div class="mini"><strong>Architecture</strong><br />Control plane, pricing engine, event ledger, migration guardrails.</div>
+                <div class="mini"><strong>Execution Plan</strong><br />8 steps with phased adoption and rollback gates.</div>
+              </div>
+              <div class="panel state">
+                <h3>Risk Board</h3>
+                <div class="mini"><strong style="color:var(--danger)">Critical:</strong> 1</div>
+                <div class="mini"><strong style="color:var(--warn)">High:</strong> 3</div>
+                <div class="mini"><strong style="color:#4b73c2">Medium:</strong> 5</div>
+                <div class="mini">Top risk: data residency mismatch in cross-region billing snapshots.</div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+      </div>
+
+      <!-- SETTINGS VIEW -->
+      <div id="settings-view" class="view">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">Settings</div>
+              <div class="subtitle">Manage agents, skills, and roles for the brainstorm pipeline</div>
+            </div>
+            <div class="nav">
+              <button class="link" type="button" id="settings-nav-new-session">New Session</button>
+              <button class="link" type="button" id="settings-nav-sessions">Sessions</button>
+            </div>
+          </div>
+
+          <div class="content">
+            <div class="panel" style="padding: 20px 24px">
+
+              <!-- Tabs -->
+              <div class="settings-tabs">
+                <button class="stab active" type="button" data-tab="tab-agents">Agents</button>
+                <button class="stab" type="button" data-tab="tab-skills">Skills</button>
+                <button class="stab" type="button" data-tab="tab-roles">Roles</button>
+              </div>
+
+              <!-- Agents Tab -->
+              <div class="spanel active" id="tab-agents">
+                <div class="table-toolbar">
+                  <h3>Registered Agents</h3>
+                  <button class="btn btn-primary" type="button" data-nav="agent-form-view">+ New Agent</button>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Role</th>
+                      <th>Provider / Model</th>
+                      <th>Skills</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Atlas</td>
+                      <td>build</td>
+                      <td>copilot / gpt-4o</td>
+                      <td>5</td>
+                      <td class="status-ok">Healthy</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="agent-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Critic</td>
+                      <td>review</td>
+                      <td>claude / sonnet</td>
+                      <td>4</td>
+                      <td class="status-ok">Healthy</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="agent-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Stitch</td>
+                      <td>refine</td>
+                      <td>copilot / gpt-4o-mini</td>
+                      <td>3</td>
+                      <td class="status-ok">Healthy</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="agent-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Chaos</td>
+                      <td>devils_advocate</td>
+                      <td>copilot / gpt-4o</td>
+                      <td>2</td>
+                      <td class="status-warn">Warning</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="agent-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Skills Tab -->
+              <div class="spanel" id="tab-skills">
+                <div class="table-toolbar">
+                  <h3>Skill Library</h3>
+                  <button class="btn btn-primary" type="button" data-nav="skill-form-view">+ New Skill</button>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Skill</th>
+                      <th>Domain</th>
+                      <th>Description</th>
+                      <th>Used By</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>brainstorming</strong></td>
+                      <td>Design</td>
+                      <td>Design-first gate before any implementation work</td>
+                      <td>4 agents</td>
+                      <td class="status-ok">Active</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="skill-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><strong>convergence-engine-patterns</strong></td>
+                      <td>Pipeline</td>
+                      <td>Multi-condition convergence detection and delta-confidence threshold</td>
+                      <td>2 agents</td>
+                      <td class="status-ok">Active</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="skill-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><strong>llm-provider-abstraction</strong></td>
+                      <td>LLM</td>
+                      <td>LLMProvider interface, tiered config resolver, credential-via-env-ref</td>
+                      <td>3 agents</td>
+                      <td class="status-ok">Active</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="skill-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><strong>canonical-state-merge-rules</strong></td>
+                      <td>State</td>
+                      <td>Union-dedup, stability-lock, and vague-output-rejection for state merges</td>
+                      <td>2 agents</td>
+                      <td class="status-ok">Active</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="skill-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><strong>security-audit</strong></td>
+                      <td>Security</td>
+                      <td>OWASP auditing, injection prevention, secrets management</td>
+                      <td>4 agents</td>
+                      <td class="status-ok">Active</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="skill-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><strong>determinism</strong></td>
+                      <td>Quality</td>
+                      <td>Same input + config = identical output; no randomness allowed</td>
+                      <td>3 agents</td>
+                      <td class="status-ok">Active</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="skill-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><strong>multi-agent-role-orchestration</strong></td>
+                      <td>Orchestration</td>
+                      <td>Ordered N-agent pipeline dispatch and fixed role assignment</td>
+                      <td>3 agents</td>
+                      <td class="status-ok">Active</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="skill-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Roles Tab -->
+              <div class="spanel" id="tab-roles">
+                <div class="table-toolbar">
+                  <h3>Role Definitions</h3>
+                  <button class="btn btn-primary" type="button" data-nav="role-form-view">+ New Role</button>
+                </div>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Role</th>
+                      <th>Type</th>
+                      <th>Behavioral Directive</th>
+                      <th>Used By</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>build</strong></td>
+                      <td><span class="role-badge rb-system">System</span></td>
+                      <td>Propose architecture, draft execution plans, generate initial state</td>
+                      <td>1 agent</td>
+                      <td><span class="muted" style="font-size:12px">Protected</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>review</strong></td>
+                      <td><span class="role-badge rb-system">System</span></td>
+                      <td>Identify risks, challenge assumptions, add open questions</td>
+                      <td>1 agent</td>
+                      <td><span class="muted" style="font-size:12px">Protected</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>refine</strong></td>
+                      <td><span class="role-badge rb-system">System</span></td>
+                      <td>Merge agent outputs, resolve conflicts, improve confidence score</td>
+                      <td>1 agent</td>
+                      <td><span class="muted" style="font-size:12px">Protected</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>devils_advocate</strong></td>
+                      <td><span class="role-badge rb-system">System</span></td>
+                      <td>Stress-test decisions, surface edge cases, push back on consensus</td>
+                      <td>1 agent</td>
+                      <td><span class="muted" style="font-size:12px">Protected</span></td>
+                    </tr>
+                    <tr>
+                      <td><strong>cost-optimizer</strong></td>
+                      <td><span class="role-badge rb-custom">Custom</span></td>
+                      <td>Evaluate architectural decisions through a cost and resource efficiency lens</td>
+                      <td>0 agents</td>
+                      <td>
+                        <button class="btn-action btn-edit" type="button" data-nav="role-form-view">Edit</button>
+                        <button class="btn-action btn-delete" type="button">Delete</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="muted" style="font-size:12px;margin-top:12px">System roles are protected and cannot be deleted. Custom roles extend the pipeline with domain-specific behaviors.</p>
+              </div>
+
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- AGENT FORM VIEW (new + edit) -->
+      <div id="agent-form-view" class="view">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">New Agent</div>
+              <div class="subtitle">Configure a role-specialized agent for the brainstorm pipeline</div>
+            </div>
+            <div class="nav">
+              <button class="link" type="button" data-nav="settings-view">&larr; Back to Settings</button>
+            </div>
+          </div>
+          <div class="content">
+            <div class="panel hero">
+              <div class="grid grid-2 sp-18">
+                <div>
+                  <div class="field-label">Agent Name</div>
+                  <input placeholder="e.g. Atlas" />
+                </div>
+                <div>
+                  <div class="field-label">Role</div>
+                  <select>
+                    <option>build</option>
+                    <option>review</option>
+                    <option>refine</option>
+                    <option>devils_advocate</option>
+                    <option disabled>──────────</option>
+                    <option value="__new__">+ Create New Role…</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="field-label">Provider</div>
+                  <select>
+                    <option>copilot</option>
+                    <option>claude</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="field-label">Model</div>
+                  <input placeholder="e.g. gpt-4o" />
+                </div>
+              </div>
+              <div class="sp-18">
+                <div class="field-label">System Prompt</div>
+                <textarea placeholder="You are a specialized agent responsible for..."></textarea>
+              </div>
+              <div class="sp-18">
+                <div class="field-label">Assign Skills</div>
+                <div class="pool">
+                  <div class="agent-row">
+                    <div class="left"><span class="checkbox"></span>brainstorming</div>
+                    <small>Design</small>
+                  </div>
+                  <div class="agent-row">
+                    <div class="left"><span class="checkbox"></span>convergence-engine-patterns</div>
+                    <small>Pipeline</small>
+                  </div>
+                  <div class="agent-row">
+                    <div class="left"><span class="checkbox"></span>canonical-state-merge-rules</div>
+                    <small>State</small>
+                  </div>
+                  <div class="agent-row">
+                    <div class="left"><span class="checkbox"></span>security-audit</div>
+                    <small>Security</small>
+                  </div>
+                  <div class="agent-row">
+                    <div class="left"><span class="checkbox"></span>determinism</div>
+                    <small>Quality</small>
+                  </div>
+                </div>
+              </div>
+              <div class="btn-row" style="margin-top:20px">
+                <div style="display:flex;gap:10px">
+                  <button class="btn btn-primary" type="button" data-nav="registry-view">Save Agent</button>
+                  <button class="btn btn-soft" type="button" data-nav="registry-view">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- SKILL FORM VIEW (new + edit) -->
+      <div id="skill-form-view" class="view">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">New Skill</div>
+              <div class="subtitle">Define a knowledge package injected into agent system prompts</div>
+            </div>
+            <div class="nav">
+              <button class="link" type="button" data-nav="settings-view">&larr; Back to Settings</button>
+            </div>
+          </div>
+          <div class="content">
+            <div class="panel hero">
+              <div class="grid grid-2 sp-18">
+                <div>
+                  <div class="field-label">Skill Name</div>
+                  <input placeholder="e.g. cost-optimization (kebab-case)" />
+                </div>
+                <div>
+                  <div class="field-label">Domain</div>
+                  <select>
+                    <option>Design</option>
+                    <option>Pipeline</option>
+                    <option>Quality</option>
+                    <option>Security</option>
+                    <option>State</option>
+                    <option>LLM</option>
+                    <option>Orchestration</option>
+                    <option>Custom</option>
+                  </select>
+                </div>
+              </div>
+              <div class="sp-18">
+                <div class="field-label">Description</div>
+                <input placeholder="One sentence — when should this skill be loaded?" />
+              </div>
+              <div class="sp-18">
+                <div class="field-label">Prompt Content</div>
+                <div class="muted" style="font-size:12px;margin-bottom:6px">This text is appended to the agent's system prompt when the skill is active.</div>
+                <textarea rows="6" placeholder="## Rules&#10;1. Always evaluate decisions through a cost and resource efficiency lens.&#10;2. Flag any architecture choice with >20% cost overhead vs baseline.&#10;3. Propose cheaper alternatives when available..."></textarea>
+              </div>
+              <div class="sp-18">
+                <div class="field-label">Reference URL <span class="muted">(optional)</span></div>
+                <input placeholder="https://docs.example.com/cost-optimization" />
+              </div>
+              <div class="sp-18">
+                <div class="field-label">Assets <span class="muted">(optional — files or spec documents this skill depends on)</span></div>
+                <div id="asset-list">
+                  <div class="asset-row">
+                    <input placeholder="Asset name or path (e.g. docs/cost-model.md)" />
+                    <button class="btn-remove" type="button">&times;</button>
+                  </div>
+                </div>
+                <button class="btn-add-asset" type="button" id="btn-add-asset">+ Add asset reference</button>
+              </div>
+              <div class="btn-row" style="margin-top:20px">
+                <div style="display:flex;gap:10px">
+                  <button class="btn btn-primary" type="button" data-nav="settings-view">Save Skill</button>
+                  <button class="btn btn-soft" type="button" data-nav="settings-view">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ROLE FORM VIEW (new + edit) -->
+      <div id="role-form-view" class="view">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">New Role</div>
+              <div class="subtitle">Define a behavioral directive for agents in the brainstorm pipeline</div>
+            </div>
+            <div class="nav">
+              <button class="link" type="button" data-nav="settings-view">&larr; Back to Settings</button>
+            </div>
+          </div>
+          <div class="content">
+            <div class="panel hero">
+              <div class="sp-18">
+                <div class="field-label">Role Name</div>
+                <input placeholder="e.g. cost-optimizer (kebab-case)" />
+              </div>
+              <div class="sp-18">
+                <div class="field-label">Behavioral Directive</div>
+                <div class="muted" style="font-size:12px;margin-bottom:6px">One sentence describing the lens or priority this role brings to the pipeline. Used as labeling and documentation — not injected directly.</div>
+                <input placeholder="e.g. Evaluate architectural decisions through a cost and resource efficiency lens" />
+              </div>
+              <div class="sp-18">
+                <div class="field-label">System Prompt Hint <span class="muted">(optional)</span></div>
+                <div class="muted" style="font-size:12px;margin-bottom:6px">Appended to any agent assigned this role. Leave blank to rely entirely on the agent's own system prompt.</div>
+                <textarea rows="4" placeholder="When reviewing any proposal, always consider cost implications and flag alternatives that reduce infrastructure spend by >15%..."></textarea>
+              </div>
+              <div class="sp-18" style="background:var(--bg-1);border-radius:8px;padding:14px 16px">
+                <div class="field-label" style="margin-bottom:6px">&#9432; Custom Role Notes</div>
+                <p class="muted" style="font-size:13px;margin:0">Custom roles are additive — they extend the built-in pipeline roles (<code>build</code>, <code>review</code>, <code>refine</code>, <code>devils_advocate</code>) and can be assigned to any agent. Built-in roles cannot be overwritten. Custom roles can be deleted at any time.</p>
+              </div>
+              <div class="btn-row" style="margin-top:20px">
+                <div style="display:flex;gap:10px">
+                  <button class="btn btn-primary" type="button" data-nav="settings-view">Save Role</button>
+                  <button class="btn btn-soft" type="button" data-nav="settings-view">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- SESSION HISTORY VIEW -->
+      <div id="history-view" class="view">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">Session History</div>
+              <div class="subtitle">All completed brainstorm sessions and their generated outputs</div>
+            </div>
+            <div class="nav">
+              <button class="link" type="button" data-nav="home-view">New Session</button>
+              <button class="link" type="button" data-nav="settings-view">&#9881; Settings</button>
+            </div>
+          </div>
+          <div class="content">
+
+            <!-- Quick stats -->
+            <div class="stat-grid">
+              <div class="stat-card">
+                <div class="stat-val">12</div>
+                <div class="stat-label">Sessions completed</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-val">87<span style="font-size:16px;font-weight:500">%</span></div>
+                <div class="stat-label">Avg. final confidence</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-val">24</div>
+                <div class="stat-label">Documents generated</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-val">5.2</div>
+                <div class="stat-label">Avg. iterations per session</div>
+              </div>
+            </div>
+
+            <div class="panel table">
+              <!-- Search -->
+              <div class="history-search">
+                <input id="history-search-input" type="text" placeholder="Search sessions by topic or date…" />
+              </div>
+
+              <table id="history-table">
+                <thead>
+                  <tr>
+                    <th>Session</th>
+                    <th>Date</th>
+                    <th>Iterations</th>
+                    <th>Confidence</th>
+                    <th>Agents</th>
+                    <th>Outputs</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>SaaS Pricing Orchestration</strong><br/><span class="muted" style="font-size:12px">Policy-based metering with tenant-safe rollout controls</span></td>
+                    <td>May 18, 2026</td>
+                    <td>7</td>
+                    <td><span class="conf-pill cp-high">91%</span></td>
+                    <td><span class="agent-chip">Atlas</span><span class="agent-chip">Critic</span><span class="agent-chip">Stitch</span></td>
+                    <td><span class="out-chip">arch.md</span><span class="out-chip">roadmap.md</span></td>
+                    <td><button class="btn-action btn-edit" type="button" data-nav="finalize-view">View</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Multi-tenant RBAC Redesign</strong><br/><span class="muted" style="font-size:12px">Role-scoped permission model with delegation support</span></td>
+                    <td>May 12, 2026</td>
+                    <td>5</td>
+                    <td><span class="conf-pill cp-high">84%</span></td>
+                    <td><span class="agent-chip">Atlas</span><span class="agent-chip">Critic</span><span class="agent-chip">Stitch</span></td>
+                    <td><span class="out-chip">arch.md</span><span class="out-chip">roadmap.md</span></td>
+                    <td><button class="btn-action btn-edit" type="button">View</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Real-time Notification Pipeline</strong><br/><span class="muted" style="font-size:12px">Fan-out delivery with dedup and per-channel rate limiting</span></td>
+                    <td>May 8, 2026</td>
+                    <td>6</td>
+                    <td><span class="conf-pill cp-high">89%</span></td>
+                    <td><span class="agent-chip">Atlas</span><span class="agent-chip">Critic</span><span class="agent-chip">Stitch</span><span class="agent-chip">Chaos</span></td>
+                    <td><span class="out-chip">arch.md</span><span class="out-chip">roadmap.md</span></td>
+                    <td><button class="btn-action btn-edit" type="button">View</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>API Gateway Migration</strong><br/><span class="muted" style="font-size:12px">Zero-downtime cutover from legacy monolith gateway</span></td>
+                    <td>Apr 30, 2026</td>
+                    <td>4</td>
+                    <td><span class="conf-pill cp-mid">78%</span></td>
+                    <td><span class="agent-chip">Atlas</span><span class="agent-chip">Critic</span></td>
+                    <td><span class="out-chip">arch.md</span><span class="out-chip">roadmap.md</span></td>
+                    <td><button class="btn-action btn-edit" type="button">View</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Event Sourcing Refactor</strong><br/><span class="muted" style="font-size:12px">CQRS + event store migration for billing domain</span></td>
+                    <td>Apr 22, 2026</td>
+                    <td>8</td>
+                    <td><span class="conf-pill cp-high">93%</span></td>
+                    <td><span class="agent-chip">Atlas</span><span class="agent-chip">Critic</span><span class="agent-chip">Stitch</span><span class="agent-chip">Chaos</span></td>
+                    <td><span class="out-chip">arch.md</span><span class="out-chip">roadmap.md</span></td>
+                    <td><button class="btn-action btn-edit" type="button">View</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        </section>
+      </div>
+
+      <!-- FINALIZE VIEW -->
+      <div id="finalize-view" class="view">
+        <section class="artboard">
+          <div class="topbar">
+            <div>
+              <div class="title">Sessions / SaaS Pricing Orchestration</div>
+              <div class="subtitle" id="finalize-subtitle">Generating output documents...</div>
+            </div>
+            <div class="nav" id="finalize-back-nav" style="display:none">
+              <button class="link" type="button" data-nav="history-view">&larr; Back to Session History</button>
+            </div>
+          </div>
+
+          <div class="content">
+
+            <!-- Generator log -->
+            <div class="panel gen-panel">
+              <div class="gen-panel-head">
+                <div class="gen-panel-title">Markdown Generator</div>
+                <span class="gen-badge gen-running" id="gen-badge">&#x27F3; Generating</span>
+              </div>
+              <div class="gen-log" id="gen-log">
+                <div class="gen-entry">Reading canonical state snapshot &mdash; 7 passes, confidence 90%.</div>
+                <div class="gen-entry">Extracting idea: &ldquo;Policy-based metering with tenant-safe rollout controls.&rdquo;</div>
+                <div class="gen-entry">Extracting architecture: control-plane, pricing-engine, ledger adapter, migration guardrails.</div>
+                <div class="gen-entry">Extracting execution_plan: 10 steps with rollback gates at steps 4 and 8.</div>
+                <div class="gen-entry">Extracting risks: 1 critical, 3 high, 5 medium &mdash; 9 total.</div>
+                <div class="gen-entry">Extracting assumptions (3) and open_questions (2).</div>
+                <div class="gen-entry gen-running-line" id="gen-running-line"><span class="dots">Assembling architecture.md sections...</span></div>
+              </div>
+            </div>
+
+            <!-- Output file cards -->
+            <div class="output-grid">
+
+              <div class="output-card">
+                <div class="output-head">
+                  <div class="output-file">architecture.md</div>
+                  <span class="output-status os-pending" id="arch-status">&#x29D6; Pending</span>
+                </div>
+                <div class="output-desc">Component design, data flows, technology choices</div>
+                <div class="output-preview" id="arch-preview">Waiting...</div>
+                <button class="btn btn-soft" id="btn-dl-arch" disabled style="opacity:0.4;margin-top:14px">Download</button>
+              </div>
+
+              <div class="output-card">
+                <div class="output-head">
+                  <div class="output-file">roadmap.md</div>
+                  <span class="output-status os-pending" id="road-status">&#x29D6; Pending</span>
+                </div>
+                <div class="output-desc">Phased execution plan with milestones and risks</div>
+                <div class="output-preview" id="road-preview">Waiting...</div>
+                <button class="btn btn-soft" id="btn-dl-road" disabled style="opacity:0.4;margin-top:14px">Download</button>
+              </div>
+
+            </div>
+
+            <!-- Done bar — hidden until both files ready -->
+            <div class="panel run-bar" id="finalize-done-bar" style="display:none">
+              <div class="run-left">
+                <button class="btn btn-primary" type="button">Download All</button>
+                <button class="btn btn-soft" type="button" data-nav="home-view">New Session</button>
+              </div>
+              <div class="status" style="color:#16a34a">Both documents generated successfully.</div>
+            </div>
+
+          </div>
+        </section>
+      </div>
+
+    </div>
+
+    <!-- Warning modal -->
+    <div class="modal-overlay" id="warn-modal">
+      <div class="modal">
+        <div class="modal-icon" id="warn-icon"></div>
+        <div class="modal-title" id="warn-title"></div>
+        <div class="modal-body" id="warn-body"></div>
+        <div class="modal-actions">
+          <button class="btn btn-soft" type="button" id="warn-dismiss">Dismiss</button>
+          <button class="btn btn-primary" type="button" id="warn-action"></button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const views = {
+        "home-view": document.getElementById("home-view"),
+        "session-view": document.getElementById("session-view"),
+        "settings-view": document.getElementById("settings-view"),
+        "agent-form-view": document.getElementById("agent-form-view"),
+        "skill-form-view": document.getElementById("skill-form-view"),
+        "role-form-view": document.getElementById("role-form-view"),
+        "history-view": document.getElementById("history-view"),
+        "finalize-view": document.getElementById("finalize-view"),
+      };
+
+      function showView(id) {
+        for (const key of Object.keys(views)) {
+          if (!views[key]) continue;
+          views[key].classList.toggle("active", key === id);
+        }
+        if (id === "finalize-view") startFinalize();
+      }
+
+      document.querySelectorAll("[data-nav]").forEach((el) => {
+        el.addEventListener("click", () => {
+          const target = el.getAttribute("data-nav");
+          if (target && views[target]) {
+            showView(target);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        });
+      });
+
+      // Session state — true once user clicks Start Session
+      let sessionRunning = false;
+      const finalizeBackNav = document.getElementById("finalize-back-nav");
+
+      // History → finalize: show back button
+      document.querySelector('#history-view [data-nav="finalize-view"]').addEventListener("click", () => {
+        finalizeBackNav.style.display = "";
+      });
+
+      // Session → finalize: hide back button
+      document.querySelector('#session-view [data-nav="finalize-view"]').addEventListener("click", () => {
+        finalizeBackNav.style.display = "none";
+      });
+
+      // Track Start Session click (the home-view Start Session button)
+      document.querySelector('#home-view [data-nav="session-view"]').addEventListener("click", () => {
+        sessionRunning = true;
+      });
+
+      // History page: live search filter
+      document.getElementById("history-search-input").addEventListener("input", (e) => {
+        const q = e.target.value.toLowerCase();
+        document.querySelectorAll("#history-table tbody tr").forEach((row) => {
+          row.style.display = row.textContent.toLowerCase().includes(q) ? "" : "none";
+        });
+      });
+
+      // Warning modal helpers
+      const warnModal = document.getElementById("warn-modal");
+      function showWarn({ icon, title, body, actionLabel, actionNav }) {
+        document.getElementById("warn-icon").textContent = icon;
+        document.getElementById("warn-title").textContent = title;
+        document.getElementById("warn-body").textContent = body;
+        const actionBtn = document.getElementById("warn-action");
+        actionBtn.textContent = actionLabel;
+        actionBtn.onclick = () => { closeWarn(); showView(actionNav); window.scrollTo({ top: 0, behavior: "smooth" }); };
+        warnModal.classList.add("open");
+      }
+      function closeWarn() { warnModal.classList.remove("open"); }
+      document.getElementById("warn-dismiss").addEventListener("click", closeWarn);
+      warnModal.addEventListener("click", (e) => { if (e.target === warnModal) closeWarn(); });
+
+      // Settings nav: guarded "New Session" button
+      document.getElementById("settings-nav-new-session").addEventListener("click", () => {
+        if (sessionRunning) {
+          showWarn({
+            icon: "⚠️",
+            title: "Session is currently running",
+            body: "A brainstorm session is already in progress. Starting a new one will discard the current session state. Go to the active session instead, or wait until it is complete.",
+            actionLabel: "Go to Session",
+            actionNav: "session-view",
+          });
+        } else {
+          showView("home-view");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      });
+
+      // Settings nav: guarded "Sessions" button
+      document.getElementById("settings-nav-sessions").addEventListener("click", () => {
+        if (!sessionRunning) {
+          showWarn({
+            icon: "ℹ️",
+            title: "No session running",
+            body: "There is no active brainstorm session to view. Start a new session first by entering your product idea on the home page.",
+            actionLabel: "Start New Session",
+            actionNav: "home-view",
+          });
+        } else {
+          showView("session-view");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      });
+
+      // Settings tab switching
+      document.querySelectorAll(".stab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          const targetPanel = tab.getAttribute("data-tab");
+          document.querySelectorAll(".stab").forEach((t) => t.classList.remove("active"));
+          document.querySelectorAll(".spanel").forEach((p) => p.classList.remove("active"));
+          tab.classList.add("active");
+          const panel = document.getElementById(targetPanel);
+          if (panel) panel.classList.add("active");
+        });
+      });
+
+      // Asset rows in skill-form-view
+      document.getElementById("btn-add-asset").addEventListener("click", () => {
+        const row = document.createElement("div");
+        row.className = "asset-row";
+        row.innerHTML = '<input placeholder="Asset name or path (e.g. docs/cost-model.md)" /><button class="btn-remove" type="button">&times;</button>';
+        row.querySelector(".btn-remove").addEventListener("click", () => row.remove());
+        document.getElementById("asset-list").appendChild(row);
+      });
+      document.getElementById("asset-list").querySelectorAll(".btn-remove").forEach((btn) => {
+        btn.addEventListener("click", () => btn.closest(".asset-row").remove());
+      });
+
+      // Agent form: "Create New Role" select → navigate to role-form-view
+      document.querySelector("#agent-form-view select").addEventListener("change", (e) => {
+        if (e.target.value === "__new__") {
+          e.target.value = "build"; // reset selection
+          showView("role-form-view");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      });
+
+      // Run Next Iteration — single action, submits optional feedback if present
+      let currentPass = 1;
+      const maxIter = 7;
+
+      document.getElementById("btn-next-iter").addEventListener("click", () => {
+        if (currentPass >= maxIter) return;
+        currentPass++;
+
+        // Close feedback box
+        document.getElementById("feedback-text").value = "";
+        document.getElementById("feedback-box").style.display = "none";
+        document.getElementById("btn-inject").textContent = "Inject Feedback";
+
+        // Update header
+        document.getElementById("session-subtitle").textContent = "Pass " + currentPass + " of 7 — Iteration in progress";
+        document.getElementById("pipeline-pass").textContent = currentPass;
+
+        // Update confidence
+        const newConf = Math.min(95, 74 + (currentPass - 1) * 4);
+        document.getElementById("confidence-val").textContent = newConf;
+        document.getElementById("conf-fill").style.width = newConf + "%";
+
+        // Mark stage 2 (Critic) as done with full output
+        const s2 = document.getElementById("stage-2");
+        const s2body = s2.querySelector(".stage-body");
+        if (s2body) {
+          s2body.innerHTML = '<div class="stage-log">Reviewed Atlas architecture. Identified 4 risk flags: snapshot delay, tenant isolation gap, migration rollback surface, residency mismatch.<br/>Added mitigation constraints to assumptions. Updated open questions list.</div><div class="stage-summary"><strong>Contribution:</strong> Added 4 risks, 3 assumptions, 2 open questions. Updated state: risks, assumptions, open_questions fields.</div>';
+        }
+        s2.className = "stage stage-done";
+        s2.querySelector(".stage-status").className = "stage-status s-done";
+        s2.querySelector(".stage-status").textContent = "\u2713 Complete";
+
+        // Mark stage 3 (Stitch) as done, inject body on first run
+        const s3 = document.getElementById("stage-3");
+        if (!s3.querySelector(".stage-body")) {
+          const body = document.createElement("div");
+          body.className = "stage-body";
+          body.innerHTML = '<div class="stage-log">Received merged state from Atlas and Critic. Resolved open questions: snapshot consistency via versioned ledger, isolation via shard-per-tenant model.<br/>Refined execution plan: 8 steps expanded to 10 with explicit rollback gates at steps 4 and 8.</div><div class="stage-summary"><strong>Contribution:</strong> Merged all agent views into coherent canonical state. Confidence delta: +5%. Pass complete.</div>';
+          s3.appendChild(body);
+        }
+        s3.className = "stage stage-done";
+        s3.querySelector(".stage-status").className = "stage-status s-done";
+        s3.querySelector(".stage-status").textContent = "\u2713 Complete";
+
+        // Remove dim connectors
+        document.querySelectorAll(".stage-connector-dim").forEach(c => { c.className = "stage-connector"; });
+
+        if (currentPass >= maxIter) {
+          document.getElementById("convergence-status").textContent = "Max iterations reached. Review canonical state and finalize.";
+          document.getElementById("btn-next-iter").disabled = true;
+          document.getElementById("btn-next-iter").style.opacity = "0.5";
+        }
+      });
+
+      // Inject Feedback — toggles textarea only. Run Next Iteration is the single submit action.
+      const feedbackBox = document.getElementById("feedback-box");
+      const btnInject = document.getElementById("btn-inject");
+      btnInject.addEventListener("click", () => {
+        const isOpen = feedbackBox.style.display !== "none";
+        feedbackBox.style.display = isOpen ? "none" : "block";
+        btnInject.textContent = isOpen ? "Inject Feedback" : "Hide Feedback";
+      });
+
+      // Finalize — generate architecture.md and roadmap.md from canonical state
+      let finalizeRan = false;
+      function startFinalize() {
+        if (finalizeRan) return;
+        finalizeRan = true;
+
+        const log = document.getElementById("gen-log");
+        const archStatus = document.getElementById("arch-status");
+        const roadStatus = document.getElementById("road-status");
+        const archPreview = document.getElementById("arch-preview");
+        const roadPreview = document.getElementById("road-preview");
+        const btnDlArch = document.getElementById("btn-dl-arch");
+        const btnDlRoad = document.getElementById("btn-dl-road");
+        const genBadge = document.getElementById("gen-badge");
+        const subtitle = document.getElementById("finalize-subtitle");
+        const doneBar = document.getElementById("finalize-done-bar");
+
+        archStatus.className = "output-status os-running";
+        archStatus.textContent = "\u27F3 Generating";
+
+        setTimeout(() => {
+          const runLine = document.getElementById("gen-running-line");
+          if (runLine) runLine.remove();
+
+          const e1 = document.createElement("div");
+          e1.className = "gen-entry gen-done-line";
+          e1.textContent = "architecture.md \u2014 4 sections, 640 words. Written.";
+          log.appendChild(e1);
+
+          archStatus.className = "output-status os-done";
+          archStatus.textContent = "\u2713 Ready";
+          archPreview.textContent = "# Architecture \u2014 SaaS Pricing Orchestration\n\n## Overview\nPolicy-based metering with tenant-safe\nrollout controls.\n\n## Components\n- Control Plane \u2014 tenant policy enforcement\n- Pricing Engine \u2014 event-driven metering\n- Ledger Adapter \u2014 append-only audit log\n- Migration Guardrails \u2014 phased rollout gates\n\n## Data Flows\n  tenant \u2192 control-plane \u2192 pricing-engine\n  pricing-engine \u2192 ledger adapter\n\n[...640 words total]";
+          btnDlArch.disabled = false;
+          btnDlArch.style.opacity = "1";
+
+          const e2 = document.createElement("div");
+          e2.className = "gen-entry gen-running-line";
+          e2.id = "gen-running-line-2";
+          e2.innerHTML = '<span class="dots">Assembling roadmap.md phases and milestones...</span>';
+          log.appendChild(e2);
+          log.scrollTop = log.scrollHeight;
+
+          roadStatus.className = "output-status os-running";
+          roadStatus.textContent = "\u27F3 Generating";
+        }, 1400);
+
+        setTimeout(() => {
+          const runLine2 = document.getElementById("gen-running-line-2");
+          if (runLine2) runLine2.remove();
+
+          const e3 = document.createElement("div");
+          e3.className = "gen-entry gen-done-line";
+          e3.textContent = "roadmap.md \u2014 3 phases, 10 milestones, 9 risk entries. Written.";
+          log.appendChild(e3);
+
+          const e4 = document.createElement("div");
+          e4.className = "gen-entry gen-done-line";
+          e4.textContent = "Generation complete. 2 documents ready for download.";
+          log.appendChild(e4);
+          log.scrollTop = log.scrollHeight;
+
+          roadStatus.className = "output-status os-done";
+          roadStatus.textContent = "\u2713 Ready";
+          roadPreview.textContent = "# Roadmap \u2014 SaaS Pricing Orchestration\n\n## Phase 1 \u2014 Foundation (Steps 1\u20134)\n- [ ] Deploy control-plane skeleton\n- [ ] Integrate pricing-engine adapter\n- [ ] Establish ledger write path\n\n## Phase 2 \u2014 Hardening (Steps 5\u20138)\n- Rollback gate at step 4 \u2713\n- Cross-region snapshot consistency fix\n- Shard-per-tenant isolation model\n\n## Risks\n[CRITICAL] Cross-region snapshot delay\n[HIGH] Tenant isolation boundary gap\n[...9 risks total]";
+          btnDlRoad.disabled = false;
+          btnDlRoad.style.opacity = "1";
+
+          genBadge.className = "gen-badge gen-done";
+          genBadge.textContent = "\u2713 Done";
+          subtitle.textContent = "Session complete \u2014 2 documents generated";
+          doneBar.style.display = "";
+        }, 2800);
+      }
+    </script>
+  </body>
+</html>

@@ -215,16 +215,17 @@ Reference skills by path in any prompt:
 
 ## Forbidden Patterns
 
-| Category     | Forbidden                                                                                                                                                                                                                                                                                                                                          |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Architecture | Microservices between backend modules, inter-module RPC, shared mutable global state                                                                                                                                                                                                                                                               |
-| Database     | ORM frameworks (`gorm`, `ent`), direct driver imports in `internal/modules/`, SQL string concat                                                                                                                                                                                                                                                    |
-| LLM          | Direct Copilot/Claude SDK calls in `internal/modules/` or `agent/internal/executor/`                                                                                                                                                                                                                                                               |
-| Config       | Hardcoded API keys, hardcoded ports, hardcoded model names, `os.Getenv` outside config                                                                                                                                                                                                                                                             |
-| Credentials  | Storing raw API keys anywhere other than environment variables                                                                                                                                                                                                                                                                                     |
-| State        | Per-agent mutable global state; non-deterministic ID generation (UUID v4 for new IDs is fine; never use timestamps as IDs)                                                                                                                                                                                                                         |
-| Naming       | Task codes as file names (`phase4.go`, `b3_test.go`), single-letter files (`h.go`)                                                                                                                                                                                                                                                                 |
-| File format  | Duplicate `package` declaration at line 1 — automated formatters sometimes prepend a bare `package <name>` line before the doc-comment block, causing `expected declaration, found 'package'` compile errors. **Always check line 1 of every `.go` file for a stray `package` declaration before the doc comment.** Remove the duplicate if found. |
+| Category     | Forbidden                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture | Microservices between backend modules, inter-module RPC, shared mutable global state                                                                                                                                                                                                                                                                                                                                                                           |
+| Database     | ORM frameworks (`gorm`, `ent`), direct driver imports in `internal/modules/`, SQL string concat                                                                                                                                                                                                                                                                                                                                                                |
+| LLM          | Direct Copilot/Claude SDK calls in `internal/modules/` or `agent/internal/executor/`                                                                                                                                                                                                                                                                                                                                                                           |
+| Config       | Hardcoded API keys, hardcoded ports, hardcoded model names, `os.Getenv` outside config                                                                                                                                                                                                                                                                                                                                                                         |
+| Credentials  | Storing raw API keys anywhere other than environment variables                                                                                                                                                                                                                                                                                                                                                                                                 |
+| State        | Per-agent mutable global state; non-deterministic ID generation (UUID v4 for new IDs is fine; never use timestamps as IDs)                                                                                                                                                                                                                                                                                                                                     |
+| Naming       | Task codes as file names (`phase4.go`, `b3_test.go`), single-letter files (`h.go`)                                                                                                                                                                                                                                                                                                                                                                             |
+| File format  | Duplicate `package` declaration at line 1 — automated formatters sometimes prepend a bare `package <name>` line before the doc-comment block, causing `expected declaration, found 'package'` compile errors. **Always check line 1 of every `.go` file for a stray `package` declaration before the doc comment.** Remove the duplicate if found.                                                                                                             |
+| UI (v1.1)    | Hard-coding color hex values in Svelte components — always use CSS custom properties (`var(--accent)`, `var(--ok)`, etc.). Do not create new `/agents` or `/skills` pages; they redirect to `/settings`. Do not use `AgentPanel`, `StateView`, or `Timeline` components in new code — use `PipelineStage`, `CanonicalStatePanel`, or inline patterns respectively. Do not add Tailwind `gray-*` classes that conflict with the warm/cool design token palette. |
 
 ---
 
@@ -269,9 +270,41 @@ a2a-brainstorm/
 ├── frontend/
 │   └── src/
 │       ├── routes/
+│       │   ├── +layout.svelte               ← global topbar + WarningModal mount
+│       │   ├── +page.svelte                  ← home: session creation (redesigned v1.1)
+│       │   ├── session/[id]/
+│       │   │   ├── +page.svelte              ← session workspace: sequential pipeline
+│       │   │   └── finalize/
+│       │   │       └── +page.svelte          ← export: generation log + download (v1.1)
+│       │   ├── settings/
+│       │   │   ├── +page.svelte              ← unified agents/skills/roles tabs (v1.1)
+│       │   │   ├── agent/
+│       │   │   │   ├── new/+page.svelte      ← create agent form (v1.1)
+│       │   │   │   └── [id]/+page.svelte     ← edit agent form (v1.1)
+│       │   │   └── skill/
+│       │   │       ├── new/+page.svelte      ← create skill form (v1.1)
+│       │   │       └── [id]/+page.svelte     ← edit skill form (v1.1)
+│       │   ├── history/
+│       │   │   └── +page.svelte              ← session history: stats + table (v1.1)
+│       │   ├── agents/
+│       │   │   └── +page.svelte              ← redirects to /settings?tab=agents (v1.1)
+│       │   └── skills/
+│       │       └── +page.svelte              ← redirects to /settings?tab=skills (v1.1)
 │       └── lib/
 │           ├── components/
+│           │   ├── PipelineStage.svelte      ← v1.1: replaces AgentPanel (deprecated)
+│           │   ├── ConfidenceBar.svelte      ← v1.1: new
+│           │   ├── CanonicalStatePanel.svelte← v1.1: replaces StateView (deprecated)
+│           │   ├── RiskBoard.svelte          ← v1.1: new
+│           │   ├── WarningModal.svelte       ← v1.1: new (guarded-action modal)
+│           │   ├── AgentPanel.svelte         ← deprecated; use PipelineStage
+│           │   ├── ControlPanel.svelte       ← deprecated; inlined in session page
+│           │   ├── StateView.svelte          ← deprecated; use CanonicalStatePanel
+│           │   └── Timeline.svelte           ← deprecated; inlined in session page
 │           ├── stores/
+│           │   ├── sessionStore.ts
+│           │   ├── agentRegistryStore.ts
+│           │   └── uiStore.ts                ← v1.1: modal state + nav guard
 │           └── services/api.ts
 ├── migrations/                      ← SQL migration files (numbered, append-only)
 └── .github/

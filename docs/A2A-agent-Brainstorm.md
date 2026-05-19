@@ -1327,3 +1327,149 @@ Generated:
 
 **Multi-agent system design IDE (deterministic, not conversational)**
 ```
+
+---
+
+# **21. Frontend Design System Specification (v1.1)**
+
+> Added in PLAN.md v1.1. Source of truth for the polished UI implemented in Tasks 16–25.
+> Reference mockup: `frontend/mockups/future-polished-mockup.html`
+
+## **Visual Language**
+
+The UI uses a warm-to-cool glassmorphism aesthetic — cream-toned backgrounds that shift to blue-grey, frosted-glass panels, and a consistent cyan/blue accent palette. All design decisions derive from a single set of CSS custom properties defined in `frontend/src/app.css`.
+
+**Color tokens:**
+
+| Token        | Value     | Use                                        |
+| ------------ | --------- | ------------------------------------------ |
+| `--bg-0`     | `#f5efe4` | Warm cream — page background base          |
+| `--bg-1`     | `#e8ecf7` | Cool blue-grey — page background accent    |
+| `--ink-900`  | `#151b2f` | Near-black — primary text                  |
+| `--ink-700`  | `#2d3655` | Dark — secondary headings                  |
+| `--ink-500`  | `#5a6282` | Mid — secondary text, labels               |
+| `--ink-300`  | `#a8aec7` | Light — placeholders, dividers             |
+| `--accent`   | `#0bb6d9` | Cyan — primary interactive, gradient start |
+| `--accent-2` | `#1f7ae0` | Blue — gradient end, links                 |
+| `--ok`       | `#1b9f66` | Green — success, done state, live chip     |
+| `--warn`     | `#d48806` | Amber — warning, review role badge         |
+| `--danger`   | `#ce3158` | Red — error, delete actions                |
+
+**Typography stack:**
+
+- Body text: **IBM Plex Sans** (300, 400, 500 weights)
+- Code / monospace blocks: **IBM Plex Mono** (400)
+- Headings / UI labels: **Space Grotesk** (500, 700)
+
+**Background:**
+
+```css
+background:
+  radial-gradient(1200px 600px at 10% 10%, #fff8ec, transparent),
+  radial-gradient(900px 500px at 90% 10%, #e8f7ff, transparent),
+  linear-gradient(135deg, #f5efe4, #e8ecf7);
+```
+
+**Glassmorphism panels and cards:**
+
+- `.panel`: `background: rgba(255,255,255,0.72)`, `backdrop-filter: blur(8px)`, `border-radius: 18px`, `box-shadow: 0 10px 30px rgba(35,46,82,0.1)`, 1px white border
+- `.card`: same fill + blur, `border-radius: 14px`, lighter shadow, `padding: 20px`
+
+---
+
+## **Views and Route Map**
+
+| Route                    | Purpose                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `/`                      | Session creation — idea input, agent pool selector, max iterations             |
+| `/session/[id]`          | Session workspace — sequential pipeline, pass summary bar, state + risk panels |
+| `/session/[id]/finalize` | Export view — generation log, architecture.md + roadmap.md download            |
+| `/settings`              | Unified agents / skills / roles management (3 tabs)                            |
+| `/settings/agent/new`    | Create agent form                                                              |
+| `/settings/agent/[id]`   | Edit agent form                                                                |
+| `/settings/skill/new`    | Create skill form                                                              |
+| `/settings/skill/[id]`   | Edit skill form                                                                |
+| `/history`               | Session history — stat cards + searchable table                                |
+| `/agents`                | Redirects → `/settings?tab=agents`                                             |
+| `/skills`                | Redirects → `/settings?tab=skills`                                             |
+
+---
+
+## **Home View (/) — Session Creation**
+
+- Sticky glassmorphism topbar: logo "A2A Brainstorm" + nav ("Session History" → `/history`, "⚙ Settings" → `/settings`) + animated Live chip (green pulsing dot)
+- Hero `.panel` (max-width 920px, centered in `.artboard`): idea textarea + char count
+- 2-column grid: left = Max Iterations input (number, 1–20, default 5); right = Agent Pool checkbox list — one row per registered agent, showing name + role badge + provider/model label
+- "Start Session" gradient button (disabled + spinner while loading; disabled if < 2 agents checked)
+- "Estimated runtime: ~N min" hint below button (computed as `checkedAgents × iterations × 0.5`)
+- Inline validation: soft red border on agent pool if < 2 selected
+
+---
+
+## **Session Workspace (/session/[id]) — Sequential Pipeline View**
+
+- Sticky pass summary bar: "Pipeline Pass N / M" label + agent count chip + `ConfidenceBar` component + shimmer while loading
+- Vertical sequential pipeline panel: one `PipelineStage` per agent, separated by connector lines (solid between done stages, dashed before waiting stages)
+- Per stage states:
+  - **done** (`stage-done`): green check icon, role badge, mono log block (dark bg `#1a1d2e`, IBM Plex Mono), green summary block
+  - **running** (`stage-running`): animated blinking dots, mono log block with cursor
+  - **waiting** (`stage-waiting`): dimmed 50% opacity, dashed border
+- Bottom split (2/3 + 1/3): `CanonicalStatePanel` (idea, architecture, plan accordion, assumptions, open questions) + `RiskBoard` (risks with severity chips)
+- Sticky control bar at bottom: "Run Next Iteration" (disabled while loading/converged) + "Inject Feedback" (inline textarea toggle) + "Finalize Session" → `/session/[id]/finalize`
+
+---
+
+## **Export View (/session/[id]/finalize)**
+
+- "Generate Documents" button triggers `POST /sessions/{id}/finalize`
+- Animated streaming log panel (dark `#1a1d2e` background, monospace, lines append at 400ms intervals): "Analyzing canonical state...", "Extracting architecture decisions...", "Generating architecture.md...", "Generating roadmap.md...", "Done ✓"
+- Two output cards appear after generation: `architecture.md` + `roadmap.md` — each with preview textarea (`readonly`), Copy (clipboard API) + Download (`Blob` → `<a download>`) buttons
+- "Download All" + "New Session" buttons in done bar
+
+---
+
+## **Settings View (/settings) — 3-Tab Panel**
+
+- Tab bar: Agents | Skills | Roles
+- **Agents tab**: table — Name, Default Role (badge), Provider/Model, Skills count chip, Status (`.chip-ok` / `.chip-warn`), Edit + Delete actions; "Add Agent" button → `/settings/agent/new`
+- **Skills tab**: table — Name, Description (truncated), Used By (N agents chip), Edit + Delete; "Add Skill" → `/settings/skill/new`
+- **Roles tab**: 4 read-only role cards (BUILD, REVIEW, REFINE, DEVILS ADVOCATE) — each with behavior description and "System Role" chip; "Custom roles coming soon" callout
+
+---
+
+## **Session History View (/history)**
+
+- 4 stat cards: Sessions Completed, Avg Confidence, Docs Generated, Avg Iterations
+- Live search input (client-side filter by idea text)
+- Sessions table: Title (truncated idea), Date, Iterations, Confidence pill (green ≥ 0.8, amber ≥ 0.5, red < 0.5), Status chip, "View →" action
+
+---
+
+## **Shared Components (v1.1 additions)**
+
+| Component             | File                                        | Props                                                               | Purpose                                                                 |
+| --------------------- | ------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `PipelineStage`       | `lib/components/PipelineStage.svelte`       | `agent`, `status`, `output`, `summary`                              | Replaces `AgentPanel` — vertical stage with done/running/waiting states |
+| `ConfidenceBar`       | `lib/components/ConfidenceBar.svelte`       | `value`, `animating`                                                | Segmented progress bar showing confidence %                             |
+| `CanonicalStatePanel` | `lib/components/CanonicalStatePanel.svelte` | `state`                                                             | Replaces `StateView` — card-based canonical state display               |
+| `RiskBoard`           | `lib/components/RiskBoard.svelte`           | `risks`                                                             | Risk list with severity chips                                           |
+| `WarningModal`        | `lib/components/WarningModal.svelte`        | `open`, `title`, `body`, `confirmLabel`, `confirmDanger`, callbacks | Global guarded-action modal                                             |
+
+**Deprecated components (kept for build compatibility):**
+
+| Old Component         | Replacement                      |
+| --------------------- | -------------------------------- |
+| `AgentPanel.svelte`   | `PipelineStage.svelte`           |
+| `ControlPanel.svelte` | Inline in session page           |
+| `StateView.svelte`    | `CanonicalStatePanel.svelte`     |
+| `Timeline.svelte`     | Pass summary bar in session page |
+
+---
+
+## **Backend Additions for UI (v1.1)**
+
+| Change                       | Endpoint / File                         | Purpose                                                                                   |
+| ---------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Add `GET /sessions`          | `session/handler.go` + `repository.go`  | Session list for history view                                                             |
+| Return content in finalize   | `POST /sessions/{id}/finalize` response | `architecture_markdown` + `roadmap_markdown` strings for download                         |
+| `GenerateContent()` function | `markdown/generator.go`                 | Returns markdown strings instead of writing files; `WriteArtifacts` calls this internally |

@@ -288,3 +288,42 @@ make check
 See [docs/A2A-agent-Brainstorm.md](docs/A2A-agent-Brainstorm.md) for the full architecture and invariants.
 
 See [docs/PLAN.md](docs/PLAN.md) for implementation task breakdown.
+
+---
+
+## Frontend Routes (v1.1)
+
+| Route                   | Purpose                                            |
+| ----------------------- | -------------------------------------------------- |
+| `/`                     | Home — new session creation form                   |
+| `/session/:id`          | Session workspace — sequential agent pipeline view |
+| `/session/:id/finalize` | Export view — generation log + download artifacts  |
+| `/settings`             | Unified settings — Agents, Skills, Roles tabs      |
+| `/settings/agent/new`   | Create new agent                                   |
+| `/settings/agent/:id`   | Edit existing agent                                |
+| `/settings/skill/new`   | Create new skill                                   |
+| `/settings/skill/:id`   | Edit existing skill                                |
+| `/history`              | Session history — stats + past sessions table      |
+| `/agents`               | Redirects to `/settings?tab=agents`                |
+| `/skills`               | Redirects to `/settings?tab=skills`                |
+
+> **Note:** `/agents` and `/skills` are redirect-only routes. All agent and skill management lives under `/settings`.
+
+## Frontend Components (v1.1)
+
+| Component                    | Status     | Replaces              | Purpose                                       |
+| ---------------------------- | ---------- | --------------------- | --------------------------------------------- |
+| `PipelineStage.svelte`       | Active     | `AgentPanel`          | Single agent stage card in pipeline view      |
+| `ConfidenceBar.svelte`       | Active     | —                     | Animated confidence progress bar              |
+| `CanonicalStatePanel.svelte` | Active     | `StateView`           | Structured canonical state display            |
+| `RiskBoard.svelte`           | Active     | —                     | Risk and open questions board                 |
+| `WarningModal.svelte`        | Active     | —                     | Guarded-action confirmation modal             |
+| `AgentSelector.svelte`       | Active     | —                     | Agent multi-select for session creation       |
+| `AgentPanel.svelte`          | Deprecated | → PipelineStage       | Keep for build compat; do not use in new code |
+| `ControlPanel.svelte`        | Deprecated | → inlined             | Keep for build compat; do not use in new code |
+| `StateView.svelte`           | Deprecated | → CanonicalStatePanel | Keep for build compat; do not use in new code |
+| `Timeline.svelte`            | Deprecated | → inlined             | Keep for build compat; do not use in new code |
+
+## Design System (v1.1)
+
+All UI colors are defined as CSS custom properties in `frontend/src/app.css`. Never hard-code hex values in components or Tailwind classes. See [docs/A2A-agent-Brainstorm.md §21](docs/A2A-agent-Brainstorm.md) and [docs/PLAN.md §8.16](docs/PLAN.md) for the full design token reference.

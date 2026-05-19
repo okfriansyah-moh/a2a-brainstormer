@@ -29,10 +29,10 @@ Agents are defined in `.github/agents/`. Each `.agent.md` file declares one agen
 
 ### Current Agents
 
-| Agent         | File                                  | Purpose                                                                                         |
-| ------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `task-runner` | `.github/agents/task-runner.agent.md` | Implements tasks from `docs/PLAN.md`. Production-ready code per task. Non-interactive.          |
-| `Explore`     | `.github/agents/Explore.agent.md`     | Read-only codebase explorer. Finds patterns, traces data flows, answers questions. Never edits. |
+| Agent         | File                                  | Purpose                                                                                                                                                                                                 |
+| ------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task-runner` | `.github/agents/task-runner.agent.md` | Implements tasks from `docs/PLAN.md` (Tasks 1–25). Production-ready code per task. Non-interactive. Covers backend Go modules (Tasks 1–15, 19) and frontend SvelteKit UI redesign (Tasks 16–18, 20–25). |
+| `Explore`     | `.github/agents/Explore.agent.md`     | Read-only codebase explorer. Finds patterns, traces data flows, answers questions. Never edits.                                                                                                         |
 
 ### Agent Frontmatter Schema
 
@@ -232,6 +232,21 @@ These files have strict modification rules. All agents must honour them.
 ## File Ownership Rule
 
 Each task in `docs/PLAN.md` lists exactly the files it owns under `### Files to create`. **An agent must only write to files owned by the currently assigned task.** If a compile error requires touching a file owned by a different task, stop and fix it within the current task's own files (compatibility shim or interface boundary).
+
+**v1.1 Frontend file ownership (Tasks 16–25):**
+
+| Task | Owns                                                                                                                                                                 |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T16  | `frontend/src/app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                                       |
+| T17  | `frontend/src/routes/+page.svelte`, `lib/components/AgentSelector.svelte`                                                                                            |
+| T18  | `frontend/src/routes/session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `CanonicalStatePanel.svelte`, `RiskBoard.svelte`                    |
+| T19  | `backend/internal/modules/session/` (list endpoint + finalize), `backend/internal/modules/markdown/generator.go`, `frontend/src/lib/services/api.ts`, `lib/types.ts` |
+| T20  | `frontend/src/routes/settings/+page.svelte`, `routes/agents/+page.svelte` (redirect), `routes/skills/+page.svelte` (redirect)                                        |
+| T21  | `frontend/src/routes/settings/agent/new/+page.svelte`, `settings/agent/[id]/+page.svelte`, `settings/skill/new/+page.svelte`, `settings/skill/[id]/+page.svelte`     |
+| T22  | `frontend/src/lib/components/WarningModal.svelte`, `lib/stores/uiStore.ts`                                                                                           |
+| T23  | `frontend/src/routes/history/+page.svelte`                                                                                                                           |
+| T24  | `frontend/src/routes/session/[id]/finalize/+page.svelte`                                                                                                             |
+| T25  | `frontend/src/routes/+layout.svelte` (final nav), `lib/services/api.test.ts`, `README.md`                                                                            |
 
 ---
 
