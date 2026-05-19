@@ -160,13 +160,46 @@ func (s *Service) GetSession(ctx context.Context, id string) (Session, error) {
 	return sess, nil
 }
 
-// ListSessions returns all sessions ordered newest-first (no agent list loaded).
-func (s *Service) ListSessions(ctx context.Context) ([]Session, error) {
+// ListSessions returns a summary list of all sessions ordered newest-first.
+// Each item is mapped from the raw Session row: Idea is truncated to 120 chars
+// and Confidence/CurrentIteration are extracted from the JSONB current_state.
+func (s *Service) ListSessions(ctx context.Context) (ListSessionsResponse, error) {
 	sessions, err := s.repo.ListSessions(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list sessions: %w", err)
+		return ListSessionsResponse{}, fmt.Errorf("list sessions: %w", err)
 	}
-	return sessions, nil
+
+	items := make([]SessionListItem, 0, len(sessions))
+	for _, sess := range sessions {
+		items = append(items, toSessionListItem(sess))
+	}
+	return ListSessionsResponse{Sessions: items, Total: len(items)}, nil
+}
+
+// toSessionListItem maps a full Session to its summary representation.
+// Idea is truncated at a word-safe boundary up to 120 characters.
+// Confidence and CurrentIteration are extracted from CurrentState when present.
+func toSessionListItem(sess Session) SessionListItem {
+	idea := sess.Idea
+	if len(idea) > 120 {
+		idea = idea[:120]
+	}
+
+	item := SessionListItem{
+		ID:            sess.ID,
+		Idea:          idea,
+		Status:        sess.Status,
+		MaxIterations: sess.MaxIterations,
+		CreatedAt:     sess.CreatedAt,
+		UpdatedAt:     sess.UpdatedAt,
+		AgentCount:    len(sess.Agents),
+	}
+
+	if sess.CurrentState != nil {
+		item.CurrentIteration = sess.CurrentState.Meta.Iteration
+		item.Confidence = sess.CurrentState.Metrics.Confidence
+	}
+	return item
 }
 
 // FinalizeSession marks a session as approved. Called by the finalize endpoint;

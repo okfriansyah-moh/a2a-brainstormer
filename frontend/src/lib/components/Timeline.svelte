@@ -1,3 +1,4 @@
+<!-- @deprecated — Inlined into session/[id]/+page.svelte. Kept for backwards-compatibility only. -->
 <script lang="ts">
   import type { AgentMeta } from "$lib/types";
 

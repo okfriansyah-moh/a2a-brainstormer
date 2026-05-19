@@ -79,3 +79,37 @@ type CreateSessionRequest struct {
 	LLMOverrides   map[string]*llm.LLMConfig `json:"llm_overrides,omitempty"`
 	SkillOverrides map[string]*[]string      `json:"skill_overrides,omitempty"`
 }
+
+// SessionListItem is the summary representation of a Session used in list
+// responses. Agents are not loaded; Idea is truncated to 120 characters by
+// the service layer. Confidence and CurrentIteration are extracted from the
+// current_state JSONB field.
+type SessionListItem struct {
+	ID               string    `json:"id"`
+	Idea             string    `json:"idea"` // ≤ 120 chars
+	Status           string    `json:"status"`
+	MaxIterations    int       `json:"max_iterations"`
+	CurrentIteration int       `json:"current_iteration"` // from current_state.meta.iteration
+	Confidence       float64   `json:"confidence"`        // from current_state.metrics.confidence
+	AgentCount       int       `json:"agent_count"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// ListSessionsResponse is the envelope returned by GET /sessions.
+// Total matches len(Sessions) and is included for pagination readiness.
+type ListSessionsResponse struct {
+	Sessions []SessionListItem `json:"sessions"`
+	Total    int               `json:"total"`
+}
+
+// FinalizeResponse is the response body for POST /sessions/{id}/finalize.
+// ArchitectureMarkdown and RoadmapMarkdown contain the rendered artifact
+// content so the frontend can offer inline preview and download without a
+// separate file-fetch round-trip.
+type FinalizeResponse struct {
+	SessionID            string `json:"session_id"`
+	ArchitectureMarkdown string `json:"architecture_markdown"`
+	RoadmapMarkdown      string `json:"roadmap_markdown"`
+	Status               string `json:"status"`
+}

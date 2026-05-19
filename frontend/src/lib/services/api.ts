@@ -18,7 +18,9 @@ import type {
   CreateSessionRequest,
   CreateSessionResponse,
   CreateSkillRequest,
+  FinalizeResponse,
   IterateResponse,
+  ListSessionsResponse,
   Session,
   Skill,
   UpdateAgentRequest,
@@ -123,14 +125,26 @@ export async function iterate(sessionId: string): Promise<IterateResponse> {
 /**
  * Finalize (approve) a session — triggers markdown artifact generation
  * and transitions the session to `approved` status.
+ * Returns the session ID, status, and the rendered markdown content for
+ * both output artifacts (architecture + roadmap).
  */
-export async function finalizeSession(sessionId: string): Promise<Session> {
-  return request<Session>(
+export async function finalizeSession(
+  sessionId: string,
+): Promise<FinalizeResponse> {
+  return request<FinalizeResponse>(
     `/sessions/${encodeURIComponent(sessionId)}/finalize`,
     {
       method: "POST",
     },
   );
+}
+
+/**
+ * List all sessions, ordered newest-first.
+ * Returns a paginated envelope with a sessions array and a total count.
+ */
+export async function listSessions(): Promise<ListSessionsResponse> {
+  return request<ListSessionsResponse>("/sessions");
 }
 
 // ── Agents (§8.7) ─────────────────────────────────────────────────────────────

@@ -3,27 +3,89 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { sessionStore } from "$lib/stores/sessionStore";
-  import AgentPanel from "$lib/components/AgentPanel.svelte";
-  import ControlPanel from "$lib/components/ControlPanel.svelte";
-  import StateView from "$lib/components/StateView.svelte";
-  import Timeline from "$lib/components/Timeline.svelte";
+  import PipelineStage from "$lib/components/PipelineStage.svelte";
+  import ConfidenceBar from "$lib/components/ConfidenceBar.svelte";
+  import CanonicalStatePanel from "$lib/components/CanonicalStatePanel.svelte";
+  import RiskBoard from "$lib/components/RiskBoard.svelte";
   import { getSession, iterate, finalizeSession } from "$lib/services/api";
-  import type { AgentMeta, CanonicalState } from "$lib/types";
+  import type { SessionAgent } from "$lib/types";
 
-  /** History of (iteration, agents) snapshots for the Timeline component. */
-  let iterationHistory: { iteration: number; agents: AgentMeta[] }[] = [];
-
-  /** Previous canonical state — used for diff highlights in AgentPanel. */
-  let previousState: CanonicalState | undefined = undefined;
-
-  /** Convergence flag — set to true when the backend signals convergence. */
+  /** True when the backend signals the session has converged. */
   let converged = false;
+
+  /** Max iterations for the progress label — loaded with the session. */
+  let maxIterations = 0;
 
   let loadError = "";
   let actionError = "";
 
+  /** Controls visibility of the feedback textarea. */
+  let showFeedback = false;
+  let feedbackText = "";
+
   $: sessionId = $page.params.id;
-  $: sessionStarted = !!$sessionStore.state;
+
+  /** Confidence as 0–100 integer for ConfidenceBar. */
+  $: confidencePct = Math.round(
+    ($sessionStore.state?.metrics?.confidence ?? 0) * 100,
+  );
+
+  /** Current iteration number (0 before first iteration). */
+  $: currentIteration = $sessionStore.state?.meta?.iteration ?? 0;
+
+  /** Derive per-stage status from agents + loading state. */
+  $: stageStatuses = computeStageStatuses(
+    $sessionStore.agents,
+    $sessionStore.loading,
+  );
+
+  function computeStageStatuses(
+    agents: SessionAgent[],
+    loading: boolean,
+  ): Array<"done" | "running" | "waiting"> {
+    const statuses: Array<"done" | "running" | "waiting"> = [];
+    let runnerAssigned = false;
+
+    for (const agent of agents) {
+      if (agent.output) {
+        statuses.push("done");
+      } else if (loading && !runnerAssigned) {
+        statuses.push("running");
+        runnerAssigned = true;
+      } else {
+        statuses.push("waiting");
+      }
+    }
+    return statuses;
+  }
+
+  function stageOutputText(agent: SessionAgent): string {
+    if (!agent.output) return "";
+    const s = agent.output;
+    const lines: string[] = [];
+    if (s.architecture?.overview) {
+      lines.push(`Architecture: ${s.architecture.overview}`);
+    }
+    if (s.execution_plan?.length) {
+      lines.push(`Plan steps: ${s.execution_plan.length}`);
+    }
+    if (s.risks?.length) {
+      lines.push(`Risks identified: ${s.risks.length}`);
+    }
+    if (s.open_questions?.length) {
+      lines.push(`Open questions: ${s.open_questions.length}`);
+    }
+    return lines.join("\n") || JSON.stringify(s).slice(0, 300);
+  }
+
+  function stageSummaryText(agent: SessionAgent): string {
+    if (!agent.output) return "";
+    const ov = agent.output.architecture?.overview;
+    if (ov) return ov.slice(0, 180);
+    const firstStep = agent.output.execution_plan?.[0];
+    if (firstStep) return firstStep.title;
+    return "";
+  }
 
   onMount(async () => {
     if (!sessionId) return;
@@ -32,26 +94,24 @@
     try {
       const session = await getSession(sessionId);
       sessionStore.setSession(session.id, session.idea);
+      maxIterations = session.max_iterations;
       if (session.current_state) {
         sessionStore.updateState(session.current_state);
-        const meta = session.current_state.meta;
-        if (meta?.iteration && meta?.agents) {
-          iterationHistory = [
-            { iteration: meta.iteration, agents: meta.agents },
-          ];
-        }
+        converged =
+          session.status === "converged" || session.status === "approved";
       }
-      // Populate agents from state metadata if present
       if (session.current_state?.meta?.agents) {
-        const agentSlots = session.current_state.meta.agents.map((a) => ({
-          id: a.agent_id,
-          name: a.name,
-          role: a.role,
-          provider: a.provider,
-          model: a.model,
-          skills: a.skills,
-        }));
-        sessionStore.setAgents(agentSlots);
+        const agentsFromMeta: SessionAgent[] =
+          session.current_state.meta.agents.map((a) => ({
+            id: a.agent_id,
+            name: a.name,
+            role: a.role,
+            provider: a.provider,
+            model: a.model,
+            skills: a.skills,
+            output: undefined,
+          }));
+        sessionStore.setAgents(agentsFromMeta);
       }
     } catch (err) {
       loadError =
@@ -62,22 +122,13 @@
   });
 
   async function handleNextIteration() {
-    if ($sessionStore.loading || !sessionId) return;
+    if ($sessionStore.loading || !sessionId || converged) return;
     sessionStore.setLoading(true);
     actionError = "";
-    previousState = $sessionStore.state ?? undefined;
     try {
       const result = await iterate(sessionId);
       sessionStore.updateState(result.state);
       converged = result.converged;
-
-      const meta = result.state.meta;
-      if (meta?.iteration && meta?.agents) {
-        iterationHistory = [
-          ...iterationHistory,
-          { iteration: meta.iteration, agents: meta.agents },
-        ];
-      }
     } catch (err) {
       actionError = err instanceof Error ? err.message : "Iteration failed.";
     } finally {
@@ -85,13 +136,13 @@
     }
   }
 
-  async function handleApprove() {
+  async function handleFinalize() {
     if ($sessionStore.loading || !sessionId) return;
     sessionStore.setLoading(true);
     actionError = "";
     try {
       await finalizeSession(sessionId);
-      await goto("/");
+      await goto(`/session/${sessionId}/finalize`);
     } catch (err) {
       actionError =
         err instanceof Error ? err.message : "Failed to finalize session.";
@@ -99,106 +150,371 @@
     }
   }
 
-  function handleInjectFeedback(feedback: string) {
-    // Feedback injection is handled by the backend via the idea field on the
-    // next iterate call. For now we surface the field for UX and note that
-    // full support is wired in Task 15 integration.
+  function handleToggleFeedback() {
+    showFeedback = !showFeedback;
+  }
+
+  function handleInjectFeedback() {
+    if (!feedbackText.trim()) return;
+    // Feedback is surfaced in the UI for the next iterate call.
+    // Full wiring is done in Task 15 integration.
     actionError = "";
-    console.info("Feedback queued for next iteration:", feedback);
+    showFeedback = false;
+    feedbackText = "";
   }
 </script>
 
-<div class="flex h-screen flex-col overflow-hidden bg-gray-50">
-  <!-- Top bar -->
-  <header
-    class="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3"
-  >
-    <div class="flex items-center gap-3">
-      <a href="/" class="text-sm text-gray-500 hover:text-gray-700">← Home</a>
-      <span class="text-gray-300">|</span>
-      <h1 class="text-sm font-semibold text-gray-900">Session Workspace</h1>
+<div class="artboard">
+  <!-- ── Topbar ────────────────────────────────────────────────────────── -->
+  <div class="topbar session-topbar">
+    <div>
+      <div class="topbar-title">Session Workspace</div>
       {#if $sessionStore.idea}
-        <span
-          class="max-w-sm truncate text-xs text-gray-500"
-          title={$sessionStore.idea}
-        >
-          {$sessionStore.idea}
-        </span>
+        <div class="topbar-subtitle" title={$sessionStore.idea}>
+          {$sessionStore.idea.length > 80
+            ? $sessionStore.idea.slice(0, 77) + "…"
+            : $sessionStore.idea}
+        </div>
       {/if}
     </div>
-    <div class="flex items-center gap-2 text-xs text-gray-500">
-      {#if $sessionStore.state?.meta?.iteration}
-        Iteration {$sessionStore.state.meta.iteration}
-      {/if}
-      {#if converged}
-        <span
-          class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700"
-        >
-          Converged
-        </span>
-      {/if}
-    </div>
-  </header>
+    <nav class="topbar-nav">
+      <a href="/" class="topbar-link">← New Session</a>
+      <a href="/settings" class="topbar-link">⚙ Settings</a>
+    </nav>
+  </div>
 
-  <!-- Load error -->
+  <!-- ── Error banners ────────────────────────────────────────────────── -->
   {#if loadError}
-    <div
-      class="mx-6 mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-    >
-      {loadError}
-    </div>
+    <div class="banner banner-error">{loadError}</div>
   {/if}
-
-  <!-- Action error -->
   {#if actionError}
-    <div
-      class="mx-6 mt-4 rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-700"
-    >
-      {actionError}
-    </div>
+    <div class="banner banner-warn">{actionError}</div>
   {/if}
 
-  <!-- Main workspace -->
-  <div class="flex flex-1 flex-col overflow-hidden">
-    <!-- Agent panels — horizontal scrollable row -->
+  <div class="workspace">
+    <!-- ── Pass summary bar ──────────────────────────────────────────── -->
+    <div class="pass-header panel">
+      <div>
+        <div class="pass-label">
+          Pipeline Pass
+          <span>{currentIteration > 0 ? currentIteration : "—"}</span>
+          {#if maxIterations > 0}
+            / {maxIterations}
+          {/if}
+        </div>
+        <div class="pass-sub">
+          Sequential · {$sessionStore.agents.length} agents · Ordered by position
+        </div>
+      </div>
+      <div class="pass-actions">
+        <a href="/history" class="topbar-link">← Sessions</a>
+        <ConfidenceBar
+          value={confidencePct}
+          animating={$sessionStore.loading}
+        />
+      </div>
+    </div>
+
+    <!-- ── Sequential pipeline ──────────────────────────────────────── -->
     {#if $sessionStore.agents.length > 0}
-      <div
-        class="flex gap-4 overflow-x-auto border-b border-gray-200 bg-white p-4"
-      >
-        {#each $sessionStore.agents as agent}
-          <AgentPanel {agent} previousOutput={previousState} />
+      <div class="panel pipeline">
+        {#each $sessionStore.agents as agent, i (agent.id)}
+          <PipelineStage
+            {agent}
+            position={i + 1}
+            status={stageStatuses[i] ?? "waiting"}
+            output={stageOutputText(agent)}
+            summary={stageSummaryText(agent)}
+          />
+          {#if i < $sessionStore.agents.length - 1}
+            <div
+              class="stage-connector"
+              class:stage-connector-dim={stageStatuses[i] === "waiting" ||
+                stageStatuses[i + 1] === "waiting"}
+            ></div>
+          {/if}
         {/each}
       </div>
-    {:else if !$sessionStore.loading}
-      <div class="border-b border-gray-200 bg-white px-6 py-4">
-        <p class="text-sm text-gray-400 italic">
-          No agents in this session. Run the first iteration to populate agent
-          data.
-        </p>
+    {:else if !$sessionStore.loading && !loadError}
+      <div class="panel no-agents">
+        <p>No agents in this session. Run the first iteration to begin.</p>
       </div>
     {/if}
 
-    <!-- Scrollable content area -->
-    <div class="flex-1 overflow-y-auto p-6 space-y-4">
-      <!-- Control panel -->
-      <ControlPanel
-        loading={$sessionStore.loading}
-        {sessionStarted}
-        {converged}
-        onNextIteration={handleNextIteration}
-        onApprove={handleApprove}
-        onInjectFeedback={handleInjectFeedback}
-      />
+    <!-- ── Feedback panel (conditionally shown) ─────────────────────── -->
+    {#if showFeedback}
+      <div class="panel feedback-panel">
+        <div class="feedback-label">Inject Feedback for Next Iteration</div>
+        <textarea
+          class="feedback-textarea"
+          bind:value={feedbackText}
+          placeholder="Describe what you want the agents to focus on or change in the next pass…"
+          rows="4"
+        ></textarea>
+        <div class="feedback-actions">
+          <button
+            class="btn-primary"
+            type="button"
+            on:click={handleInjectFeedback}
+            disabled={!feedbackText.trim()}
+          >
+            Queue Feedback
+          </button>
+          <button
+            class="btn-ghost"
+            type="button"
+            on:click={handleToggleFeedback}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    {/if}
 
-      <!-- Two-column layout: state view + timeline -->
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div class="lg:col-span-2">
-          <StateView state={$sessionStore.state} />
-        </div>
-        <div class="lg:col-span-1">
-          <Timeline iterations={iterationHistory} />
-        </div>
+    <!-- ── Run bar ───────────────────────────────────────────────────── -->
+    <div class="panel run-bar">
+      <div class="run-left">
+        <button
+          class="btn-primary"
+          type="button"
+          on:click={handleNextIteration}
+          disabled={$sessionStore.loading || converged}
+        >
+          {$sessionStore.loading ? "Running…" : "Run Next Iteration"}
+        </button>
+        <button
+          class="btn-ghost"
+          type="button"
+          on:click={handleToggleFeedback}
+          disabled={$sessionStore.loading}
+        >
+          Inject Feedback
+        </button>
+        <button
+          class="btn-ghost"
+          type="button"
+          on:click={handleFinalize}
+          disabled={$sessionStore.loading}
+        >
+          Finalize Session
+        </button>
+      </div>
+      <div class="run-status">
+        {#if converged}
+          <span class="chip-ok">✓ Converged — ready to finalize</span>
+        {:else if $sessionStore.loading}
+          <span class="chip-live">
+            <span class="dot-live"></span> Running pipeline…
+          </span>
+        {:else if currentIteration > 0}
+          <span style="color:var(--ink-500);font-size:0.8125rem;">
+            Pass {currentIteration} complete · confidence {confidencePct}%
+          </span>
+        {:else}
+          <span style="color:var(--ink-300);font-size:0.8125rem;">
+            Not started
+          </span>
+        {/if}
+      </div>
+    </div>
+
+    <!-- ── Bottom split: canonical state + risk board ───────────────── -->
+    <div class="split">
+      <div class="panel split-state">
+        <div class="section-heading">Canonical State</div>
+        <CanonicalStatePanel state={$sessionStore.state} />
+      </div>
+      <div class="panel split-risks">
+        <div class="section-heading">Risk Board</div>
+        <RiskBoard risks={$sessionStore.state?.risks ?? []} />
       </div>
     </div>
   </div>
 </div>
+
+<style>
+  .session-topbar {
+    border-radius: 18px 18px 0 0;
+    padding: 0 28px;
+  }
+
+  .topbar-title {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--ink-900);
+  }
+
+  .topbar-subtitle {
+    font-size: 0.8125rem;
+    color: var(--ink-500);
+    margin-top: 1px;
+    max-width: 560px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace {
+    padding: 20px 28px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* ── Pass header ── */
+  .pass-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+  }
+
+  .pass-label {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+  }
+
+  .pass-sub {
+    color: var(--ink-500);
+    font-size: 0.75rem;
+    margin-top: 3px;
+  }
+
+  .pass-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* ── Pipeline ── */
+  .pipeline {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .stage-connector {
+    height: 1px;
+    background: var(--line);
+    margin: 0 18px;
+  }
+
+  .stage-connector-dim {
+    background: #eaedf4;
+  }
+
+  .no-agents {
+    padding: 24px;
+    color: var(--ink-300);
+    font-size: 0.875rem;
+    font-style: italic;
+  }
+
+  /* ── Feedback panel ── */
+  .feedback-panel {
+    padding: 16px 18px;
+  }
+
+  .feedback-label {
+    font-weight: 600;
+    font-size: 0.8125rem;
+    color: var(--ink-700);
+    margin-bottom: 8px;
+  }
+
+  .feedback-textarea {
+    width: 100%;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 0.875rem;
+    background: rgba(255, 255, 255, 0.6);
+    color: var(--ink-900);
+    resize: vertical;
+    outline: none;
+  }
+
+  .feedback-textarea:focus {
+    border-color: var(--accent);
+  }
+
+  .feedback-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  /* ── Run bar ── */
+  .run-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .run-left {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .run-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ── Bottom split ── */
+  .split {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 14px;
+  }
+
+  .split-state {
+    padding: 18px 20px;
+  }
+
+  .split-risks {
+    padding: 18px 20px;
+  }
+
+  .section-heading {
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--ink-900);
+    margin-bottom: 12px;
+  }
+
+  /* ── Banners ── */
+  .banner {
+    margin: 0 28px;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.875rem;
+    margin-top: 12px;
+  }
+
+  .banner-error {
+    background: #fff0f3;
+    color: var(--danger);
+    border: 1px solid #f5c6d0;
+  }
+
+  .banner-warn {
+    background: #fff8ec;
+    color: var(--warn);
+    border: 1px solid #f5d589;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .split {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -38,7 +38,7 @@ var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 type sessionService interface {
 	CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error)
 	GetSession(ctx context.Context, id string) (Session, error)
-	ListSessions(ctx context.Context) ([]Session, error)
+	ListSessions(ctx context.Context) (ListSessionsResponse, error)
 	FinalizeSession(ctx context.Context, id string) (Session, error)
 }
 
@@ -46,6 +46,7 @@ type sessionService interface {
 // Injecting an interface keeps the markdown package out of the import graph
 // for unit tests that do not need file I/O.
 type markdownWriter interface {
+	GenerateContent(s state.CanonicalState) (arch string, roadmap string, err error)
 	WriteArtifacts(s state.CanonicalState, outputDir string) error
 }
 
@@ -126,15 +127,15 @@ func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := h.svc.ListSessions(r.Context())
+	resp, err := h.svc.ListSessions(r.Context())
 	if err != nil {
 		h.handleServiceError(w, r, err)
 		return
 	}
-	if sessions == nil {
-		sessions = []Session{}
+	if resp.Sessions == nil {
+		resp.Sessions = []SessionListItem{}
 	}
-	writeJSON(w, http.StatusOK, sessions)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
@@ -150,19 +151,41 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write markdown artifacts if a writer and output directory are configured.
-	if h.markdown != nil && h.outputDir != "" && sess.CurrentState != nil {
-		if werr := h.markdown.WriteArtifacts(*sess.CurrentState, h.outputDir); werr != nil {
+	// Generate markdown content for the response body and optionally write
+	// the artifact files to disk. Both operations are non-fatal: a failure
+	// leaves the session in approved status with empty markdown fields.
+	var archContent, roadmapContent string
+	if h.markdown != nil && sess.CurrentState != nil {
+		arch, road, merr := h.markdown.GenerateContent(*sess.CurrentState)
+		if merr != nil {
 			if h.logger != nil {
-				h.logger.ErrorContext(r.Context(), "markdown artifact write failed",
+				h.logger.ErrorContext(r.Context(), "markdown generation failed",
 					slog.String("session_id", id),
-					slog.Any("error", werr))
+					slog.Any("error", merr))
 			}
-			// Artifact failure is non-fatal: the session is already finalized.
+		} else {
+			archContent = arch
+			roadmapContent = road
+		}
+
+		if h.outputDir != "" {
+			if werr := h.markdown.WriteArtifacts(*sess.CurrentState, h.outputDir); werr != nil {
+				if h.logger != nil {
+					h.logger.ErrorContext(r.Context(), "markdown artifact write failed",
+						slog.String("session_id", id),
+						slog.Any("error", werr))
+				}
+				// Write failure is non-fatal.
+			}
 		}
 	}
 
-	writeJSON(w, http.StatusOK, sess)
+	writeJSON(w, http.StatusOK, FinalizeResponse{
+		SessionID:            sess.ID,
+		ArchitectureMarkdown: archContent,
+		RoadmapMarkdown:      roadmapContent,
+		Status:               sess.Status,
+	})
 }
 
 // ── Error helpers ─────────────────────────────────────────────────────────────

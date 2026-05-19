@@ -10,7 +10,7 @@
   /** Per-agent role overrides. Key = agent id, value = role string. Bindable. */
   export let roleOverrides: Record<string, string> = {};
 
-  /** Per-agent skill overrides. Key = agent id, value = array of skill UUIDs (null = use defaults). Bindable. */
+  /** Per-agent skill overrides. Key = agent id, value = array of skill UUIDs. Bindable. */
   export let skillOverrides: Record<string, string[]> = {};
 
   /** Per-agent LLM model override. Key = agent id, value = model string. Bindable. */
@@ -18,12 +18,17 @@
 
   export let loading: boolean = false;
 
+  /**
+   * poolMode=true renders a compact checkbox-row pool (used on the home page).
+   * poolMode=false (default) renders the expanded card layout with override controls.
+   */
+  export let poolMode: boolean = false;
+
   const roleOptions = ["build", "review", "refine", "devils_advocate"];
 
   function toggleAgent(id: string) {
     if (selectedAgentIds.includes(id)) {
       selectedAgentIds = selectedAgentIds.filter((a) => a !== id);
-      // Clean up overrides when deselected
       roleOverrides = Object.fromEntries(
         Object.entries(roleOverrides).filter(([k]) => k !== id),
       );
@@ -41,7 +46,6 @@
   function toggleSkillOverride(agentId: string, skillId: string) {
     const current = skillOverrides[agentId];
     if (current === undefined) {
-      // Was using defaults — switch to explicit override (all defaults minus this one)
       const agent = agents.find((a) => a.id === agentId);
       if (!agent) return;
       const defaults = agent.skills
@@ -63,7 +67,7 @@
 
   function isSkillActive(agentId: string, skillId: string): boolean {
     const override = skillOverrides[agentId];
-    if (override === undefined) return true; // using defaults = all attached skills active
+    if (override === undefined) return true;
     return override.includes(skillId);
   }
 
@@ -71,16 +75,45 @@
 </script>
 
 {#if loading}
-  <p class="text-sm text-gray-400">Loading agents...</p>
+  <p style="font-size:0.8125rem;color:var(--ink-500);padding:10px 0;">
+    Loading agents…
+  </p>
 {:else if agents.length === 0}
-  <p class="text-sm text-gray-400 italic">
+  <p
+    style="font-size:0.8125rem;color:var(--ink-500);font-style:italic;padding:10px 0;"
+  >
     No agents registered.
-    <a href="/agents" class="text-blue-600 underline hover:text-blue-800"
-      >Add agents</a
+    <a
+      href="/settings?tab=agents"
+      style="color:var(--accent);text-decoration:underline;">Add agents</a
     >
     first.
   </p>
+{:else if poolMode}
+  <!-- ── Compact pool layout (home page) ─────────────────────────────── -->
+  <div class="pool" class:pool-invalid={selectedAgentIds.length === 1}>
+    {#each agents as agent}
+      {@const selected = selectedAgentIds.includes(agent.id)}
+      <label class="agent-row" class:agent-row-selected={selected}>
+        <input
+          type="checkbox"
+          checked={selected}
+          on:change={() => toggleAgent(agent.id)}
+        />
+        <div class="agent-row-body">
+          <div class="agent-row-name">{agent.name}</div>
+          <div class="agent-row-meta">
+            {agent.llm_config.provider} / {agent.llm_config.model}
+          </div>
+        </div>
+        <span class="badge-{agent.default_role}"
+          >{agent.default_role.replace("_", " ")}</span
+        >
+      </label>
+    {/each}
+  </div>
 {:else}
+  <!-- ── Full card layout with override controls ───────────────────────── -->
   <div class="space-y-3">
     {#each agents as agent}
       {@const selected = selectedAgentIds.includes(agent.id)}
@@ -89,7 +122,6 @@
           ? 'border-blue-400 bg-blue-50'
           : 'border-gray-200 bg-white'}"
       >
-        <!-- Agent row header -->
         <label class="flex cursor-pointer items-start gap-3 p-3">
           <input
             type="checkbox"
@@ -109,11 +141,9 @@
           </div>
         </label>
 
-        <!-- Expanded overrides when selected -->
         {#if selected}
           <div class="border-t border-blue-200 bg-white px-3 pb-3">
             <div class="mt-2 grid grid-cols-2 gap-3">
-              <!-- Role override -->
               <div>
                 <label
                   for="role-{agent.id}"
@@ -137,7 +167,6 @@
                 </select>
               </div>
 
-              <!-- Model override -->
               <div>
                 <label
                   for="model-{agent.id}"
@@ -169,7 +198,6 @@
               </div>
             </div>
 
-            <!-- Skill toggles -->
             {#if agent.skills.length > 0}
               <div class="mt-2">
                 <p class="mb-1 text-xs font-medium text-gray-600">
@@ -206,3 +234,66 @@
     </p>
   {/if}
 {/if}
+
+<style>
+  /* ── Pool layout ─────────────────────────────────────────────────────── */
+  .pool {
+    border: 1px solid #cfd8ea;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  .pool-invalid {
+    border-color: var(--danger);
+  }
+
+  .agent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #eef1f8;
+    transition: background 0.12s;
+  }
+
+  .agent-row:last-child {
+    border-bottom: none;
+  }
+
+  .agent-row:hover {
+    background: #f8f9ff;
+  }
+
+  .agent-row-selected {
+    background: #f0f4ff;
+  }
+
+  .agent-row input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .agent-row-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .agent-row-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--ink-900);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .agent-row-meta {
+    font-size: 0.72rem;
+    color: var(--ink-500);
+    margin-top: 1px;
+  }
+</style>

@@ -1,3 +1,4 @@
+<!-- @deprecated — Use CanonicalStatePanel instead. Kept for backwards-compatibility only. -->
 <script lang="ts">
   import type { CanonicalState } from "$lib/types";
 

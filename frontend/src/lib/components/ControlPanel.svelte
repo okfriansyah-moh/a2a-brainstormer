@@ -1,3 +1,4 @@
+<!-- @deprecated — Inlined into session/[id]/+page.svelte run bar. Kept for backwards-compatibility only. -->
 <script lang="ts">
   export let loading: boolean = false;
   export let sessionStarted: boolean = false;

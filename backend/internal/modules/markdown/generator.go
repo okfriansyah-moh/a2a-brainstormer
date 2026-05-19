@@ -132,27 +132,37 @@ func GenerateRoadmap(s state.CanonicalState) (string, error) {
 	return b.String(), nil
 }
 
+// GenerateContent produces both the architecture and roadmap markdown strings
+// for a finalized session. It is the single entry-point used by callers that
+// need the content in-memory (e.g. the finalize HTTP handler). WriteArtifacts
+// calls this function internally so the generation logic lives in one place.
+func GenerateContent(s state.CanonicalState) (arch string, roadmap string, err error) {
+	arch, err = GenerateArchitecture(s)
+	if err != nil {
+		return "", "", fmt.Errorf("generate content: architecture: %w", err)
+	}
+	roadmap, err = GenerateRoadmap(s)
+	if err != nil {
+		return "", "", fmt.Errorf("generate content: roadmap: %w", err)
+	}
+	return arch, roadmap, nil
+}
+
 // WriteArtifacts writes architecture.md and roadmap.md to outputDir.
 // Each file is written atomically: content is first written to a .tmp file,
 // then renamed to the final path. If either write fails, the error is returned
 // and the other file may or may not have been written.
 func WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	arch, err := GenerateArchitecture(s)
+	arch, roadmap, err := GenerateContent(s)
 	if err != nil {
-		return fmt.Errorf("write artifacts: generate architecture: %w", err)
+		return fmt.Errorf("write artifacts: %w", err)
 	}
 	if err := writeAtomic(filepath.Join(outputDir, "architecture.md"), arch); err != nil {
 		return fmt.Errorf("write artifacts: architecture.md: %w", err)
 	}
-
-	road, err := GenerateRoadmap(s)
-	if err != nil {
-		return fmt.Errorf("write artifacts: generate roadmap: %w", err)
-	}
-	if err := writeAtomic(filepath.Join(outputDir, "roadmap.md"), road); err != nil {
+	if err := writeAtomic(filepath.Join(outputDir, "roadmap.md"), roadmap); err != nil {
 		return fmt.Errorf("write artifacts: roadmap.md: %w", err)
 	}
-
 	return nil
 }
 
@@ -160,9 +170,14 @@ func WriteArtifacts(s state.CanonicalState, outputDir string) error {
 
 // Writer is a zero-value struct that implements the markdownWriter interface
 // required by session.Handler. It delegates all work to the package-level
-// WriteArtifacts function so that callers can program to an interface
-// without changing any generation logic.
+// functions so that callers can program to an interface without changing any
+// generation logic.
 type Writer struct{}
+
+// GenerateContent satisfies the markdownWriter interface used by session.Handler.
+func (w *Writer) GenerateContent(s state.CanonicalState) (arch string, roadmap string, err error) {
+	return GenerateContent(s)
+}
 
 // WriteArtifacts satisfies the markdownWriter interface used by session.Handler.
 func (w *Writer) WriteArtifacts(s state.CanonicalState, outputDir string) error {
