@@ -166,6 +166,45 @@ export interface IterateResponse {
   converged: boolean;
 }
 
+// ── Session list ──────────────────────────────────────────────────────────────
+
+/**
+ * Summary row returned by GET /sessions.
+ * Idea is truncated to ≤ 120 chars by the backend service layer.
+ * Confidence and current_iteration are extracted from current_state JSONB.
+ */
+export interface SessionListItem {
+  id: string;
+  idea: string; // ≤ 120 chars
+  status: "active" | "converged" | "approved" | "failed";
+  max_iterations: number;
+  current_iteration: number;
+  confidence: number; // [0.0, 1.0]
+  agent_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Envelope returned by GET /sessions. */
+export interface ListSessionsResponse {
+  sessions: SessionListItem[];
+  total: number;
+}
+
+// ── Finalize response ─────────────────────────────────────────────────────────
+
+/**
+ * Response from POST /sessions/{id}/finalize.
+ * Includes the rendered markdown content so the frontend can offer
+ * inline preview and download without a separate fetch.
+ */
+export interface FinalizeResponse {
+  session_id: string;
+  architecture_markdown: string;
+  roadmap_markdown: string;
+  status: string;
+}
+
 /** Request body for POST /agents (register agent) */
 export interface CreateAgentRequest {
   name: string;

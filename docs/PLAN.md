@@ -722,7 +722,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 16 — Frontend: Design System Foundation <!-- not started -->
+### Task 16 — Frontend: Design System Foundation <!-- ✅ Task 16 completed -->
 
 **Goal:** Establish the visual design system — CSS custom properties, Google Fonts, global gradient background, glassmorphism panel/card primitives, button styles, and artboard layout — that all subsequent UI tasks depend on. This is a pure style layer; no functional logic changes.
 
@@ -755,7 +755,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 17 — Frontend: Home View Redesign <!-- not started -->
+### Task 17 — Frontend: Home View Redesign <!-- ✅ Task 17 completed -->
 
 **Goal:** Redesign the session-creation home page to match the mockup exactly — topbar, hero panel, 2-column grid (iterations left, agent pool right with inline checkbox rows), gradient CTA button, and estimated-runtime hint.
 
@@ -784,7 +784,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 18 — Frontend: Session View + Sequential Pipeline Components <!-- not started -->
+### Task 18 — Frontend: Session View + Sequential Pipeline Components <!-- ✅ Task 18 completed -->
 
 **Goal:** Redesign the session workspace to show a sequential N-agent pipeline with pass summary bar (Pipeline Pass N/M, confidence %), per-stage done/running/waiting states with mono log blocks and summaries, inline canonical state panel, and risk board.
 
@@ -835,7 +835,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 19 — Backend: Session List Endpoint + Artifact Content Return <!-- not started -->
+### Task 19 — Backend: Session List Endpoint + Artifact Content Return <!-- ✅ Task 19 completed -->
 
 **Goal:** Add the missing `GET /sessions` list endpoint (required by history view) and update `POST /sessions/{id}/finalize` to return the generated markdown content in the response body (required by the finalize/export view download buttons). Neither change breaks the existing iteration flow.
 
@@ -875,7 +875,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 20 — Frontend: Settings View — Agents + Skills Tabs <!-- not started -->
+### Task 20 — Frontend: Settings View — Agents + Skills Tabs <!-- ✅ Task 20 completed -->
 
 **Goal:** Build the unified `/settings` page with tabbed navigation replacing the separate `/agents` and `/skills` routes. The agents tab shows the full agent table (name, role, provider/model, skill count, status, actions). The skills tab shows the skill library table. Old routes redirect to the new page.
 
@@ -902,7 +902,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 21 — Frontend: Agent Form + Skill Form Views <!-- not started -->
+### Task 21 — Frontend: Agent Form + Skill Form Views <!-- ✅ Task 21 completed -->
 
 **Goal:** Build the agent creation/edit form view and skill creation/edit form view, matching the mockup — card-based forms with all fields, skill assignment pool for agents, and save/cancel navigation.
 
@@ -934,7 +934,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 22 — Frontend: Roles Tab + Warning Modal <!-- not started -->
+### Task 22 — Frontend: Roles Tab + Warning Modal <!-- ✅ Task 22 completed -->
 
 **Goal:** Add the Roles tab to the Settings view (displaying all four built-in roles as read-only reference cards — no custom role CRUD yet) and implement the reusable `WarningModal` component used by agent/skill deletion flows and the "discard changes?" navigation guard.
 
@@ -966,7 +966,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 23 — Frontend: Session History View <!-- not started -->
+### Task 23 — Frontend: Session History View <!-- ✅ Task 23 completed -->
 
 **Goal:** Build the `/history` route — 4 stat cards (sessions completed, avg confidence, docs generated, avg iterations) + searchable/filterable session table linking to the finalize/export view.
 
@@ -994,7 +994,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 24 — Frontend: Finalize/Export View <!-- not started -->
+### Task 24 — Frontend: Finalize/Export View <!-- ✅ Task 24 completed -->
 
 **Goal:** Build the `/session/{id}/finalize` route — animated markdown generation log panel, output file cards with Pending → Running → Done state transitions, preview panes, copy-to-clipboard, and download buttons.
 
@@ -1024,7 +1024,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 25 — Frontend: Navigation Wiring + Final UI Validation <!-- not started -->
+### Task 25 — Frontend: Navigation Wiring + Final UI Validation <!-- ✅ Task 25 completed -->
 
 **Goal:** Wire all views together with consistent topbar navigation, update `+layout.svelte` with the global nav and modal mount, run all frontend tests, confirm zero linter/type errors, and update documentation.
 

@@ -18,6 +18,7 @@ import {
   getSession,
   iterate,
   finalizeSession,
+  listSessions,
   getAgents,
   createAgent,
   updateAgent,
@@ -157,6 +158,86 @@ describe("finalizeSession", () => {
   it("resolves on 204", async () => {
     mockFetch(204, "");
     await expect(finalizeSession("s1")).resolves.toBeDefined();
+  });
+
+  it("returns FinalizeResponse with markdown content on 200", async () => {
+    const response = {
+      session_id: "s1",
+      architecture_markdown: "# Architecture\n\nDetails here.",
+      roadmap_markdown: "# Roadmap\n\nPhase 1: ...",
+      status: "approved",
+    };
+    mockFetch(200, response);
+    const result = await finalizeSession("s1");
+    expect(result.session_id).toBe("s1");
+    expect(result.architecture_markdown).toContain("# Architecture");
+    expect(result.roadmap_markdown).toContain("# Roadmap");
+    expect(result.status).toBe("approved");
+  });
+
+  it("throws ApiError on 404 (session not found)", async () => {
+    mockFetch(404, "session not found");
+    await expect(finalizeSession("missing-id")).rejects.toMatchObject({
+      status: 404,
+      name: "ApiError",
+    });
+  });
+});
+
+// ── listSessions ──────────────────────────────────────────────────────────────
+
+describe("listSessions", () => {
+  it("returns empty sessions array when backend returns empty list", async () => {
+    const response = { sessions: [], total: 0 };
+    mockFetch(200, response);
+    const result = await listSessions();
+    expect(result.sessions).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  it("returns populated sessions array with all fields", async () => {
+    const response = {
+      sessions: [
+        {
+          id: "s1",
+          idea: "Build a SaaS pricing model",
+          status: "converged",
+          max_iterations: 7,
+          current_iteration: 5,
+          confidence: 0.87,
+          agent_count: 3,
+          created_at: "2024-01-15T10:00:00Z",
+          updated_at: "2024-01-15T11:30:00Z",
+        },
+        {
+          id: "s2",
+          idea: "Design a microservice architecture",
+          status: "active",
+          max_iterations: 5,
+          current_iteration: 2,
+          confidence: 0.42,
+          agent_count: 2,
+          created_at: "2024-01-16T09:00:00Z",
+          updated_at: "2024-01-16T09:45:00Z",
+        },
+      ],
+      total: 2,
+    };
+    mockFetch(200, response);
+    const result = await listSessions();
+    expect(result.sessions).toHaveLength(2);
+    expect(result.total).toBe(2);
+    expect(result.sessions[0].id).toBe("s1");
+    expect(result.sessions[0].confidence).toBe(0.87);
+    expect(result.sessions[1].status).toBe("active");
+  });
+
+  it("throws ApiError on 500", async () => {
+    mockFetch(500, "internal error");
+    await expect(listSessions()).rejects.toMatchObject({
+      status: 500,
+      name: "ApiError",
+    });
   });
 });
 

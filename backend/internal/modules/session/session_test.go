@@ -132,8 +132,8 @@ func (stubSessionService) CreateSession(_ context.Context, _ session.CreateSessi
 func (stubSessionService) GetSession(_ context.Context, _ string) (session.Session, error) {
 	return session.Session{}, session.ErrNotFound
 }
-func (stubSessionService) ListSessions(_ context.Context) ([]session.Session, error) {
-	return nil, nil
+func (stubSessionService) ListSessions(_ context.Context) (session.ListSessionsResponse, error) {
+	return session.ListSessionsResponse{Sessions: []session.SessionListItem{}, Total: 0}, nil
 }
 func (stubSessionService) FinalizeSession(_ context.Context, _ string) (session.Session, error) {
 	return session.Session{}, session.ErrNotFound
@@ -222,7 +222,7 @@ func TestHandler_FinalizeSession_InvalidUUID(t *testing.T) {
 	}
 }
 
-func TestHandler_ListSessions_ReturnsEmptyArray(t *testing.T) {
+func TestHandler_ListSessions_ReturnsEmptyEnvelope(t *testing.T) {
 	mux := buildTestMux()
 	req := httptest.NewRequest(http.MethodGet, "/sessions", nil)
 	w := httptest.NewRecorder()
@@ -230,11 +230,63 @@ func TestHandler_ListSessions_ReturnsEmptyArray(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	var result []any
+	var result session.ListSessionsResponse
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("expected JSON array, got: %s", w.Body.String())
+		t.Fatalf("expected ListSessionsResponse JSON, got: %s", w.Body.String())
 	}
-	if len(result) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(result))
+	if result.Sessions == nil {
+		t.Fatal("sessions field must be a non-nil array")
+	}
+	if len(result.Sessions) != 0 {
+		t.Fatalf("expected empty sessions array, got %d items", len(result.Sessions))
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected total=0, got %d", result.Total)
+	}
+}
+
+// ── FinalizeSession FinalizeResponse tests ────────────────────────────────────
+
+// stubFinalizeService returns a valid Session with approved status for finalize.
+type stubFinalizeService struct{ stubSessionService }
+
+func (stubFinalizeService) FinalizeSession(_ context.Context, id string) (session.Session, error) {
+	return session.Session{
+		ID:     id,
+		Status: "approved",
+	}, nil
+}
+
+func TestHandler_FinalizeSession_ReturnsFinalizeResponse(t *testing.T) {
+	mux := http.NewServeMux()
+	session.NewHandlerWithService(stubFinalizeService{}, nil).RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/sessions/00000000-0000-0000-0000-000000000001/finalize", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp session.FinalizeResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("expected FinalizeResponse JSON, got: %s", w.Body.String())
+	}
+	if resp.SessionID != "00000000-0000-0000-0000-000000000001" {
+		t.Errorf("expected session_id to match, got %q", resp.SessionID)
+	}
+	if resp.Status != "approved" {
+		t.Errorf("expected status=approved, got %q", resp.Status)
+	}
+}
+
+func TestHandler_FinalizeSession_ValidUUID_NotFound(t *testing.T) {
+	mux := buildTestMux()
+	req := httptest.NewRequest(http.MethodPost, "/sessions/00000000-0000-0000-0000-000000000001/finalize", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }

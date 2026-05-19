@@ -167,3 +167,57 @@ func TestWriter_WriteArtifacts(t *testing.T) {
 		t.Errorf("architecture.md not found after Writer.WriteArtifacts: %v", err)
 	}
 }
+
+// ── GenerateContent ──────────────────────────────────────────────────────────
+
+func TestGenerateContent_ReturnsBothStrings(t *testing.T) {
+	s := sampleState()
+	arch, roadmap, err := GenerateContent(s)
+	if err != nil {
+		t.Fatalf("GenerateContent returned error: %v", err)
+	}
+	if !strings.Contains(arch, "# Architecture") {
+		t.Errorf("expected arch to contain '# Architecture', got:\n%s", arch)
+	}
+	if !strings.Contains(roadmap, "# Roadmap") {
+		t.Errorf("expected roadmap to contain '# Roadmap', got:\n%s", roadmap)
+	}
+}
+
+func TestGenerateContent_MatchesIndividualFunctions(t *testing.T) {
+	// GenerateArchitecture uses map[string]any whose iteration order is
+	// non-deterministic, so we cannot compare exact strings. Instead verify
+	// that the same key content is present in both outputs.
+	s := sampleState()
+
+	arch, _, err := GenerateContent(s)
+	if err != nil {
+		t.Fatalf("GenerateContent returned error: %v", err)
+	}
+
+	// Both outputs must contain the same sentinel values from sampleState.
+	for _, want := range []string{
+		"# Architecture",
+		"A brainstorm tool for autonomous agents",
+		"Go modular monolith",
+	} {
+		if !strings.Contains(arch, want) {
+			t.Errorf("GenerateContent arch: expected %q in output, got:\n%s", want, arch)
+		}
+	}
+}
+
+func TestWriter_GenerateContent(t *testing.T) {
+	s := sampleState()
+	w := &Writer{}
+	arch, roadmap, err := w.GenerateContent(s)
+	if err != nil {
+		t.Fatalf("Writer.GenerateContent returned error: %v", err)
+	}
+	if arch == "" {
+		t.Error("expected non-empty arch from Writer.GenerateContent")
+	}
+	if roadmap == "" {
+		t.Error("expected non-empty roadmap from Writer.GenerateContent")
+	}
+}

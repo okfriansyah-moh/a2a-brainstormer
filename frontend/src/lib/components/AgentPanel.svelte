@@ -1,3 +1,4 @@
+<!-- @deprecated — Use PipelineStage instead. Kept for backwards-compatibility only. -->
 <script lang="ts">
   import type { SessionAgent, CanonicalState } from "$lib/types";
 

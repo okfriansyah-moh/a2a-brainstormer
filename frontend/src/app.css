@@ -1,3 +1,338 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ─── Design Tokens ─────────────────────────────────────────────── */
+:root {
+  --bg-0: #f5efe4;
+  --bg-1: #e8ecf7;
+  --ink-900: #151b2f;
+  --ink-700: #2d3655;
+  --ink-500: #5a6282;
+  --ink-300: #a8aec7;
+  --accent: #0bb6d9;
+  --accent-2: #1f7ae0;
+  --ok: #1b9f66;
+  --warn: #d48806;
+  --danger: #ce3158;
+  --surface: rgba(255, 255, 255, 0.72);
+  --blur: blur(8px);
+  --shadow-md: 0 10px 30px rgba(35, 46, 82, 0.1);
+  --line: rgba(168, 174, 199, 0.3);
+  --line-solid: #cfd8ea;
+  --danger-bg: #fff0f3;
+  --danger-line: #f5c6d0;
+  --warn-bg: #fff8ec;
+  --warn-line: #f5d589;
+  --waiting-bg: #e7eefc;
+  --waiting-ink: #2b4f8f;
+}
+
+/* ─── Global Reset & Typography ─────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", sans-serif;
+  color: var(--ink-900);
+  background:
+    radial-gradient(1200px 600px at 10% 10%, #fff8ec, transparent),
+    radial-gradient(900px 500px at 90% 10%, #e8f7ff, transparent),
+    linear-gradient(135deg, var(--bg-0), var(--bg-1));
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--ink-900);
+  margin: 0;
+}
+
+code,
+pre,
+kbd {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* ─── Layout Primitives ─────────────────────────────────────────── */
+.artboard {
+  width: min(1300px, 94vw);
+  margin: 28px auto;
+}
+
+.panel {
+  background: var(--surface);
+  backdrop-filter: var(--blur);
+  border-radius: 18px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  padding: 28px;
+}
+
+.card {
+  background: var(--surface);
+  backdrop-filter: var(--blur);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(35, 46, 82, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  padding: 20px;
+}
+
+/* ─── Topbar ─────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  padding: 0 40px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.topbar-logo {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--ink-900);
+  text-decoration: none;
+  letter-spacing: 0.2px;
+}
+
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.topbar-link {
+  background: transparent;
+  border: none;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--ink-700);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-decoration: none;
+}
+
+.topbar-link:hover {
+  color: var(--accent-2);
+  background: rgba(31, 122, 224, 0.06);
+}
+
+.topbar-link.active {
+  color: var(--accent-2);
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────── */
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 24px;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-700);
+  border: 1.5px solid var(--ink-300);
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 20px;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+/* ─── Role Badges ────────────────────────────────────────────────── */
+.badge-build,
+.badge-review,
+.badge-refine,
+.badge-devils-advocate {
+  display: inline-block;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.badge-build {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.badge-review {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge-refine {
+  background: #d1fae5;
+  color: #065f46;
+}
+.badge-devils-advocate {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+/* ─── Status Chips ───────────────────────────────────────────────── */
+.chip-live,
+.chip-ok,
+.chip-warn,
+.chip-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.chip-live {
+  background: #d1fae5;
+  color: var(--ok);
+}
+.chip-ok {
+  background: #d1fae5;
+  color: var(--ok);
+}
+.chip-warn {
+  background: #fef3c7;
+  color: var(--warn);
+}
+.chip-danger {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+/* ─── Pipeline Stage States ──────────────────────────────────────── */
+.stage-done {
+  border-left: 3px solid var(--ok);
+  opacity: 1;
+}
+.stage-running {
+  border-left: 3px solid var(--accent);
+  opacity: 1;
+}
+.stage-waiting {
+  border-left: 3px solid var(--ink-300);
+  opacity: 0.5;
+}
+
+/* ─── Mono Log Block ─────────────────────────────────────────────── */
+.log-block {
+  background: #1a1d2e;
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  color: #a8d8ea;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+/* ─── Pulsing Dot (Live chip) ────────────────────────────────────── */
+.dot-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+}
+
+/* ─── Form Inputs ────────────────────────────────────────────────── */
+input,
+textarea,
+select {
+  font-family: "IBM Plex Sans", sans-serif;
+  color: var(--ink-900);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-300);
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .topbar {
+    padding: 0 20px;
+  }
+  .artboard {
+    margin: 14px auto;
+  }
+}

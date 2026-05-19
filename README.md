@@ -13,37 +13,120 @@ Outputs:
 
 ## Prerequisites
 
-| Tool                    | Version                  |
-| ----------------------- | ------------------------ |
-| Go                      | 1.26+                    |
-| Node.js                 | 20+                      |
-| pnpm                    | 9+                       |
-| Docker + docker-compose | latest                   |
-| PostgreSQL              | 16 (provided via Docker) |
+| Tool                    | Version                      |
+| ----------------------- | ---------------------------- |
+| Go                      | 1.26+                        |
+| Node.js                 | 20+                          |
+| pnpm                    | 9+                           |
+| Docker + Docker Compose | latest                       |
+| GNU Make                | 3.81+                        |
+| PostgreSQL              | 16 (provided via Docker)     |
+| `psql` CLI              | any (used by `make migrate`) |
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Start the database
-make up
+# 1. Copy environment file and set API keys
+cp .env.example .env
 
-# 2. Run migrations
-make migrate
-
-# 3. Start the backend
-go run ./backend/cmd/server
-
-# 4. Start an agent (in a separate terminal)
-go run ./agent/cmd/server
-
-# 5. Start the frontend (in a separate terminal)
-cd frontend && pnpm dev
+# 2. Start everything — postgres, backend, agent, frontend + run migrations
+make start
 ```
 
-The backend API is available at `http://localhost:8080`.  
-The frontend is available at `http://localhost:5173`.
+That's it. One command starts all four services and applies migrations automatically.
+
+Endpoints after startup:
+
+- Frontend UI: http://localhost:5173
+- Backend API: http://localhost:8080
+- Agent A2A card: http://localhost:9090/.well-known/agent.json
+
+---
+
+## Makefile Commands
+
+All Docker operations are wrapped in Makefile targets — never run `docker compose` directly.
+
+### One-command startup
+
+| Command      | Description                                                           |
+| ------------ | --------------------------------------------------------------------- |
+| `make start` | Start all services (postgres, backend, agent, frontend) + run migrate |
+
+### Docker
+
+| Command                     | Description                              |
+| --------------------------- | ---------------------------------------- |
+| `make docker-up`            | Start all services in the background     |
+| `make docker-down`          | Stop and remove containers               |
+| `make docker-restart`       | Stop then start all services             |
+| `make docker-ps`            | List running containers and their status |
+| `make docker-scale`         | Scale agent service (default `SCALE=2`)  |
+| `make docker-logs`          | Tail logs from all services              |
+| `make docker-logs-postgres` | Tail logs from the `postgres` container  |
+| `make docker-logs-backend`  | Tail logs from the `backend` container   |
+| `make docker-logs-agent`    | Tail logs from the `agent` container     |
+| `make docker-logs-frontend` | Tail logs from the `frontend` container  |
+
+Scale example:
+
+```bash
+make docker-scale SCALE=3
+```
+
+### Database
+
+| Command        | Description                                 |
+| -------------- | ------------------------------------------- |
+| `make migrate` | Apply all SQL migrations from `migrations/` |
+
+### Build
+
+| Command            | Description          |
+| ------------------ | -------------------- |
+| `make build`       | Build backend binary |
+| `make build-agent` | Build agent binary   |
+
+### Tests & Quality
+
+| Command      | Description                                        |
+| ------------ | -------------------------------------------------- |
+| `make test`  | Run backend + agent Go tests                       |
+| `make lint`  | `go vet` (backend + agent) + frontend `pnpm check` |
+| `make check` | Full build + vet + frontend check/build            |
+
+### Frontend
+
+| Command               | Description                      |
+| --------------------- | -------------------------------- |
+| `make frontend`       | Start frontend dev server        |
+| `make frontend-build` | Build frontend production bundle |
+
+---
+
+## Daily Workflow
+
+Start everything:
+
+```bash
+make start
+```
+
+Stop everything:
+
+```bash
+make docker-down
+```
+
+Quality gate:
+
+```bash
+make test
+make lint
+make check
+```
 
 ---
 
@@ -64,13 +147,16 @@ The frontend is available at `http://localhost:5173`.
 
 ### Agent binary (`agent/cmd/server`)
 
-| Variable          | Required | Example      | Description                      |
-| ----------------- | -------- | ------------ | -------------------------------- |
-| `AGENT_PORT`      | ❌       | `9090`       | HTTP listen port (default: 9090) |
-| `COPILOT_API_KEY` | \*       | `sk-...`     | API key for the Copilot provider |
-| `CLAUDE_API_KEY`  | \*       | `sk-ant-...` | API key for the Claude provider  |
+| Variable                   | Required | Example           | Description                                      |
+| -------------------------- | -------- | ----------------- | ------------------------------------------------ |
+| `AGENT_PORT`               | ❌       | `9090`            | HTTP listen port (default: 9090)                 |
+| `AGENT_LLM_PROVIDER`       | ❌       | `copilot`         | LLM provider for this agent (default: `copilot`) |
+| `AGENT_LLM_MODEL`          | ❌       | `gpt-4o`          | Model name for this agent                        |
+| `AGENT_LLM_CREDENTIAL_REF` | ❌       | `COPILOT_API_KEY` | Env var name holding the agent's API key         |
+| `COPILOT_API_KEY`          | \*       | `sk-...`          | API key for the Copilot provider                 |
+| `CLAUDE_API_KEY`           | \*       | `sk-ant-...`      | API key for the Claude provider                  |
 
-\* At least one LLM API key is required depending on which `GLOBAL_LLM_PROVIDER` is configured.
+\* At least one LLM API key is required.
 
 ### Frontend (`frontend/`)
 
@@ -79,28 +165,25 @@ The frontend is available at `http://localhost:5173`.
 | `VITE_API_BASE_URL` | ❌       | `http://localhost:8080` | Backend base URL (default: `http://localhost:8080`) |
 
 > **Security rule:** API keys are never stored in source code, config files, or the database.
-> `GLOBAL_LLM_CREDENTIAL_REF` holds the **env var name** only; the key is resolved at runtime.
+> `*_CREDENTIAL_REF` variables hold the **env var name only**; keys are resolved at runtime via `os.Getenv`.
 
 ---
 
 ## Agent Setup and Scaling
 
-The system requires **at minimum 2 agents** per session. Agents are Go services running the `agent/cmd/server` binary.
+The system requires **at minimum 2 agents** per session. All services including agents run via Docker Compose.
 
-### Running a single agent locally
+### Scaling agents via Docker
 
 ```bash
-AGENT_PORT=9090 COPILOT_API_KEY=<key> go run ./agent/cmd/server
+# Run 3 agent containers
+make docker-scale SCALE=3
 ```
 
-### Running multiple agents
+Then update `AGENT_ENDPOINTS` in `.env` with all agent URLs:
 
-```bash
-# Agent 1
-AGENT_PORT=9090 COPILOT_API_KEY=<key> go run ./agent/cmd/server &
-
-# Agent 2
-AGENT_PORT=9091 CLAUDE_API_KEY=<key> go run ./agent/cmd/server &
+```env
+AGENT_ENDPOINTS=http://agent:9090,http://agent:9090,http://agent:9090
 ```
 
 ### Registering agents with the backend
@@ -123,9 +206,7 @@ curl -X POST http://localhost:8080/agents \
 
 Agents serve their `AgentCard` at `/.well-known/agent.json`. The backend resolves this automatically when dispatching tasks.
 
-### Absent credential behavior
-
-If a required credential env var is absent at startup, the agent binary is marked **unavailable**. There is no silent fallback to another provider.
+If a required credential env var is absent at startup, the agent binary is marked **unavailable**. There is no silent fallback.
 
 ---
 
@@ -157,133 +238,23 @@ curl -X POST http://localhost:8080/sessions/<session-id>/finalize
 
 ## Architecture
 
-````text
+```text
 ┌─────────────────────────────────────────────┐
 │              Frontend (SvelteKit)            │
-# a2a-brainstorm
-
-Deterministic multi-agent design IDE (not a chatbot). The system runs an ordered agent pipeline and produces design artifacts such as architecture and roadmap outputs.
-
-This repository is operated primarily with Docker Compose and Makefile targets.
-
-## Prerequisites
-
-- Docker + Docker Compose
-- GNU Make
-- Node.js 20+ and pnpm 9+ (frontend UI only)
-- psql CLI (for `make migrate`)
-
-## Quick Start (Docker + Makefile)
-
-1. Copy environment file.
-
-```bash
-cp .env.example .env
-````
-
-2. Set required API keys in `.env` (`COPILOT_API_KEY` or `CLAUDE_API_KEY`).
-
-3. Start infrastructure and services.
-
-```bash
-make up
+│  / · /session/:id · /settings · /history    │
+└──────────────────┬──────────────────────────┘
+                   │ HTTP (fetch)
+┌──────────────────▼──────────────────────────┐
+│          Backend (Go modular monolith)       │
+│  session · iteration · agent · state        │
+│  convergence · markdown · platform/         │
+└────────┬──────────────────────┬─────────────┘
+         │ pgx/v5               │ A2A (a2a-go/v2)
+┌────────▼────────┐    ┌────────▼────────────┐
+│  PostgreSQL 16  │    │   Agent binary (Go) │
+│  (Docker)       │    │   BrainstormExecutor│
+└─────────────────┘    └─────────────────────┘
 ```
-
-4. Apply SQL migrations.
-
-```bash
-make migrate
-```
-
-5. Start frontend UI.
-
-```bash
-make frontend
-```
-
-Endpoints:
-
-- Backend API: http://localhost:8080
-- Agent A2A card: http://localhost:9090/.well-known/agent.json
-- Frontend: http://localhost:5173
-
-## Makefile Commands
-
-Build and checks:
-
-- `make build` - build backend
-- `make build-agent` - build agent
-- `make test` - run backend + agent tests
-- `make lint` - run go vet (backend + agent) and frontend type check
-- `make check` - full build + vet + frontend check/build
-
-Runtime:
-
-- `make up` - start docker compose services
-- `make down` - stop docker compose services
-- `make migrate` - apply SQL migrations from [migrations](migrations)
-- `make frontend` - run frontend dev server
-- `make frontend-build` - build frontend production bundle
-
-## Environment Variables
-
-Core backend variables:
-
-- `DATABASE_URL` (required)
-- `BACKEND_PORT` (default `8080`)
-- `GLOBAL_LLM_PROVIDER` (default `copilot`)
-- `GLOBAL_LLM_MODEL` (default `gpt-4o`)
-- `GLOBAL_LLM_CREDENTIAL_REF` (default `COPILOT_API_KEY`)
-- `AGENT_ENDPOINTS` (comma-separated)
-- `MAX_ITERATIONS` (default `10`)
-- `CONVERGENCE_THRESHOLD` (default `0.02`)
-
-Core agent variables:
-
-- `AGENT_PORT` (default `9090`)
-- `AGENT_LLM_PROVIDER` (default `copilot`)
-- `AGENT_LLM_MODEL` (default `gpt-4o`)
-- `AGENT_LLM_CREDENTIAL_REF` (default `COPILOT_API_KEY`)
-
-Secrets:
-
-- `COPILOT_API_KEY`
-- `CLAUDE_API_KEY`
-
-Frontend variable:
-
-- `VITE_API_BASE_URL` (default `http://localhost:8080`)
-
-Security rules:
-
-- Never commit real API keys.
-- `*_CREDENTIAL_REF` stores an env var name, not a raw key value.
-
-## Local Workflow
-
-Daily start:
-
-```bash
-make up
-make migrate
-make frontend
-```
-
-Daily stop:
-
-```bash
-make down
-```
-
-Quality gate:
-
-```bash
-make test
-make lint
-make check
-```
-
-## Architecture Reference
 
 See [docs/A2A-agent-Brainstorm.md](docs/A2A-agent-Brainstorm.md) for the full architecture and invariants.
 

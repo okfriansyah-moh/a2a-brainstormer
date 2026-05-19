@@ -1,9 +1,28 @@
-.PHONY: build build-agent up down migrate test frontend lint check
+SCALE ?= 2
+
+.PHONY: start build build-agent \
+        docker-up docker-down docker-restart docker-ps \
+        docker-logs docker-logs-postgres docker-logs-backend docker-logs-agent docker-logs-frontend \
+        docker-scale \
+        migrate test frontend frontend-build lint check
 
 ifneq (,$(wildcard .env))
 include .env
 export
 endif
+
+# ── One-command startup ──────────────────────────────────────────────────────
+# Starts all services (postgres, backend, agent, frontend) and applies migrations.
+start:
+	docker compose up -d
+	@echo "Waiting for postgres to be healthy..."
+	@until docker compose exec postgres pg_isready -U postgres > /dev/null 2>&1; do sleep 1; done
+	@$(MAKE) --no-print-directory migrate
+	@echo ""
+	@echo "All services started:"
+	@echo "  Frontend : http://localhost:${FRONTEND_HOST_PORT:-5173}"
+	@echo "  Backend  : http://localhost:${BACKEND_HOST_PORT:-8080}"
+	@echo "  Agent    : http://localhost:${AGENT_HOST_PORT:-9090}"
 
 # ── Go ──────────────────────────────────────────────────────────────────────
 build:
@@ -13,11 +32,34 @@ build-agent:
 	cd agent && go build ./...
 
 # ── Docker ──────────────────────────────────────────────────────────────────
-up:
+docker-up:
 	docker compose up -d
 
-down:
+docker-down:
 	docker compose down
+
+docker-restart: docker-down docker-up
+
+docker-ps:
+	docker compose ps
+
+docker-scale:
+	docker compose up -d --scale agent=$(SCALE)
+
+docker-logs:
+	docker compose logs -f
+
+docker-logs-postgres:
+	docker compose logs -f postgres
+
+docker-logs-backend:
+	docker compose logs -f backend
+
+docker-logs-agent:
+	docker compose logs -f agent
+
+docker-logs-frontend:
+	docker compose logs -f frontend
 
 # ── Database ─────────────────────────────────────────────────────────────────
 migrate:

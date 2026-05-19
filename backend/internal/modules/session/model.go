@@ -29,6 +29,8 @@ const (
 // Session is the top-level aggregate for a brainstorm run.
 // CurrentState is nil until the first iteration pipeline pass completes.
 // Agents is populated on single-session GET requests; it is omitted on list responses.
+// AgentCount is populated only by ListSessions (via a subquery COUNT); it is
+// zero on single-session GET responses (use len(Agents) there instead).
 type Session struct {
 	ID            string                `json:"id"`
 	Idea          string                `json:"idea"`
@@ -38,6 +40,7 @@ type Session struct {
 	CreatedAt     time.Time             `json:"created_at"`
 	UpdatedAt     time.Time             `json:"updated_at"`
 	Agents        []SessionAgent        `json:"agents,omitempty"`
+	AgentCount    int                   `json:"-"` // list-only, not serialised
 }
 
 // SessionAgent represents one agent binding within a session.
@@ -78,4 +81,38 @@ type CreateSessionRequest struct {
 	RoleOverrides  map[string]string         `json:"role_overrides,omitempty"`
 	LLMOverrides   map[string]*llm.LLMConfig `json:"llm_overrides,omitempty"`
 	SkillOverrides map[string]*[]string      `json:"skill_overrides,omitempty"`
+}
+
+// SessionListItem is the summary representation of a Session used in list
+// responses. Agents are not loaded; Idea is truncated to 120 characters by
+// the service layer. Confidence and CurrentIteration are extracted from the
+// current_state JSONB field.
+type SessionListItem struct {
+	ID               string    `json:"id"`
+	Idea             string    `json:"idea"` // ≤ 120 chars
+	Status           string    `json:"status"`
+	MaxIterations    int       `json:"max_iterations"`
+	CurrentIteration int       `json:"current_iteration"` // from current_state.meta.iteration
+	Confidence       float64   `json:"confidence"`        // from current_state.metrics.confidence
+	AgentCount       int       `json:"agent_count"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// ListSessionsResponse is the envelope returned by GET /sessions.
+// Total matches len(Sessions) and is included for pagination readiness.
+type ListSessionsResponse struct {
+	Sessions []SessionListItem `json:"sessions"`
+	Total    int               `json:"total"`
+}
+
+// FinalizeResponse is the response body for POST /sessions/{id}/finalize.
+// ArchitectureMarkdown and RoadmapMarkdown contain the rendered artifact
+// content so the frontend can offer inline preview and download without a
+// separate file-fetch round-trip.
+type FinalizeResponse struct {
+	SessionID            string `json:"session_id"`
+	ArchitectureMarkdown string `json:"architecture_markdown"`
+	RoadmapMarkdown      string `json:"roadmap_markdown"`
+	Status               string `json:"status"`
 }
