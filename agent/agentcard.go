@@ -4,16 +4,18 @@
 package agent
 
 import (
-	"fmt"
-
 	"github.com/a2aproject/a2a-go/v2/a2a"
+
+	"a2a-brainstorm/agent/internal/config"
 )
 
 // NewAgentCard returns the public A2A AgentCard for this binary.
-// port is the TCP port the agent is listening on; it is embedded in the
-// SupportedInterfaces URL so clients can resolve the correct endpoint.
-func NewAgentCard(port int) *a2a.AgentCard {
-	baseURL := fmt.Sprintf("http://localhost:%d", port)
+// The base URL is read from the AGENT_PUBLIC_URL env var (via config.GetPublicURL),
+// falling back to http://localhost:{AGENT_PORT}. In Docker Compose, set
+// AGENT_PUBLIC_URL=http://agent:{AGENT_PORT} so the backend can reach the agent
+// via the Docker service name instead of localhost.
+func NewAgentCard() *a2a.AgentCard {
+	baseURL := config.GetPublicURL()
 	return &a2a.AgentCard{
 		Name: "brainstorm-agent",
 		Description: "A deterministic brainstorm pipeline agent that processes CanonicalState " +

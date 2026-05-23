@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"a2a-brainstorm/backend/internal/modules/state"
@@ -61,15 +62,36 @@ func Dispatch(
 		State:        currentState,
 	}
 
+	slog.Default().InfoContext(ctx, "resolving A2A agent endpoint",
+		slog.String("agent_id", agent.ID),
+		slog.String("agent_name", agent.Name),
+		slog.String("role", string(role)),
+		slog.String("endpoint", agent.Endpoint),
+		slog.Int("skill_count", len(activeSkills)),
+	)
+
 	client, err := platA2A.NewClient(ctx, agent.Endpoint)
 	if err != nil {
 		return state.CanonicalState{}, fmt.Errorf("dispatch agent %s: new client: %w", agent.ID, err)
 	}
 
+	slog.Default().InfoContext(ctx, "sending payload to agent via A2A",
+		slog.String("agent_id", agent.ID),
+		slog.String("agent_name", agent.Name),
+		slog.String("role", string(role)),
+		slog.String("provider", effectiveCfg.Provider),
+		slog.String("model", effectiveCfg.Model),
+	)
+
 	result, err := platA2A.SendPayload(ctx, client, payload)
 	if err != nil {
 		return state.CanonicalState{}, fmt.Errorf("dispatch agent %s: send payload: %w", agent.ID, err)
 	}
+
+	slog.Default().InfoContext(ctx, "A2A response received, extracting state",
+		slog.String("agent_id", agent.ID),
+		slog.String("role", string(role)),
+	)
 
 	// 4. Extract the updated state from the agent's DataPart artifact.
 	stateAny, err := platA2A.ExtractStateFromResult(result)

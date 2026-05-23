@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	agentpkg "a2a-brainstorm/backend/internal/modules/agent"
 	"a2a-brainstorm/backend/internal/modules/convergence"
@@ -101,6 +102,13 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 		maxIter = config.GetMaxIterations()
 	}
 
+	e.logger.InfoContext(ctx, "pipeline starting",
+		slog.String("session_id", sess.ID),
+		slog.Int("agent_count", len(sess.Agents)),
+		slog.Int("max_iterations", maxIter),
+		slog.Int("resume_from_iteration", initialState.Meta.Iteration),
+	)
+
 	current := initialState
 
 	for i := 1; i <= maxIter; i++ {
@@ -180,16 +188,28 @@ func (e *Engine) runPipelinePass(
 			return current, fmt.Errorf("resolve skills for agent %s: %w", sa.AgentID, err)
 		}
 
+		e.logger.InfoContext(ctx, "dispatching to agent",
+			slog.String("session_id", sess.ID),
+			slog.String("agent_id", sa.AgentID),
+			slog.String("agent_name", ag.Name),
+			slog.String("role", sa.Role),
+			slog.Int("iteration", iterNum),
+			slog.Int("skill_count", len(activeSkills)),
+		)
+
+		dispatchStart := time.Now()
 		out, err := e.dispatch(ctx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current)
 		if err != nil {
 			return current, fmt.Errorf("dispatch agent %s (iter %d): %w", sa.AgentID, iterNum, err)
 		}
 
-		e.logger.DebugContext(ctx, "agent pass complete",
+		e.logger.InfoContext(ctx, "agent pass complete",
 			slog.String("session_id", sess.ID),
 			slog.String("agent_id", sa.AgentID),
+			slog.String("agent_name", ag.Name),
 			slog.String("role", sa.Role),
 			slog.Int("iteration", iterNum),
+			slog.Int64("duration_ms", time.Since(dispatchStart).Milliseconds()),
 		)
 
 		current = out

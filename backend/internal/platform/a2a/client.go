@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"time"
@@ -68,6 +69,12 @@ func SendPayload(ctx context.Context, client *a2aclient.Client, payload Brainsto
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
+			slog.Default().WarnContext(ctx, "A2A send failed, retrying",
+				slog.Int("attempt", attempt),
+				slog.Int("max_retries", maxRetries),
+				slog.String("error", lastErr.Error()),
+				slog.String("next_delay", delay.String()),
+			)
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("context cancelled waiting for retry: %w", ctx.Err())
@@ -75,6 +82,11 @@ func SendPayload(ctx context.Context, client *a2aclient.Client, payload Brainsto
 			}
 			delay *= 2
 		}
+
+		slog.Default().InfoContext(ctx, "sending A2A message",
+			slog.Int("attempt", attempt+1),
+			slog.Int("max_attempts", maxRetries+1),
+		)
 
 		result, err := client.SendMessage(ctx, req)
 		if err == nil {

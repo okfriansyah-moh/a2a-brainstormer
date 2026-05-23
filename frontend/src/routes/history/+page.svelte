@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import { listSessions } from "$lib/services/api";
   import type { SessionListItem } from "$lib/types";
 
@@ -102,8 +103,22 @@
       </div>
     </div>
     <nav class="topbar-nav">
-      <a href="/" class="topbar-link">New Session</a>
-      <a href="/settings" class="topbar-link">⚙ Settings</a>
+      <a
+        href="/"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/");
+        }}>New Session</a
+      >
+      <a
+        href="/settings"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/settings");
+        }}>⚙ Settings</a
+      >
     </nav>
   </div>
 
@@ -155,6 +170,10 @@
           href="/"
           class="btn-primary"
           style="display:inline-block;text-decoration:none;margin-top:12px;"
+          on:click={(e) => {
+            e.preventDefault();
+            goto("/");
+          }}
         >
           Start your first session
         </a>
@@ -210,7 +229,14 @@
                 <span class={statusChipClass(item.status)}>{item.status}</span>
               </td>
               <td>
-                <a class="btn-action" href={viewHref(item)}>View →</a>
+                <a
+                  class="btn-action"
+                  href={viewHref(item)}
+                  on:click={(e) => {
+                    e.preventDefault();
+                    goto(viewHref(item));
+                  }}>View →</a
+                >
               </td>
             </tr>
           {/each}

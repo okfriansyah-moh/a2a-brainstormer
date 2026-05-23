@@ -103,17 +103,43 @@ func (e *BrainstormExecutor) Execute(
 			return
 		}
 
+		if e.logger != nil {
+			e.logger.InfoContext(ctx, "brainstorm task received",
+				slog.String("task_id", string(execCtx.TaskID)),
+				slog.String("role", payload.Role),
+				slog.String("provider", payload.LLMConfig.Provider),
+				slog.String("model", payload.LLMConfig.Model),
+			)
+		}
+
 		// Serialize the current state as the user message for the LLM.
 		stateJSON, err := json.Marshal(payload.State)
 		if err != nil {
 			stateJSON = []byte("{}")
 		}
 
+		// The OpenAI-compatible response_format:json_object requires the word
+		// "json" to appear in at least one message. We embed the state in a
+		// labelled instruction so the constraint is always satisfied regardless
+		// of what the system prompt contains.
+		userMessage := fmt.Sprintf(
+			"Current brainstorm state (JSON):\n%s\n\nRespond with the complete updated JSON state.",
+			string(stateJSON),
+		)
+
 		// Call the LLM through the LLMProvider interface.
 		// Temperature 0.15 enforces near-deterministic output (blueprint §8.4).
+		if e.logger != nil {
+			e.logger.InfoContext(ctx, "calling LLM",
+				slog.String("task_id", string(execCtx.TaskID)),
+				slog.String("role", payload.Role),
+				slog.String("model", payload.LLMConfig.Model),
+				slog.String("provider", payload.LLMConfig.Provider),
+			)
+		}
 		resp, err := e.llm.Generate(ctx, llm.LLMRequest{
 			SystemPrompt: payload.SystemPrompt,
-			UserMessage:  string(stateJSON),
+			UserMessage:  userMessage,
 			Temperature:  0.15,
 		})
 		if err != nil {
@@ -123,6 +149,14 @@ func (e *BrainstormExecutor) Execute(
 			))
 			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
 			return
+		}
+
+		if e.logger != nil {
+			e.logger.InfoContext(ctx, "LLM call complete, parsing state",
+				slog.String("task_id", string(execCtx.TaskID)),
+				slog.String("role", payload.Role),
+				slog.Int("response_bytes", len(resp.Content)),
+			)
 		}
 
 		// Parse the LLM JSON response as the updated CanonicalState.
@@ -139,6 +173,12 @@ func (e *BrainstormExecutor) Execute(
 		}
 
 		// Emit the updated state as a DataPart artifact.
+		if e.logger != nil {
+			e.logger.InfoContext(ctx, "state updated, emitting artifact",
+				slog.String("task_id", string(execCtx.TaskID)),
+				slog.String("role", payload.Role),
+			)
+		}
 		if !yield(a2a.NewArtifactEvent(execCtx, a2a.NewDataPart(updatedState)), nil) {
 			return
 		}

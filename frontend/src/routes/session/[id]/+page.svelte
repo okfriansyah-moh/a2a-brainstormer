@@ -1,14 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { sessionStore } from "$lib/stores/sessionStore";
+  import { agentRegistryStore } from "$lib/stores/agentRegistryStore";
   import PipelineStage from "$lib/components/PipelineStage.svelte";
   import ConfidenceBar from "$lib/components/ConfidenceBar.svelte";
   import CanonicalStatePanel from "$lib/components/CanonicalStatePanel.svelte";
   import RiskBoard from "$lib/components/RiskBoard.svelte";
-  import { getSession, iterate, finalizeSession } from "$lib/services/api";
-  import type { SessionAgent } from "$lib/types";
+  import {
+    getSession,
+    getAgents,
+    iterate,
+    finalizeSession,
+  } from "$lib/services/api";
+  import type { Agent, SessionAgent } from "$lib/types";
 
   /** True when the backend signals the session has converged. */
   let converged = false;
@@ -113,6 +120,29 @@
             output: undefined,
           }));
         sessionStore.setAgents(agentsFromMeta);
+      } else if (session.agents && session.agents.length > 0) {
+        // No iteration run yet — build agent display from session bindings +
+        // the agent registry (so names/provider/model are shown immediately).
+        let registry = get(agentRegistryStore).agents;
+        if (registry.length === 0) {
+          const loaded = await getAgents();
+          agentRegistryStore.setAgents(loaded);
+          registry = loaded;
+        }
+        const byId = new Map<string, Agent>(registry.map((a) => [a.id, a]));
+        const agentsFromSlots: SessionAgent[] = session.agents.map((slot) => {
+          const full = byId.get(slot.agent_id);
+          return {
+            id: slot.agent_id,
+            name: full?.name ?? slot.agent_id,
+            role: slot.role,
+            provider: full?.llm_config.provider ?? "unknown",
+            model: full?.llm_config.model ?? "unknown",
+            skills: full?.skills?.map((s) => s.name) ?? [],
+            output: undefined,
+          };
+        });
+        sessionStore.setAgents(agentsFromSlots);
       }
     } catch (err) {
       loadError =
@@ -179,8 +209,22 @@
       {/if}
     </div>
     <nav class="topbar-nav">
-      <a href="/" class="topbar-link">← New Session</a>
-      <a href="/settings" class="topbar-link">⚙ Settings</a>
+      <a
+        href="/"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/");
+        }}>← New Session</a
+      >
+      <a
+        href="/settings"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/settings");
+        }}>⚙ Settings</a
+      >
     </nav>
   </div>
 
@@ -208,7 +252,14 @@
         </div>
       </div>
       <div class="pass-actions">
-        <a href="/history" class="topbar-link">← Sessions</a>
+        <a
+          href="/history"
+          class="topbar-link"
+          on:click={(e) => {
+            e.preventDefault();
+            goto("/history");
+          }}>← Sessions</a
+        >
         <ConfidenceBar
           value={confidencePct}
           animating={$sessionStore.loading}

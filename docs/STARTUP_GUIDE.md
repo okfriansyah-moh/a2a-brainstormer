@@ -189,7 +189,93 @@ make docker-restart
 make migrate
 ```
 
-## 9) Where to Read Next
+## 9) Running with OpenCode Server (optional)
+
+The OpenCode server is an optional LLM proxy that lets the agent binary route all
+LLM calls through a single authenticated OpenCode instance rather than holding
+individual API keys in every container. It is most useful for GitHub Copilot,
+which uses OAuth and does not produce traditional API keys.
+
+**When to use:** choose OpenCode when you want to use GitHub Copilot as the LLM
+backend inside Docker Compose without per-container credential management.
+
+### One-time Setup
+
+1. **Start the OpenCode container** (uses the `opencode` Docker Compose profile):
+
+   ```bash
+   make opencode-up
+   ```
+
+2. **Authenticate with GitHub Copilot** (follow the browser prompt):
+
+   ```bash
+   make opencode-auth
+   ```
+
+   This stores the OAuth token in the `opencode-auth` Docker volume.
+   You only need to do this once; the token persists across restarts.
+
+3. **Configure `.env`** — switch the agent to the OpenCode provider:
+
+   ```env
+   AGENT_LLM_PROVIDER=opencode
+   AGENT_OPENCODE_BASE_URL=http://opencode:4096
+   AGENT_OPENCODE_MODEL=github/gpt-4o
+   OPENCODE_SERVER_USERNAME=opencode
+   OPENCODE_SERVER_PASSWORD=change-me-to-a-strong-password
+   ```
+
+4. **(Re)start the agent service** so it picks up the new env vars:
+
+   ```bash
+   docker compose up -d agent
+   ```
+
+5. **Verify the OpenCode server is healthy:**
+
+   ```bash
+   make opencode-status
+   ```
+
+   Expected output contains `"status": "ok"`.
+
+### Credential Flow
+
+```
+.env
+  OPENCODE_SERVER_USERNAME / OPENCODE_SERVER_PASSWORD
+        │
+        ▼
+  docker-compose.yml injects both into the opencode container and
+  exposes them as env vars for the agent container.
+        │
+        ▼
+  agent/internal/config/config.go reads AGENT_OPENCODE_USERNAME_REF
+  and AGENT_OPENCODE_PASSWORD_REF (the *names* of the credential vars).
+        │
+        ▼
+  OpenCodeProvider.resolveCredentials() calls os.Getenv on those names
+  at request time — credentials are never stored on any struct or logged.
+```
+
+The volume `opencode-auth` persists the GitHub Copilot OAuth token.
+Deleting the volume forces a full re-authentication:
+
+```bash
+docker volume rm a2a-brainstorm_opencode-auth
+```
+
+### Troubleshooting
+
+| Symptom                                                       | Fix                                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Agent returns `401 Unauthorized` from OpenCode                | Wrong `OPENCODE_SERVER_PASSWORD` in `.env`. Update and restart the agent. |
+| `make opencode-status` fails with connection refused          | OpenCode container is not running. Run `make opencode-up`.                |
+| Agent `Generate` returns `403 Forbidden` from OpenCode        | OAuth token expired. Run `make opencode-auth` and restart agent.          |
+| `make opencode-auth` exits immediately with no browser prompt | OpenCode container is still starting. Wait 30 s and retry.                |
+
+## 10) Where to Read Next
 
 - Architecture blueprint: [A2A-agent-Brainstorm.md](A2A-agent-Brainstorm.md)
 - Implementation plan: [PLAN.md](PLAN.md)

@@ -31,6 +31,9 @@ COPY --from=busybox /bin/busybox /usr/local/bin/busybox
 COPY --from=builder /out/backend    /app/backend
 COPY --from=builder /src/migrations /app/migrations
 
+# Set working directory so the binary resolves the relative "migrations" path correctly.
+WORKDIR /app
+
 USER nonroot:nonroot
 
 # Port the backend listens on — matches BACKEND_PORT in .env (default 18080).

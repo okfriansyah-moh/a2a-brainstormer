@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { page } from "$app/stores";
+  import { goto } from "$app/navigation";
   import { sessionStore } from "$lib/stores/sessionStore";
   import { getSession, finalizeSession } from "$lib/services/api";
   import type { Session } from "$lib/types";
@@ -244,9 +245,22 @@
       {#if alreadyFinalized}
         <span class="chip-ok fin-status-chip">Already finalized</span>
       {/if}
-      <a href={`/session/${sessionId}`} class="topbar-link">← Back to Session</a
+      <a
+        href={`/session/${sessionId}`}
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto(`/session/${sessionId}`);
+        }}>← Back to Session</a
       >
-      <a href="/history" class="topbar-link">Session History</a>
+      <a
+        href="/history"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/history");
+        }}>Session History</a
+      >
     </div>
   </div>
 
@@ -386,7 +400,14 @@
           <button class="btn-primary" on:click={downloadAll}>
             Download All
           </button>
-          <a href="/" class="btn-ghost">New Session</a>
+          <a
+            href="/"
+            class="btn-ghost"
+            on:click={(e) => {
+              e.preventDefault();
+              goto("/");
+            }}>New Session</a
+          >
         </div>
         <div class="run-status">Both documents generated successfully.</div>
       </div>

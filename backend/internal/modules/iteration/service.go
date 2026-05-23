@@ -45,10 +45,21 @@ func NewService(engine *Engine, sessions sessionProvider, logger *slog.Logger) *
 // Returns ErrSessionTerminal if the session status is "approved".
 // Returns a wrapped session.ErrNotFound if the session does not exist.
 func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (state.CanonicalState, error) {
+	s.logger.InfoContext(ctx, "iteration trigger received",
+		slog.String("session_id", sessionID),
+	)
+
 	sess, err := s.sessions.GetSession(ctx, sessionID)
 	if err != nil {
 		return state.CanonicalState{}, fmt.Errorf("trigger iteration: load session %s: %w", sessionID, err)
 	}
+
+	s.logger.InfoContext(ctx, "session loaded for iteration",
+		slog.String("session_id", sessionID),
+		slog.String("status", sess.Status),
+		slog.Int("agent_count", len(sess.Agents)),
+		slog.Int("max_iterations", sess.MaxIterations),
+	)
 
 	// Guard: do not re-trigger on explicitly approved sessions.
 	if sess.Status == session.StatusApproved {

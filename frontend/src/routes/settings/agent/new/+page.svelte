@@ -102,7 +102,14 @@
         Configure a role-specialized agent for the brainstorm pipeline
       </div>
     </div>
-    <a href="/settings?tab=agents" class="back-link">← Back to Settings</a>
+    <a
+      href="/settings?tab=agents"
+      class="back-link"
+      on:click={(e) => {
+        e.preventDefault();
+        goto("/settings?tab=agents");
+      }}>← Back to Settings</a
+    >
   </div>
 
   <!-- ── Form panel ─────────────────────────────────────────────────────── -->

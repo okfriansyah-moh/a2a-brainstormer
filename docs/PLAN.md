@@ -1,11 +1,12 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 1.1
+> **Version:** 1.2
 > **Date:** 2026-05-12 (updated with UI redesign tasks)
 > **Author:** Core, Data and AI Team
 > **Status:** Ready for Implementation
 > **Source of Truth:** `docs/A2A-agent-Brainstorm.md`
 > **Change in v1.1:** Added Tasks 16–25 — Polished UI redesign matching `frontend/mockups/future-polished-mockup.html`. New routes: `/settings`, `/history`, `/session/[id]/finalize`. New components: `PipelineStage`, `ConfidenceBar`, `CanonicalStatePanel`, `RiskBoard`, `WarningModal`. Backend addition: `GET /sessions` list endpoint + markdown content return.
+> **Change in v1.2:** Added Tasks 26–27 — OpenCode server integration as an optional LLM provider for the agent binary. New `OpenCodeProvider` implementation, provider selection switch in `agent/cmd/server/main.go`, Docker Compose profile-based service, and full startup documentation.
 
 ---
 
@@ -222,6 +223,14 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
                                                      │
                                                      ▼
                                           Task 25 (Navigation + Final Validation)
+                                                     │
+                                              All Tasks 1–25
+                                                     │
+                                                     ▼
+                                          Task 26 (Agent: OpenCode LLM Provider)
+                                                     │
+                                                     ▼
+                                          Task 27 (Infrastructure: OpenCode Service Wiring)
 ```
 
 ---
@@ -1059,35 +1068,234 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
+### Task 26 — Agent: OpenCode LLM Provider <!-- ✅ Task 26 completed -->
+
+**Goal:** Add `OpenCodeProvider` to the agent binary — a new `LLMProvider` implementation that proxies requests through a running OpenCode server instance (which itself is authenticated to GitHub Copilot or any other OpenCode-supported provider). The agent lazily creates one OpenCode session per process lifetime and reuses it for all subsequent `Generate` calls.
+
+**Files to create / modify:**
+
+- `agent/internal/llm/opencode.go` — **new**
+  - `OpenCodeProvider` implements `LLMProvider` (same interface defined in this package)
+  - `OpenCodeConfig` struct: `BaseURL string`, `ProviderID string`, `ModelID string`, `UsernameRef string`, `PasswordRef string`
+    - `ProviderID` + `ModelID` are parsed from `AGENT_OPENCODE_MODEL` by splitting on `/` (e.g. `"github/gpt-4o"` → `{ProviderID: "github", ModelID: "gpt-4o"}`)
+  - `NewOpenCodeProvider(cfg OpenCodeConfig, httpClient *http.Client, resolveKey func(string)(string,error)) *OpenCodeProvider`
+    - `resolveKey` must be `config.GetLLMAPIKey` — keeps `os.Getenv` confined to `config/config.go`
+    - If `httpClient` is nil, use a default 120s-timeout client (LLM calls can be slow)
+  - Session management:
+    - `sessionID string` field (protected by `sync.Once`); populated via `ensureSession(ctx) (string, error)` on first `Generate` call
+    - `ensureSession`: `POST {BaseURL}/session` body `{"title":"brainstorm"}` with Basic Auth header; extracts `session.id` from response JSON; see §8.18 for request/response shape
+    - Credentials resolved at each call: `resolveKey(cfg.UsernameRef)` → username, `resolveKey(cfg.PasswordRef)` → password; return error if either is empty (no silent fallback)
+  - `Generate(ctx, req LLMRequest) (LLMResponse, error)`:
+    - Calls `ensureSession` first
+    - `POST {BaseURL}/session/{sessionID}/message` with Basic Auth and JSON body:
+      ```json
+      {
+        "parts": [{ "type": "text", "text": "<UserMessage>" }],
+        "model": { "providerID": "<ProviderID>", "modelID": "<ModelID>" },
+        "system": "<SystemPrompt>"
+      }
+      ```
+    - Response: `{"info": {...}, "parts": [{"type":"text","text":"..."},...]}` — extract all `type=text` parts, concatenate, return as `LLMResponse.Content`; see §8.18 for full response shape
+    - On HTTP 4xx from OpenCode server → return error immediately (no retry)
+    - On HTTP 5xx or timeout → retry once with exponential backoff
+  - Security: never log `UsernameRef` resolved value or `PasswordRef` resolved value
+- `agent/internal/llm/opencode_test.go` — **new**
+  - `httptest.NewServer` mock of OpenCode endpoints: `POST /session` + `POST /session/:id/message`
+  - Test: `Generate` returns correct `LLMResponse.Content` extracted from text parts
+  - Test: absent `OPENCODE_SERVER_PASSWORD` env var → `Generate` returns error (no silent fallback)
+  - Test: `ensureSession` is called exactly once across multiple `Generate` calls (use call counter)
+  - Test: HTTP 401 from OpenCode server → error propagated, not silently retried
+- `agent/internal/config/config.go` — **modify** (add getters only; do not change existing getters):
+  - `GetOpenCodeBaseURL() string` — reads `AGENT_OPENCODE_BASE_URL`; default `"http://localhost:4096"`
+  - `GetOpenCodeModel() string` — reads `AGENT_OPENCODE_MODEL`; default `"github/gpt-4o"` (format: `providerID/modelID`)
+  - `GetOpenCodeUsernameRef() string` — reads `AGENT_OPENCODE_USERNAME_REF`; default `"OPENCODE_SERVER_USERNAME"` (stores the env var name that holds the actual username)
+  - `GetOpenCodePasswordRef() string` — reads `AGENT_OPENCODE_PASSWORD_REF`; default `"OPENCODE_SERVER_PASSWORD"` (stores the env var name that holds the actual password)
+- `agent/cmd/server/main.go` — **modify**: extract provider construction into a local `buildLLMProvider` helper and add the `"opencode"` case:
+
+  ```go
+  func buildLLMProvider(logger *slog.Logger) llm.LLMProvider {
+      switch config.GetLLMProvider() {
+      case "opencode":
+          model := config.GetOpenCodeModel()
+          parts := strings.SplitN(model, "/", 2)
+          providerID, modelID := parts[0], parts[1] // validated below
+          if len(parts) != 2 || providerID == "" || modelID == "" {
+              logger.Warn("AGENT_OPENCODE_MODEL must be 'providerID/modelID'; falling back to github/gpt-4o")
+              providerID, modelID = "github", "gpt-4o"
+          }
+          return llm.NewOpenCodeProvider(llm.OpenCodeConfig{
+              BaseURL:     config.GetOpenCodeBaseURL(),
+              ProviderID:  providerID,
+              ModelID:     modelID,
+              UsernameRef: config.GetOpenCodeUsernameRef(),
+              PasswordRef: config.GetOpenCodePasswordRef(),
+          }, nil, config.GetLLMAPIKey)
+      default: // "copilot" and any unrecognised value
+          return llm.NewCopilotProvider(
+              config.GetLLMModel(),
+              config.GetLLMCredentialRef(),
+              "", nil, config.GetLLMAPIKey,
+          )
+      }
+  }
+  ```
+
+  - Call `buildLLMProvider(logger)` in `run()` in place of the existing `llm.NewCopilotProvider(...)` line
+  - Add `"strings"` to imports
+
+**Validation:**
+
+- `cd agent && go build ./...`: zero errors
+- `cd agent && go vet ./...`: zero issues
+- `cd agent && go test ./internal/llm/...`: all three `opencode_test.go` tests pass (no real OpenCode server needed)
+- Startup smoke: `AGENT_LLM_PROVIDER=opencode AGENT_OPENCODE_BASE_URL=http://localhost:4096 go run ./agent/cmd/server` starts and logs `"LLM provider: opencode"` (or equivalent) without panicking
+
+**Prompt context needed:** §8.2 (LLMProvider interface + security), §8.3 (A2A interaction model), §8.12 (credential security rules), §8.18 (OpenCode server API reference, new in this task)
+
+---
+
+### Task 27 — Infrastructure: OpenCode Service Wiring <!-- ✅ Task 27 completed -->
+
+**Goal:** Wire the OpenCode server into `docker-compose.yml` as a Docker Compose profile-based optional service, add all required env vars to `.env.example`, add Makefile convenience targets for the OpenCode workflow (start, one-time auth, status check), and document the end-to-end OpenCode setup in `docs/STARTUP_GUIDE.md`.
+
+**Files to modify:**
+
+- `docker-compose.yml` — add `opencode` service under `profiles: [opencode]` so it is **opt-in** and does not affect the default `docker-compose up` workflow:
+
+  ```yaml
+  opencode:
+    image: node:22-slim
+    profiles: [opencode]
+    working_dir: /app
+    entrypoint: >
+      sh -c "npm install -g opencode-ai && opencode serve
+             --hostname 0.0.0.0
+             --port 4096
+             --cors http://localhost:5173"
+    ports:
+      - "4096:4096"
+    environment:
+      - OPENCODE_SERVER_USERNAME=${OPENCODE_SERVER_USERNAME:-opencode}
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+    volumes:
+      - opencode-auth:/root/.local/share/opencode
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4096/global/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+  ```
+
+  - Add `opencode-auth:` entry under the top-level `volumes:` key to persist Copilot OAuth tokens across container restarts
+  - Also add `opencode` as a dependency for the `agent` service when running in OpenCode mode (note in comments; avoid hard dep so default profile still works)
+
+- `.env.example` — add new section below the existing LLM vars:
+
+  ```dotenv
+  # ── OpenCode Server (only required when AGENT_LLM_PROVIDER=opencode) ──────────
+  # Switch the agent binary to route LLM calls through an OpenCode server instance.
+  # The OpenCode server must be running and authenticated to a provider (e.g. Copilot).
+  #
+  # AGENT_LLM_PROVIDER=opencode
+
+  # URL where the OpenCode server listens (service name inside Docker, localhost outside)
+  AGENT_OPENCODE_BASE_URL=http://opencode:4096
+
+  # model in "providerID/modelID" format understood by OpenCode
+  # Examples: github/gpt-4o  |  anthropic/claude-sonnet-4-5  |  openai/gpt-4o
+  AGENT_OPENCODE_MODEL=github/gpt-4o
+
+  # Env var NAME that holds the OpenCode server HTTP Basic auth username
+  AGENT_OPENCODE_USERNAME_REF=OPENCODE_SERVER_USERNAME
+
+  # Env var NAME that holds the OpenCode server HTTP Basic auth password
+  AGENT_OPENCODE_PASSWORD_REF=OPENCODE_SERVER_PASSWORD
+
+  # Actual OpenCode server credentials (referenced by the _REF vars above)
+  OPENCODE_SERVER_USERNAME=opencode
+  OPENCODE_SERVER_PASSWORD=change-me-to-a-strong-password
+  ```
+
+- `Makefile` — add targets below the existing targets (do not modify existing targets):
+
+  ```makefile
+  ## opencode-up: Start the OpenCode server container (requires Docker profile)
+  opencode-up:
+  	docker compose --profile opencode up -d opencode
+
+  ## opencode-auth: One-time GitHub Copilot OAuth inside the OpenCode container
+  ## Run this once after first `make opencode-up`. Follow the device flow URL printed to stdout.
+  opencode-auth:
+  	docker compose exec opencode opencode /provider/github/oauth/authorize
+
+  ## opencode-status: Check whether the OpenCode server is healthy
+  opencode-status:
+  	curl -sf http://localhost:4096/global/health | jq .
+  ```
+
+- `docs/STARTUP_GUIDE.md` — add a new section "**Running with OpenCode Server (optional)**" with:
+  - When to use: when you want GitHub Copilot (or any OpenCode-supported provider) to handle LLM calls through the OpenCode layer, avoiding direct Copilot API key distribution to each agent container
+  - Step 1 — set env vars: copy the OpenCode block from `.env.example` into `.env`; set `AGENT_LLM_PROVIDER=opencode`; choose a strong `OPENCODE_SERVER_PASSWORD`
+  - Step 2 — start OpenCode: `make opencode-up` (waits for health check)
+  - Step 3 — one-time Copilot auth: `make opencode-auth` → follow the device flow URL printed; tokens are persisted in the `opencode-auth` Docker volume
+  - Step 4 — start all services: `make up` (backend + agent + postgres; OpenCode remains running from step 2)
+  - Step 5 — verify: `make opencode-status` should return `{"healthy":true,...}`
+  - Credential flow diagram (text-based):
+    ```
+    Agent binary
+      → POST /session/:id/message (HTTP Basic auth)
+    OpenCode server (port 4096)
+      → GitHub Copilot API (OAuth token stored in volume)
+    GitHub Copilot
+      → LLM response
+    ```
+  - Note: the `opencode-auth` Docker volume (`opencode-auth`) persists the OAuth token across container restarts; re-run `make opencode-auth` only if the token expires or the volume is deleted
+  - Troubleshooting table: common errors (401 from OpenCode server → wrong password, 503 → OpenCode not started, 403 from Copilot → re-run `make opencode-auth`)
+
+**Validation:**
+
+- `docker-compose config --profiles opencode`: shows `opencode` service with correct env + volume
+- `docker-compose config` (no profile flag): `opencode` service absent from output (opt-in confirmed)
+- `make opencode-up` starts the container; `make opencode-status` returns `{"healthy":true}`
+- `.env.example` diff: only additions, no existing lines removed
+- `cd agent && go build ./...`: zero errors (no Go changes in this task — infra only)
+
+**Prompt context needed:** Task 26 (OpenCode provider config), §8.12 (credential security rules), §8.18 (OpenCode server API)
+
+---
+
 ## 6. Task Summary
 
-| Task | Name                                         | Key Files                                                                                                                     | Depends On       | Complexity |
-| ---- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------- | ---------- |
-| 1    | Project Scaffold                             | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                         | —                | Low        |
-| 2    | Platform: Config + DB + Logger               | `platform/config/`, `platform/db/`, `platform/logger/`                                                                        | Task 1           | Low        |
-| 3    | Platform: LLM Abstraction                    | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                       | Task 2           | Medium     |
-| 4    | Platform: A2A Layer                          | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                | Task 2           | Medium     |
-| 5    | State Module                                 | `modules/state/model.go`, `merge.go`, `validator.go`                                                                          | Tasks 3, 4       | Medium     |
-| 6    | Agent Module: Models + DB Schema             | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                        | Tasks 1, 5       | Medium     |
-| 7    | Agent Module: Service + Handler + Dispatch   | `modules/agent/service.go`, `handler.go`, `client.go`                                                                         | Tasks 6, 3, 4    | High       |
-| 8    | Session Module                               | `modules/session/*`, `003_sessions.sql`                                                                                       | Task 7           | Medium     |
-| 9    | Iteration Engine + Convergence               | `iteration/engine.go`, `convergence/engine.go`                                                                                | Tasks 5, 7, 8    | High       |
-| 10   | Markdown + Backend Wire-up                   | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                      | Tasks 9, 8       | Medium     |
-| 11   | Agent Service Binary                         | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                      | Tasks 3, 4       | High       |
-| 12   | Frontend: Scaffold + Stores + API Client     | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                              | Task 1           | Medium     |
-| 13   | Frontend: Session Workspace                  | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                             | Task 12          | Medium     |
-| 14   | Frontend: Agent Registry + Skills            | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                         | Task 12          | Medium     |
-| 15   | Integration Tests + Docs                     | `*_test.go` files, `README.md`                                                                                                | Tasks 11, 13, 14 | Medium     |
-| 16   | Frontend: Design System Foundation           | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                             | Task 12          | Low        |
-| 17   | Frontend: Home View Redesign                 | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                 | Task 16          | Medium     |
-| 18   | Frontend: Session View + Pipeline Components | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte` | Tasks 16, 17     | High       |
-| 19   | Backend: Session List + Artifact Content     | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                | Tasks 10, 12     | Medium     |
-| 20   | Frontend: Settings View (Agents+Skills Tabs) | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                        | Tasks 16, 19     | Medium     |
-| 21   | Frontend: Agent Form + Skill Form Views      | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                      | Task 20          | Medium     |
-| 22   | Frontend: Roles Tab + Warning Modal          | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                       | Task 20          | Medium     |
-| 23   | Frontend: Session History View               | `routes/history/+page.svelte`                                                                                                 | Tasks 16, 19     | Medium     |
-| 24   | Frontend: Finalize/Export View               | `routes/session/[id]/finalize/+page.svelte`                                                                                   | Tasks 19, 22     | Medium     |
-| 25   | Frontend: Navigation Wiring + Final UI Val   | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                  | Tasks 16–24      | Medium     |
+| Task | Name                                         | Key Files                                                                                                                                 | Depends On             | Complexity |
+| ---- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------- |
+| 1    | Project Scaffold                             | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                                     | —                      | Low        |
+| 2    | Platform: Config + DB + Logger               | `platform/config/`, `platform/db/`, `platform/logger/`                                                                                    | Task 1                 | Low        |
+| 3    | Platform: LLM Abstraction                    | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                                   | Task 2                 | Medium     |
+| 4    | Platform: A2A Layer                          | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                            | Task 2                 | Medium     |
+| 5    | State Module                                 | `modules/state/model.go`, `merge.go`, `validator.go`                                                                                      | Tasks 3, 4             | Medium     |
+| 6    | Agent Module: Models + DB Schema             | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                                    | Tasks 1, 5             | Medium     |
+| 7    | Agent Module: Service + Handler + Dispatch   | `modules/agent/service.go`, `handler.go`, `client.go`                                                                                     | Tasks 6, 3, 4          | High       |
+| 8    | Session Module                               | `modules/session/*`, `003_sessions.sql`                                                                                                   | Task 7                 | Medium     |
+| 9    | Iteration Engine + Convergence               | `iteration/engine.go`, `convergence/engine.go`                                                                                            | Tasks 5, 7, 8          | High       |
+| 10   | Markdown + Backend Wire-up                   | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                                  | Tasks 9, 8             | Medium     |
+| 11   | Agent Service Binary                         | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                                  | Tasks 3, 4             | High       |
+| 12   | Frontend: Scaffold + Stores + API Client     | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                                          | Task 1                 | Medium     |
+| 13   | Frontend: Session Workspace                  | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                                         | Task 12                | Medium     |
+| 14   | Frontend: Agent Registry + Skills            | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                                     | Task 12                | Medium     |
+| 15   | Integration Tests + Docs                     | `*_test.go` files, `README.md`                                                                                                            | Tasks 11, 13, 14       | Medium     |
+| 16   | Frontend: Design System Foundation           | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                         | Task 12                | Low        |
+| 17   | Frontend: Home View Redesign                 | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                             | Task 16                | Medium     |
+| 18   | Frontend: Session View + Pipeline Components | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte`             | Tasks 16, 17           | High       |
+| 19   | Backend: Session List + Artifact Content     | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                            | Tasks 10, 12           | Medium     |
+| 20   | Frontend: Settings View (Agents+Skills Tabs) | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                                    | Tasks 16, 19           | Medium     |
+| 21   | Frontend: Agent Form + Skill Form Views      | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                                  | Task 20                | Medium     |
+| 22   | Frontend: Roles Tab + Warning Modal          | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                                   | Task 20                | Medium     |
+| 23   | Frontend: Session History View               | `routes/history/+page.svelte`                                                                                                             | Tasks 16, 19           | Medium     |
+| 24   | Frontend: Finalize/Export View               | `routes/session/[id]/finalize/+page.svelte`                                                                                               | Tasks 19, 22           | Medium     |
+| 25   | Frontend: Navigation Wiring + Final UI Val   | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                              | Tasks 16–24            | Medium     |
+| 26   | Agent: OpenCode LLM Provider                 | `agent/internal/llm/opencode.go`, `opencode_test.go`, `agent/internal/config/config.go` (modified), `agent/cmd/server/main.go` (modified) | Task 11 (agent binary) | Medium     |
+| 27   | Infrastructure: OpenCode Service Wiring      | `docker-compose.yml`, `.env.example`, `Makefile`, `docs/STARTUP_GUIDE.md`                                                                 | Task 26                | Low        |
 
 ---
 
@@ -1867,3 +2075,121 @@ routes/history/+page.svelte (History)
 | `ControlPanel.svelte` | Inline in session page           |
 | `StateView.svelte`    | `CanonicalStatePanel.svelte`     |
 | `Timeline.svelte`     | Pass summary bar in session page |
+
+---
+
+### 8.18 OpenCode Server API Reference
+
+OpenCode runs a headless HTTP server (default port `4096`) reachable via REST. The `OpenCodeProvider` in `agent/internal/llm/opencode.go` uses three endpoints.
+
+**Base URL:** configured via `AGENT_OPENCODE_BASE_URL` (default `http://localhost:4096`).
+
+**Authentication:** HTTP Basic auth. The OpenCode server must be started with `OPENCODE_SERVER_PASSWORD` set. The username defaults to `"opencode"` (override with `OPENCODE_SERVER_USERNAME`).
+
+#### Endpoints used by `OpenCodeProvider`
+
+| Method | Path                   | Purpose                                               |
+| ------ | ---------------------- | ----------------------------------------------------- |
+| `GET`  | `/global/health`       | Liveness — returns `{"healthy":true,"version":"..."}` |
+| `POST` | `/session`             | Create a new chat session                             |
+| `POST` | `/session/:id/message` | Send a message and block until the AI responds        |
+
+---
+
+#### `POST /session` — Create session
+
+**Request body:**
+
+```json
+{ "title": "brainstorm" }
+```
+
+**Response (relevant fields):**
+
+```json
+{ "id": "session-uuid-..." }
+```
+
+The session ID is stored in memory (`OpenCodeProvider.sessionID`) and reused for all subsequent `Generate` calls within the same process lifetime.
+
+---
+
+#### `POST /session/:id/message` — Send message
+
+**Request headers:**
+
+```
+Authorization: Basic base64(username:password)
+Content-Type: application/json
+```
+
+**Request body:**
+
+```json
+{
+  "parts": [
+    {
+      "type": "text",
+      "text": "<UserMessage — CanonicalState JSON from LLMRequest.UserMessage>"
+    }
+  ],
+  "model": {
+    "providerID": "github",
+    "modelID": "gpt-4o"
+  },
+  "system": "<assembled system prompt from LLMRequest.SystemPrompt>"
+}
+```
+
+**Model field format:** `providerID/modelID` → split on first `/`:
+
+- GitHub Copilot: `providerID = "github"`, e.g. `modelID = "gpt-4o"` or `"claude-sonnet-4-5"`
+- Anthropic: `providerID = "anthropic"`, e.g. `modelID = "claude-opus-4-5"`
+- OpenAI: `providerID = "openai"`, e.g. `modelID = "gpt-4o"`
+
+**Response shape:**
+
+```json
+{
+  "info": {
+    "id": "msg-uuid",
+    "role": "assistant",
+    "sessionID": "session-uuid"
+  },
+  "parts": [{ "type": "text", "text": "<full LLM response content>" }]
+}
+```
+
+**Parsing rule:** Iterate `response.parts`; concatenate all parts where `type == "text"` into `LLMResponse.Content`. Ignore non-text parts (tool calls, etc.).
+
+---
+
+#### Session management strategy in `OpenCodeProvider`
+
+- Session is created lazily on first `Generate` call via `ensureSession(ctx)`
+- `sync.Once` wraps `ensureSession` so only one session creation attempt is made per process lifetime (thread-safe)
+- A new process = new session (no session persistence across agent restarts)
+- Sessions accumulate conversation context; if stateless per-call behaviour is required, move `ensureSession` into `Generate` (new session per call) — acceptable trade-off if token cost allows
+
+#### `LLMConfig` row for `provider = "opencode"` (stored in `agents.llm_config` JSONB)
+
+```json
+{
+  "provider": "opencode",
+  "model": "github/gpt-4o",
+  "credential_ref": "OPENCODE_SERVER_PASSWORD"
+}
+```
+
+The `credential_ref` field holds the env var **name** for the OpenCode server password. The actual password value is never stored in the database.
+
+#### OpenCode container auth (GitHub Copilot, one-time)
+
+The OpenCode server must authenticate to the underlying provider (e.g. GitHub Copilot) separately from the agent binary. Steps:
+
+1. `make opencode-up` — start the container
+2. `make opencode-auth` — runs `opencode /provider/github/oauth/authorize` inside the container; prints a device flow URL
+3. User visits the URL in a browser, authorises the GitHub OAuth app
+4. Token is saved inside the container at `/root/.local/share/opencode/` — persisted in the `opencode-auth` Docker volume
+
+The `opencode-auth` Docker volume survives container restarts; re-authentication is only needed if the volume is deleted or the OAuth token expires.

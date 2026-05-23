@@ -279,6 +279,105 @@ func TestMerge_NoPersistentConflictBeforeIteration3(t *testing.T) {
 	}
 }
 
+// ── UnmarshalJSON: LLM string-coercion ───────────────────────────────────────
+
+// TestUnmarshal_RisksAsStrings verifies that a JSON payload where "risks" is
+// []string (common LLM shorthand) is coerced into []Risk without error.
+func TestUnmarshal_RisksAsStrings(t *testing.T) {
+	raw := `{
+		"idea": {"text": "test"},
+		"risks": ["Performance degradation under load", "High onboarding cost"],
+		"metrics": {"confidence": 0.3},
+		"meta": {"iteration": 1, "agents": [
+			{"agent_id":"a","name":"A","role":"build","provider":"copilot","model":"gpt-4.1","skills":[]},
+			{"agent_id":"b","name":"B","role":"review","provider":"copilot","model":"gpt-4.1","skills":[]}
+		]}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(raw), &cs); err != nil {
+		t.Fatalf("UnmarshalJSON failed on string risks: %v", err)
+	}
+	if len(cs.Risks) != 2 {
+		t.Fatalf("expected 2 risks, got %d: %+v", len(cs.Risks), cs.Risks)
+	}
+	if cs.Risks[0].Text != "Performance degradation under load" {
+		t.Errorf("risk[0].Text: got %q, want %q", cs.Risks[0].Text, "Performance degradation under load")
+	}
+	if cs.Risks[0].Severity != "medium" {
+		t.Errorf("risk[0].Severity: got %q, want \"medium\" (default)", cs.Risks[0].Severity)
+	}
+	if cs.Risks[0].Resolved {
+		t.Errorf("risk[0].Resolved: expected false (default), got true")
+	}
+}
+
+// TestUnmarshal_StepsAsStrings verifies that a JSON payload where
+// "execution_plan" is []string is coerced into []Step without error.
+func TestUnmarshal_StepsAsStrings(t *testing.T) {
+	raw := `{
+		"idea": {"text": "test"},
+		"execution_plan": ["Set up CI/CD pipeline", "Deploy to staging"],
+		"metrics": {"confidence": 0.2},
+		"meta": {"iteration": 1, "agents": [
+			{"agent_id":"a","name":"A","role":"build","provider":"copilot","model":"gpt-4.1","skills":[]},
+			{"agent_id":"b","name":"B","role":"review","provider":"copilot","model":"gpt-4.1","skills":[]}
+		]}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(raw), &cs); err != nil {
+		t.Fatalf("UnmarshalJSON failed on string steps: %v", err)
+	}
+	if len(cs.ExecutionPlan) != 2 {
+		t.Fatalf("expected 2 steps, got %d: %+v", len(cs.ExecutionPlan), cs.ExecutionPlan)
+	}
+	if cs.ExecutionPlan[0].Title != "Set up CI/CD pipeline" {
+		t.Errorf("step[0].Title: got %q, want %q", cs.ExecutionPlan[0].Title, "Set up CI/CD pipeline")
+	}
+}
+
+// TestUnmarshal_MixedRisksAndSteps verifies that mixed arrays (some objects,
+// some strings) are handled correctly — real LLM output can mix both forms.
+func TestUnmarshal_MixedRisksAndSteps(t *testing.T) {
+	raw := `{
+		"idea": {"text": "test"},
+		"risks": [
+			{"text": "Structured risk", "severity": "high", "resolved": false},
+			"Plain string risk"
+		],
+		"execution_plan": [
+			{"title": "Structured step", "description": "A properly structured step description"},
+			"Plain string step"
+		],
+		"metrics": {"confidence": 0.5},
+		"meta": {"iteration": 1, "agents": [
+			{"agent_id":"a","name":"A","role":"build","provider":"copilot","model":"gpt-4.1","skills":[]},
+			{"agent_id":"b","name":"B","role":"review","provider":"copilot","model":"gpt-4.1","skills":[]}
+		]}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(raw), &cs); err != nil {
+		t.Fatalf("UnmarshalJSON failed on mixed risks/steps: %v", err)
+	}
+	if len(cs.Risks) != 2 {
+		t.Errorf("expected 2 risks, got %d", len(cs.Risks))
+	}
+	if cs.Risks[0].Severity != "high" {
+		t.Errorf("structured risk severity: got %q, want \"high\"", cs.Risks[0].Severity)
+	}
+	if cs.Risks[1].Text != "Plain string risk" {
+		t.Errorf("string risk text: got %q", cs.Risks[1].Text)
+	}
+	if len(cs.ExecutionPlan) != 2 {
+		t.Errorf("expected 2 steps, got %d", len(cs.ExecutionPlan))
+	}
+	if cs.ExecutionPlan[1].Title != "Plain string step" {
+		t.Errorf("string step title: got %q", cs.ExecutionPlan[1].Title)
+	}
+}
+
 // ── Validate ──────────────────────────────────────────────────────────────────
 
 func TestValidate_Valid(t *testing.T) {
