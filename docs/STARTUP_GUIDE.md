@@ -226,6 +226,89 @@ backend inside Docker Compose without per-container credential management.
    OPENCODE_SERVER_PASSWORD=change-me-to-a-strong-password
    ```
 
+### OpenCode Model Enum (avoid wrong value format)
+
+`AGENT_OPENCODE_MODEL` must always use this format:
+
+```text
+<providerID>/<modelID>
+```
+
+Examples:
+
+- `github/gpt-4o`
+- `anthropic/claude-sonnet-4-6`
+- `github/gpt-5.4-mini`
+
+### Full Model Enum (all currently available models)
+
+The model list depends on which providers you have connected in OpenCode.
+To print the full enum from your running OpenCode server:
+
+```bash
+curl -s \
+   -u "$OPENCODE_SERVER_USERNAME:$OPENCODE_SERVER_PASSWORD" \
+   http://localhost:4096/config/providers \
+| jq -r '
+   def model_id:
+      if type == "string" then .
+      elif type == "object" then (.id // .name // empty)
+      else empty end;
+
+   .providers[] as $p
+   | ($p.id // $p.providerID // empty) as $pid
+   | ($p.models // []) as $models
+   | if ($models | type) == "array" then
+         $models[] | "\($pid)/\(model_id)"
+      elif ($models | type) == "object" then
+         $models | to_entries[] | "\($pid)/\(.key)"
+      else
+         empty
+      end
+' \
+| sed '/\/$/d' \
+| sort -u
+```
+
+Optional: save the enum list to a file:
+
+```bash
+curl -s \
+   -u "$OPENCODE_SERVER_USERNAME:$OPENCODE_SERVER_PASSWORD" \
+   http://localhost:4096/config/providers \
+| jq -r '
+   def model_id:
+      if type == "string" then .
+      elif type == "object" then (.id // .name // empty)
+      else empty end;
+
+   .providers[] as $p
+   | ($p.id // $p.providerID // empty) as $pid
+   | ($p.models // []) as $models
+   | if ($models | type) == "array" then
+         $models[] | "\($pid)/\(model_id)"
+      elif ($models | type) == "object" then
+         $models | to_entries[] | "\($pid)/\(.key)"
+      else
+         empty
+      end
+' \
+| sed '/\/$/d' \
+| sort -u > .opencode-model-enum.txt
+```
+
+Then set one exact value from that list in `.env`:
+
+```env
+# Option 1: Copilot GPT-5.4 mini
+AGENT_OPENCODE_MODEL=github/gpt-5.4-mini
+
+# Option 2: Claude Sonnet 4.6
+AGENT_OPENCODE_MODEL=anthropic/claude-sonnet-4-6
+```
+
+If the format is invalid (missing `/`), the agent falls back to `github/gpt-4o`.
+
 4. **(Re)start the agent service** so it picks up the new env vars:
 
    ```bash
