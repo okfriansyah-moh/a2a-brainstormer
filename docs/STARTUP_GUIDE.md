@@ -191,59 +191,120 @@ make migrate
 
 ## 9) Running with OpenCode Server (optional)
 
-The OpenCode server is an optional LLM proxy that lets the agent binary route all
-LLM calls through a single authenticated OpenCode instance rather than holding
-individual API keys in every container. It is most useful for GitHub Copilot,
-which uses OAuth and does not produce traditional API keys.
+OpenCode is an optional LLM proxy container. It lets every agent container share a
+single GitHub Copilot login rather than each one needing its own API key. This is
+the recommended approach when using **GitHub Copilot** as your LLM provider, because
+Copilot uses browser-based OAuth — it does not issue traditional copy-paste API keys.
 
-**When to use:** choose OpenCode when you want to use GitHub Copilot as the LLM
-backend inside Docker Compose without per-container credential management.
+**You do not need OpenCode** if you are using Claude or any other provider that gives
+you a plain API key (just set `CLAUDE_API_KEY` in `.env` and skip this section).
 
-### One-time Setup
+### Do I need OpenCode?
 
-1. **Start the OpenCode container** (uses the `opencode` Docker Compose profile):
+| Your LLM provider         | Use OpenCode? |
+| ------------------------- | ------------- |
+| GitHub Copilot (OAuth)    | ✅ Yes        |
+| Claude (API key)          | ❌ No         |
+| OpenAI or other (API key) | ❌ No         |
 
-   ```bash
-   make opencode-up
-   ```
+### How it fits into the stack
 
-2. **Authenticate with GitHub Copilot** (follow the browser prompt):
+OpenCode is **not** started by `make start`. It uses a Docker Compose _profile_ so
+it stays out of the way until you opt in:
 
-   ```bash
-   make opencode-auth
-   ```
+```
+make start         → starts postgres, backend, agent, frontend  (OpenCode NOT included)
+make opencode-up   → starts OpenCode separately, alongside the above
+```
 
-   This stores the OAuth token in the `opencode-auth` Docker volume.
-   You only need to do this once; the token persists across restarts.
+Both can run at the same time. `make docker-down` stops everything including OpenCode.
 
-3. **Configure `.env`** — switch the agent to the OpenCode provider:
+---
 
-   ```env
-   AGENT_LLM_PROVIDER=opencode
-   AGENT_OPENCODE_BASE_URL=http://opencode:4096
-   AGENT_OPENCODE_MODEL=github/gpt-4o
-   OPENCODE_SERVER_USERNAME=opencode
-   OPENCODE_SERVER_PASSWORD=change-me-to-a-strong-password
-   ```
+### First-time setup (do this once)
 
-### OpenCode Model Enum (avoid wrong value format)
+**Step 1 — Start the main stack** (skip if already running):
 
-`AGENT_OPENCODE_MODEL` must always use this format:
+```bash
+make start
+```
+
+**Step 2 — Start the OpenCode container:**
+
+```bash
+make opencode-up
+```
+
+This starts a single `opencode` container listening on port 4096. The first start
+takes 20–30 seconds while it installs the OpenCode package.
+
+**Step 3 — Authenticate with GitHub Copilot:**
+
+```bash
+make opencode-auth
+```
+
+A browser window opens with a GitHub OAuth prompt. Follow the steps to authorise.
+If the browser does not open automatically, copy the URL printed in the terminal and
+open it manually.
+
+The OAuth token is saved to a Docker volume called `opencode-auth`. It persists across
+container restarts, so you only need to do this once (unless you delete the volume or
+the token expires).
+
+**Step 4 — Check that OpenCode is healthy:**
+
+```bash
+make opencode-status
+```
+
+You should see output containing `"healthy": true`. If you get "connection refused",
+OpenCode is still starting — wait 30 seconds and try again.
+
+**Step 5 — Configure `.env` to use OpenCode:**
+
+Open `.env` and add or update these values:
+
+```env
+AGENT_LLM_PROVIDER=opencode
+AGENT_OPENCODE_BASE_URL=http://opencode:4096
+AGENT_OPENCODE_MODEL=github/gpt-4o
+OPENCODE_SERVER_USERNAME=opencode
+OPENCODE_SERVER_PASSWORD=change-me-to-a-strong-password
+```
+
+> ⚠️ Change `OPENCODE_SERVER_PASSWORD` to a real password. This is what the agent
+> uses to authenticate to the OpenCode container. Never leave it as the example value.
+
+**Step 6 — Restart the agent to pick up the new env vars:**
+
+```bash
+docker compose up -d agent
+```
+
+The agent now routes all LLM calls through OpenCode.
+
+---
+
+### Choosing a model
+
+`AGENT_OPENCODE_MODEL` must always use this exact format:
 
 ```text
 <providerID>/<modelID>
 ```
 
-Examples:
+Quick examples:
 
-- `github/gpt-4o`
-- `anthropic/claude-sonnet-4-6`
-- `github/gpt-5.4-mini`
+```env
+AGENT_OPENCODE_MODEL=github/gpt-4o
+AGENT_OPENCODE_MODEL=github/gpt-5.4-mini
+AGENT_OPENCODE_MODEL=anthropic/claude-sonnet-4-6
+```
 
-### Full Model Enum (all currently available models)
+If the format is invalid (missing `/`), the agent falls back to `github/gpt-4o`.
 
-The model list depends on which providers you have connected in OpenCode.
-To print the full enum from your running OpenCode server:
+To see every model your running OpenCode server knows about:
 
 ```bash
 curl -s \
@@ -270,7 +331,7 @@ curl -s \
 | sort -u
 ```
 
-Optional: save the enum list to a file:
+To save that list to a file for reference:
 
 ```bash
 curl -s \
@@ -297,33 +358,52 @@ curl -s \
 | sort -u > .opencode-model-enum.txt
 ```
 
-Then set one exact value from that list in `.env`:
+---
 
-```env
-# Option 1: Copilot GPT-5.4 mini
-AGENT_OPENCODE_MODEL=github/gpt-5.4-mini
+### Daily workflow with OpenCode
 
-# Option 2: Claude Sonnet 4.6
-AGENT_OPENCODE_MODEL=anthropic/claude-sonnet-4-6
+On days you want to use OpenCode, run these in order:
+
+```bash
+make start            # start the main stack (postgres, backend, agent, frontend)
+make opencode-up      # start the OpenCode container
+make opencode-status  # confirm it is healthy before using the agent
 ```
 
-If the format is invalid (missing `/`), the agent falls back to `github/gpt-4o`.
+To watch live OpenCode logs (useful for debugging LLM calls):
 
-4. **(Re)start the agent service** so it picks up the new env vars:
+```bash
+make opencode-logs
+```
 
-   ```bash
-   docker compose up -d agent
-   ```
+To stop **only OpenCode** while keeping the main stack running:
 
-5. **Verify the OpenCode server is healthy:**
+```bash
+make opencode-down
+```
 
-   ```bash
-   make opencode-status
-   ```
+To stop **everything** (main stack + OpenCode):
 
-   Expected output contains `"healthy": true`.
+```bash
+make docker-down
+```
 
-### Credential Flow
+---
+
+### Makefile reference for OpenCode
+
+| Command                | What it does                                                            |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `make opencode-up`     | Start the OpenCode container (first start installs the package ~30 s)   |
+| `make opencode-auth`   | Open browser OAuth flow to authenticate with GitHub Copilot (once only) |
+| `make opencode-status` | Print the OpenCode health JSON — confirms it is running and reachable   |
+| `make opencode-logs`   | Tail live logs from the OpenCode container                              |
+| `make opencode-down`   | Stop the OpenCode container (auth token volume is preserved)            |
+| `make docker-down`     | Stop all containers including OpenCode                                  |
+
+---
+
+### How credentials flow
 
 ```
 .env
@@ -339,26 +419,32 @@ If the format is invalid (missing `/`), the agent falls back to `github/gpt-4o`.
         │
         ▼
   OpenCodeProvider.resolveCredentials() uses the injected resolver
-  (for example, config.GetLLMAPIKey) to look up those names at request
-  time; direct os.Getenv access remains confined to config, and
-  credentials are never stored on any struct or logged.
+  (config.GetLLMAPIKey) to look up those names at request time.
+  Direct os.Getenv access is confined to config.go only.
+  Credentials are never stored on any struct or logged.
 ```
 
-The volume `opencode-auth` persists the GitHub Copilot OAuth token.
-Deleting the volume forces a full re-authentication:
+The `opencode-auth` Docker volume persists the GitHub Copilot OAuth token.
+To force a full re-authentication, delete the volume:
 
 ```bash
 docker volume rm a2a-brainstorm_opencode-auth
 ```
 
+Then run `make opencode-auth` again.
+
+---
+
 ### Troubleshooting
 
-| Symptom                                                       | Fix                                                                       |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Agent returns `401 Unauthorized` from OpenCode                | Wrong `OPENCODE_SERVER_PASSWORD` in `.env`. Update and restart the agent. |
-| `make opencode-status` fails with connection refused          | OpenCode container is not running. Run `make opencode-up`.                |
-| Agent `Generate` returns `403 Forbidden` from OpenCode        | OAuth token expired. Run `make opencode-auth` and restart agent.          |
-| `make opencode-auth` exits immediately with no browser prompt | OpenCode container is still starting. Wait 30 s and retry.                |
+| Symptom                                                       | Fix                                                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `make opencode-status` — "connection refused"                 | OpenCode is not running. Run `make opencode-up` and wait 30 s.                              |
+| `make opencode-auth` exits immediately with no browser prompt | OpenCode is still starting. Wait 30 s and retry.                                            |
+| Agent returns `401 Unauthorized`                              | Wrong `OPENCODE_SERVER_PASSWORD` in `.env`. Update it and run `docker compose up -d agent`. |
+| Agent returns `403 Forbidden`                                 | Copilot OAuth token expired. Run `make opencode-auth` then `docker compose up -d agent`.    |
+| Agent fails to start with "credential not set"                | `OPENCODE_SERVER_PASSWORD` env var is empty. Set it in `.env` and restart the agent.        |
+| `make opencode-logs` shows repeated errors                    | Check `.env` values for `AGENT_OPENCODE_BASE_URL` and `AGENT_OPENCODE_MODEL`.               |
 
 ## 10) Where to Read Next
 

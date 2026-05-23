@@ -4,7 +4,7 @@ SCALE ?= 2
         docker-up docker-down docker-restart docker-ps \
         docker-logs docker-logs-postgres docker-logs-backend docker-logs-agent docker-logs-frontend \
         docker-scale \
-        opencode-up opencode-auth opencode-status \
+        opencode-up opencode-down opencode-auth opencode-status opencode-logs \
         migrate test frontend frontend-build lint check
 
 ifneq (,$(wildcard .env))
@@ -71,6 +71,14 @@ opencode-up:
 ## Run once after the first `make opencode-up`, then restart the agent.
 opencode-auth:
 	docker compose exec opencode opencode /provider/github/oauth/authorize
+
+## opencode-down: Stop the OpenCode container (keeps the auth token volume intact)
+opencode-down:
+	docker compose --profile opencode stop opencode
+
+## opencode-logs: Tail live logs from the OpenCode container
+opencode-logs:
+	docker compose logs -f opencode
 
 ## opencode-status: Check whether the OpenCode server is healthy
 opencode-status:
