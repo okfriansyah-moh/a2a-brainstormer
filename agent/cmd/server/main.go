@@ -2,7 +2,7 @@
 //
 // Start-up sequence:
 //  1. Read all configuration from env vars via agent/internal/config.
-//  2. Warn if LLM credential is unavailable (agent still starts; calls fail fast).
+//  2. Fail fast if LLM credential is unavailable (agent must not start without resolvable credentials).
 //  3. Build AgentCard, LLMProvider, and BrainstormExecutor.
 //  4. Wire HTTP routes: AgentCard handler + A2A REST handler.
 //  5. Serve until SIGTERM/SIGINT, then graceful shutdown.
@@ -15,6 +15,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -49,7 +50,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	port := config.GetPort()
 
 	// Build LLM provider (copilot by default; opencode when AGENT_LLM_PROVIDER=opencode).
-	llmProvider := buildLLMProvider(logger)
+	// Fails fast if required credentials are absent — security invariant: absent credential → agent unavailable.
+	llmProvider, err := buildLLMProvider(logger)
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
+	}
 
 	// Build AgentCard. The public URL is read from AGENT_PUBLIC_URL env var
 	// (set to http://agent:{port} in Docker Compose so backend→agent calls work
@@ -112,7 +117,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 // Security invariant: os.Getenv is never called here. All configuration is
 // obtained through agent/internal/config; that package is the sole allowed
 // caller of os.Getenv in this binary.
-func buildLLMProvider(logger *slog.Logger) llm.LLMProvider {
+func buildLLMProvider(logger *slog.Logger) (llm.LLMProvider, error) {
 	provider := config.GetLLMProvider()
 	logger.Info("LLM provider", slog.String("provider", provider))
 
@@ -128,25 +133,31 @@ func buildLLMProvider(logger *slog.Logger) llm.LLMProvider {
 				slog.String("value", model),
 			)
 		}
+		// Validate OpenCode credentials are resolvable before starting.
+		usernameRef := config.GetOpenCodeUsernameRef()
+		passwordRef := config.GetOpenCodePasswordRef()
+		if _, err := config.GetLLMAPIKey(usernameRef); err != nil {
+			return nil, fmt.Errorf("OpenCode username credential %q is not set: %w", usernameRef, err)
+		}
+		if _, err := config.GetLLMAPIKey(passwordRef); err != nil {
+			return nil, fmt.Errorf("OpenCode password credential %q is not set: %w", passwordRef, err)
+		}
 		return llm.NewOpenCodeProvider(llm.OpenCodeConfig{
 			BaseURL:     config.GetOpenCodeBaseURL(),
 			ProviderID:  providerID,
 			ModelID:     modelID,
-			UsernameRef: config.GetOpenCodeUsernameRef(),
-			PasswordRef: config.GetOpenCodePasswordRef(),
-		}, nil, config.GetLLMAPIKey)
+			UsernameRef: usernameRef,
+			PasswordRef: passwordRef,
+		}, nil, config.GetLLMAPIKey), nil
 
 	default: // "copilot" and any unrecognised value
 		credentialRef := config.GetLLMCredentialRef()
 		model := config.GetLLMModel()
 
-		// Warn at startup if the credential env var is missing; the agent continues
-		// to serve the AgentCard endpoint. Individual Execute calls will fail fast.
+		// Fail fast if credential is absent — security invariant: absent credential → agent unavailable.
 		if _, err := config.GetLLMAPIKey(credentialRef); err != nil {
-			logger.Warn("LLM credential unavailable at startup",
-				slog.String("credential_ref", credentialRef),
-			)
+			return nil, fmt.Errorf("LLM credential %q is not set: set the env var before starting the agent", credentialRef)
 		}
-		return llm.NewCopilotProvider(model, credentialRef, "", nil, config.GetLLMAPIKey)
+		return llm.NewCopilotProvider(model, credentialRef, "", nil, config.GetLLMAPIKey), nil
 	}
 }

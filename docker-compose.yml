@@ -43,7 +43,7 @@ services:
       # busybox is a multi-call binary; invoke it directly as `busybox wget`
       # rather than via `sh -c wget` (wget is not in PATH inside the shell).
       test: ["CMD", "/usr/local/bin/busybox", "wget", "-qO-",
-             "http://localhost:${BACKEND_PORT:-18080}/health"]
+             "http://localhost:${BACKEND_PORT:-8080}/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -71,7 +71,7 @@ services:
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
     healthcheck:
       test: ["CMD", "/usr/local/bin/busybox", "wget", "-qO-",
-             "http://localhost:${AGENT_PORT:-19090}/.well-known/agent-card.json"]
+             "http://localhost:${AGENT_PORT:-9090}/.well-known/agent-card.json"]
       interval: 10s
       timeout: 5s
       retries: 3

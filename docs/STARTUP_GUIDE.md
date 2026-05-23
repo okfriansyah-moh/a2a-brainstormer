@@ -321,7 +321,7 @@ If the format is invalid (missing `/`), the agent falls back to `github/gpt-4o`.
    make opencode-status
    ```
 
-   Expected output contains `"status": "ok"`.
+   Expected output contains `"healthy": true`.
 
 ### Credential Flow
 
@@ -338,8 +338,10 @@ If the format is invalid (missing `/`), the agent falls back to `github/gpt-4o`.
   and AGENT_OPENCODE_PASSWORD_REF (the *names* of the credential vars).
         │
         ▼
-  OpenCodeProvider.resolveCredentials() calls os.Getenv on those names
-  at request time — credentials are never stored on any struct or logged.
+  OpenCodeProvider.resolveCredentials() uses the injected resolver
+  (for example, config.GetLLMAPIKey) to look up those names at request
+  time; direct os.Getenv access remains confined to config, and
+  credentials are never stored on any struct or logged.
 ```
 
 The volume `opencode-auth` persists the GitHub Copilot OAuth token.

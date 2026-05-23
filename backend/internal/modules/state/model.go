@@ -100,7 +100,7 @@ func (cs *CanonicalState) UnmarshalJSON(b []byte) error {
 		if err := json.Unmarshal(r, &risk); err != nil {
 			var s string
 			if err2 := json.Unmarshal(r, &s); err2 != nil {
-				return fmt.Errorf("risks[%d]: expected object or string: %w", i, err)
+				return fmt.Errorf("risks[%d]: expected object or string: %w", i, err2)
 			}
 			risk = Risk{Text: s, Severity: "medium", Resolved: false}
 		}
@@ -114,7 +114,7 @@ func (cs *CanonicalState) UnmarshalJSON(b []byte) error {
 		if err := json.Unmarshal(s, &step); err != nil {
 			var title string
 			if err2 := json.Unmarshal(s, &title); err2 != nil {
-				return fmt.Errorf("execution_plan[%d]: expected object or string: %w", i, err)
+				return fmt.Errorf("execution_plan[%d]: expected object or string: %w", i, err2)
 			}
 			step = Step{Title: title}
 		}

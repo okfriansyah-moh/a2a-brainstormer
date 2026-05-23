@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -53,6 +54,14 @@ type OpenCodeProvider struct {
 	sessionID  string
 	sessionErr error
 }
+
+// permanentError wraps failures that must not be retried (4xx HTTP responses,
+// credential resolution failures, and marshal/request-build errors).
+// sendMessage checks for this type to skip the retry for non-transient failures.
+type permanentError struct{ err error }
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
 
 // NewOpenCodeProvider constructs an OpenCodeProvider.
 //
@@ -146,7 +155,11 @@ func (p *OpenCodeProvider) sendMessage(ctx context.Context, req LLMRequest) (LLM
 	}
 
 	// Retry once after a brief pause for transient server-side errors.
-	// 4xx errors are not retried (permanent failure).
+	// 4xx and credential errors (permanentError) are never retried.
+	var pe permanentError
+	if errors.As(err, &pe) {
+		return LLMResponse{}, err
+	}
 	select {
 	case <-ctx.Done():
 		return LLMResponse{}, ctx.Err()
@@ -160,7 +173,7 @@ func (p *OpenCodeProvider) sendMessage(ctx context.Context, req LLMRequest) (LLM
 func (p *OpenCodeProvider) doSendMessage(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 	username, password, err := p.resolveCredentials()
 	if err != nil {
-		return LLMResponse{}, err
+		return LLMResponse{}, permanentError{err}
 	}
 
 	type messagePart struct {
@@ -209,7 +222,7 @@ func (p *OpenCodeProvider) doSendMessage(ctx context.Context, req LLMRequest) (L
 
 	// 4xx: permanent failure — return immediately, do not retry.
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: HTTP %d: %s", resp.StatusCode, respBody)
+		return LLMResponse{}, permanentError{fmt.Errorf("opencode.sendMessage: HTTP %d: %s", resp.StatusCode, respBody)}
 	}
 	// 5xx: transient — caller (sendMessage) will retry once.
 	if resp.StatusCode >= 500 {
