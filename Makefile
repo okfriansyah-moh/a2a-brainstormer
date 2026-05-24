@@ -67,10 +67,10 @@ docker-logs-frontend:
 opencode-up:
 	docker compose --profile opencode up -d opencode
 
-## opencode-auth: One-time GitHub Copilot OAuth inside the OpenCode container.
+## opencode-auth: One-time GitHub Copilot OAuth via the running OpenCode server.
 ## Run once after the first `make opencode-up`, then restart the agent.
 opencode-auth:
-	docker compose exec opencode opencode /provider/github/oauth/authorize
+	docker compose --profile opencode exec -it opencode opencode providers login
 
 ## opencode-down: Stop the OpenCode container (keeps the auth token volume intact)
 opencode-down:

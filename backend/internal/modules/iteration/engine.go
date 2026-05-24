@@ -169,6 +169,11 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 // runPipelinePass executes one ordered pass through all session agents.
 // Each agent in the pipeline receives the cumulative output of the previous
 // agent (§8.4: "each agent receives the output of the previous").
+//
+// The backend is authoritative for Meta.Agents — the LLM must never own it.
+// The roster is built from live agent data as we iterate and is force-applied
+// to the state both before each dispatch (so the LLM sees correct data) and
+// after each dispatch (to prevent LLM drift).
 func (e *Engine) runPipelinePass(
 	ctx context.Context,
 	sess session.Session,
@@ -176,6 +181,9 @@ func (e *Engine) runPipelinePass(
 	iterNum int,
 ) (state.CanonicalState, error) {
 	current := initial
+
+	// roster accumulates authoritative AgentMeta entries as we fetch each agent.
+	roster := make([]state.AgentMeta, 0, len(sess.Agents))
 
 	for _, sa := range sess.Agents {
 		ag, err := e.agents.GetAgent(ctx, sa.AgentID)
@@ -187,6 +195,29 @@ func (e *Engine) runPipelinePass(
 		if err != nil {
 			return current, fmt.Errorf("resolve skills for agent %s: %w", sa.AgentID, err)
 		}
+
+		// Resolve effective provider/model for observability, mirroring the
+		// tiered priority used by Dispatch (session override → agent → global).
+		provider, model := resolveProviderModel(ag, sa.LLMOverride)
+
+		// Build skill-name list for the observability record.
+		skillNames := make([]string, len(activeSkills))
+		for i, sk := range activeSkills {
+			skillNames[i] = sk.Name
+		}
+
+		roster = append(roster, state.AgentMeta{
+			AgentID:  sa.AgentID,
+			Name:     ag.Name,
+			Role:     sa.Role,
+			Provider: provider,
+			Model:    model,
+			Skills:   skillNames,
+		})
+
+		// Inject the authoritative roster into the state before dispatch so
+		// the LLM receives correct meta context.
+		current.Meta.Agents = cloneAgentMetas(roster)
 
 		e.logger.InfoContext(ctx, "dispatching to agent",
 			slog.String("session_id", sess.ID),
@@ -203,6 +234,10 @@ func (e *Engine) runPipelinePass(
 			return current, fmt.Errorf("dispatch agent %s (iter %d): %w", sa.AgentID, iterNum, err)
 		}
 
+		// Force-overwrite meta.agents in the returned state — the LLM must
+		// not be the source of truth for agent observability data.
+		out.Meta.Agents = cloneAgentMetas(roster)
+
 		e.logger.InfoContext(ctx, "agent pass complete",
 			slog.String("session_id", sess.ID),
 			slog.String("agent_id", sa.AgentID),
@@ -216,4 +251,41 @@ func (e *Engine) runPipelinePass(
 	}
 
 	return current, nil
+}
+
+// resolveProviderModel returns the effective provider and model for a dispatch,
+// mirroring the priority order of llm.Resolve: session override → agent-level.
+// Global defaults are not checked here because this function is for
+// observability only — the actual LLM call uses the full llm.Resolve chain.
+func resolveProviderModel(ag agentpkg.Agent, sessionOverride *llm.LLMConfig) (provider, model string) {
+	if sessionOverride != nil {
+		if sessionOverride.Provider != "" {
+			provider = sessionOverride.Provider
+		}
+		if sessionOverride.Model != "" {
+			model = sessionOverride.Model
+		}
+	}
+	if provider == "" && ag.LLMConfig != nil {
+		provider = ag.LLMConfig.Provider
+	}
+	if model == "" && ag.LLMConfig != nil {
+		model = ag.LLMConfig.Model
+	}
+	return provider, model
+}
+
+// cloneAgentMetas returns a deep copy of the slice so mutations to the
+// original roster do not affect the state embedded in any prior snapshot.
+func cloneAgentMetas(src []state.AgentMeta) []state.AgentMeta {
+	out := make([]state.AgentMeta, len(src))
+	for i, m := range src {
+		out[i] = m
+		if m.Skills != nil {
+			skills := make([]string, len(m.Skills))
+			copy(skills, m.Skills)
+			out[i].Skills = skills
+		}
+	}
+	return out
 }

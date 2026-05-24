@@ -298,6 +298,7 @@ func scanAgent(row rowScanner) (Agent, error) {
 		a.SystemPrompt = *systemPrompt
 	}
 	a.DefaultRole = Role(defaultRole)
+	a.Skills = []Skill{}
 	if len(llmJSON) > 0 {
 		var cfg llm.LLMConfig
 		if err := json.Unmarshal(llmJSON, &cfg); err != nil {

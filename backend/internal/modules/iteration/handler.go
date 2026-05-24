@@ -24,7 +24,6 @@ import (
 	"regexp"
 
 	"a2a-brainstorm/backend/internal/modules/session"
-	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/config"
 )
 
@@ -34,7 +33,7 @@ var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 // iterationSvc is the subset of *Service required by the Handler.
 // Using an interface enables test stubs without a live DB.
 type iterationSvc interface {
-	TriggerIteration(ctx context.Context, sessionID string) (state.CanonicalState, error)
+	TriggerIteration(ctx context.Context, sessionID string) (IterationResult, error)
 }
 
 // Handler provides the HTTP handler for the iteration endpoint.
@@ -61,8 +60,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 // handleIterate handles POST /sessions/{id}/iterate.
 //
-// Triggers the full iteration engine loop for the session and returns the
-// resulting CanonicalState as JSON.
+// Triggers the full iteration engine loop for the session and returns an
+// IterationResult JSON envelope matching the IterateResponse shape (§8.7).
 func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 	if !uuidRE.MatchString(sessionID) {

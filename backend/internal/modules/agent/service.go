@@ -100,12 +100,20 @@ func (s *Service) GetAgent(ctx context.Context, id string) (Agent, error) {
 	return a, nil
 }
 
-// ListAgents returns all agents without the skills list (use GetAgent for the
-// full record including skills).
+// ListAgents returns all agents with their attached skills populated.
+// The skills list is loaded per agent so the frontend can render agent cards
+// (skill counts, skill chips) without making an additional request per agent.
 func (s *Service) ListAgents(ctx context.Context) ([]Agent, error) {
 	agents, err := s.repo.ListAgents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
+	}
+	for i := range agents {
+		skills, err := s.repo.GetAgentSkills(ctx, agents[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("list agents: load skills for %s: %w", agents[i].ID, err)
+		}
+		agents[i].Skills = skills
 	}
 	return agents, nil
 }

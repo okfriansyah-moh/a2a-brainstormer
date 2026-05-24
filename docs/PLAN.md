@@ -1,12 +1,13 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 1.2
-> **Date:** 2026-05-12 (updated with UI redesign tasks)
+> **Version:** 1.3
+> **Date:** 2026-05-24 (updated with feature enhancements: selectable docs, PLAN/README generators, per-agent preview, SSE)
 > **Author:** Core, Data and AI Team
 > **Status:** Ready for Implementation
 > **Source of Truth:** `docs/A2A-agent-Brainstorm.md`
 > **Change in v1.1:** Added Tasks 16–25 — Polished UI redesign matching `frontend/mockups/future-polished-mockup.html`. New routes: `/settings`, `/history`, `/session/[id]/finalize`. New components: `PipelineStage`, `ConfidenceBar`, `CanonicalStatePanel`, `RiskBoard`, `WarningModal`. Backend addition: `GET /sessions` list endpoint + markdown content return.
 > **Change in v1.2:** Added Tasks 26–27 — OpenCode server integration as an optional LLM provider for the agent binary. New `OpenCodeProvider` implementation, provider selection switch in `agent/cmd/server/main.go`, Docker Compose profile-based service, and full startup documentation.
+> **Change in v1.3:** Added Tasks 28–31 — four feature enhancements per blueprint §22: (28) Selectable Output Documents with edit-at-finalize support; (29) `PLAN.md` and `README.md` generators producing ≥1000 lines each; (30) Per-Agent Run button using Option A preview/apply flow; (31) Real-time SSE agent progress stream replacing simulated progress.
 
 ---
 
@@ -231,6 +232,18 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
                                                      │
                                                      ▼
                                           Task 27 (Infrastructure: OpenCode Service Wiring)
+                                                     │
+                                                     ▼
+                                          Task 28 (Backend: Selectable Output Documents)
+                                                     │
+                                                     ▼
+                                          Task 29 (Backend: PLAN.md + README.md Generators)
+                                                     │
+                                                     ▼
+                                          Task 30 (Per-Agent Preview/Apply — Backend + Frontend)
+                                                     │
+                                                     ▼
+                                          Task 31 (SSE Real-time Progress — Backend + Frontend)
 ```
 
 ---
@@ -1265,37 +1278,162 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
+### Task 28 — Backend + Frontend: Selectable Output Documents
+
+**Goal:** Let users choose which artifacts (`architecture`, `roadmap`, `plan`, `readme`) are generated, both at session creation and at finalize time. Selection is editable while the session is `active`. See blueprint §22.1.
+
+**Files to create / modify**
+
+- `migrations/005_session_output_docs.sql` — new column `output_docs TEXT[] NOT NULL DEFAULT ARRAY['architecture','roadmap']` on `sessions`; backfill existing rows.
+- `backend/internal/modules/session/model.go` — add `OutputDocs []string` field to `Session` struct + `CreateSessionInput` + `FinalizeInput`.
+- `backend/internal/modules/session/repository.go` — read/write `output_docs` in SELECT/INSERT/UPDATE statements; add `UpdateOutputDocs(ctx, id, docs)`.
+- `backend/internal/modules/session/service.go` — validate input (non-empty, no duplicates, only known keys: `architecture|roadmap|plan|readme`); reject with 409 if status `finalized`.
+- `backend/internal/modules/session/handler.go` — wire `POST /sessions` body field; new `PATCH /sessions/{id}/output-docs`; accept optional `output_docs` override in `POST /sessions/{id}/finalize` body (persists override before generating).
+- `backend/internal/modules/markdown/generator.go` — change `GenerateContent` signature to `GenerateContent(state, keys []string) (map[string]GeneratedDocument, error)`; iterate `keys`, dispatch to registry (Task 29 fills it).
+- `backend/internal/platform/http/router.go` — register the new PATCH route.
+- `frontend/src/lib/types.ts` — add `outputDocs: string[]` to `Session` + `CreateSessionRequest` + `FinalizeRequest`; new `FinalizeResponse.documents: Record<string, {filename, content, lineCount}>`.
+- `frontend/src/lib/services/api.ts` — extend `createSession`, add `updateOutputDocs`, extend `finalizeSession` to accept optional override.
+- `frontend/src/routes/+page.svelte` — add a checkbox group "Documents to generate" in the create-session form (default checked: architecture + roadmap).
+- `frontend/src/routes/session/[id]/finalize/+page.svelte` — add the same checkbox group above the "Generate Artifacts" button; selection seeds from session, override sent in finalize body.
+
+**Validation**
+
+- `go test ./backend/internal/modules/session/...` — covers validation rules and PATCH endpoint.
+- `migrate up` then `migrate down` on a clean DB — schema reversible.
+- Manual: create a session with `["plan"]`, change to `["plan","readme"]` via PATCH, finalize and confirm response keys match.
+
+**Prompt context needed:** §8.19 (output doc selection schema, new in this task), §22.1 of `A2A-agent-Brainstorm.md`, Task 10 (markdown wire-up), Task 19 (existing finalize response shape).
+
+---
+
+### Task 29 — Backend: Long-form Generators for All Output Documents
+
+**Goal:** Bring **every** output document — `architecture.md`, `roadmap.md`, `PLAN.md`, `README.md` — to the same long-form quality bar (≥ 1000 lines per document, individually) via a single generator registry. Refactor the two existing generators (`GenerateArchitecture`, `GenerateRoadmap`) to use the shared template helpers + line-count enforcer, and add the two new generators (`GeneratePlan`, `GenerateReadme`). See blueprint §22.2.
+
+**Files to create / modify**
+
+- `backend/internal/modules/markdown/templates.go` — **new**. Shared helpers used by all four generators:
+  - `renderASCIIComponents(state) string` — ASCII data-flow diagram from `state.architecture.components`.
+  - `renderTable(headers []string, rows [][]string) string` — markdown table renderer with column alignment.
+  - `renderDirectoryTree(layout) string` — directory tree from `state.architecture.directory_layout`.
+  - `renderEnvVarList(config) string`, `renderTechStack(...)`, `renderDecisionsTable(...)`, `renderRisksTable(...)`, `renderExecutionPlanList(...)`.
+  - `enforceMinLines(body, state, padFn) string` — deterministic padding loop (see §8.20).
+  - `padArchitecture / padRoadmap / padPlan / padReadme` — per-generator padders that emit per-component deep-dive sub-sections (data flow, failure modes, observability, deployment notes) and per-execution-plan-item elaboration (assumptions, risks, mitigations, validation matrix). Last-resort padder: full canonical state JSON dump in a fenced block.
+- `backend/internal/modules/markdown/generator_architecture.go` — **move + refactor** the existing `GenerateArchitecture` here. Replace ad-hoc string building with shared helpers; wrap final body in `enforceMinLines(body, state, padArchitecture)` so output is ≥ 1000 lines. Determinism preserved (no maps iterated without sorting, no `time.Now()`).
+- `backend/internal/modules/markdown/generator_roadmap.go` — **move + refactor** the existing `GenerateRoadmap` the same way; wrap in `enforceMinLines(body, state, padRoadmap)`.
+- `backend/internal/modules/markdown/generator_plan.go` — **new**. `GeneratePlan(state CanonicalState) (string, error)` per §8.20 section skeleton; wrap in `enforceMinLines(body, state, padPlan)`.
+- `backend/internal/modules/markdown/generator_readme.go` — **new**. `GenerateReadme(state CanonicalState) (string, error)` per §8.20 section skeleton; wrap in `enforceMinLines(body, state, padReadme)`.
+- `backend/internal/modules/markdown/generator.go` — **modify**:
+  - Remove the inline `GenerateArchitecture` and `GenerateRoadmap` function bodies (they now live in their own files).
+  - Define the `Generators` registry: `var Generators = map[string]func(state.CanonicalState) (string, error){ "architecture": GenerateArchitecture, "roadmap": GenerateRoadmap, "plan": GeneratePlan, "readme": GenerateReadme }`.
+  - Replace `GenerateContent(s)` with `GenerateAll(state, keys []string) (map[string]GeneratedDocument, error)` (Task 28 already changed the call site). Unknown key → return error (caller returns 400).
+  - Each entry in the response map carries `{filename, content, line_count}` where `filename` is fixed per key: `architecture` → `architecture.md`, `roadmap` → `roadmap.md`, `plan` → `PLAN.md`, `readme` → `README.md`.
+- `backend/internal/modules/markdown/generator_architecture_test.go` — **modify** (or rename from existing test): assert output ≥ 1000 lines AND byte-identical determinism (same input twice → same bytes).
+- `backend/internal/modules/markdown/generator_roadmap_test.go` — same as above.
+- `backend/internal/modules/markdown/generator_plan_test.go` — **new**: 1000-line minimum + determinism + structural assertion (must contain `## 1. Goal`, `## 5. Implementation Tasks`, `## 8. Deep Knowledge Reference`).
+- `backend/internal/modules/markdown/generator_readme_test.go` — **new**: 1000-line minimum + determinism + structural assertion (must contain `## Overview`, `## Quick Start`, `## Configuration`, `## License`).
+- `backend/internal/modules/markdown/generator_registry_test.go` — **new**: covers `GenerateAll` with all four keys, unknown-key error, ordering preserved, every returned `GeneratedDocument.LineCount >= 1000`.
+
+**Validation**
+
+- `go test ./backend/internal/modules/markdown/... -run Generate` — all four generators pass line-count + determinism + structural tests.
+- `go test ./backend/internal/modules/markdown/... -run Registry` — registry test passes.
+- `go vet ./backend/internal/modules/markdown/...` — clean.
+- `go build ./backend/...` — zero errors (Task 28's `GenerateContent` → `GenerateAll` migration still compiles end-to-end).
+- Manual: feed the `matchpoint` seed state through each of the four keys, eyeball each markdown for structural correctness and that no two consecutive runs produce diff output (`diff <(run1) <(run2)` empty).
+
+**Prompt context needed:** §8.20 (generator template skeletons for all four documents + padding rule, expanded in this task), §22.2 of `A2A-agent-Brainstorm.md`, §8.1 (canonical state shape), Task 28 (registry slot + new `GenerateAll` signature), existing `generator.go` (current `GenerateArchitecture` / `GenerateRoadmap` bodies to migrate).
+
+---
+
+### Task 30 — Per-Agent Run Button (Preview / Apply)
+
+**Goal:** Add per-agent preview and apply endpoints + frontend buttons on each `PipelineStage`. Coexists with the existing full-iteration run. See blueprint §22.3.
+
+**Files to create / modify**
+
+- `backend/internal/modules/iteration/preview.go` — new `PreviewStore` (in-memory, keyed by `sessionID → agentID → PreviewResult`); methods `Set`, `Get`, `Delete`, `Clear`.
+- `backend/internal/modules/iteration/engine.go` — add `RunSingleAgent(ctx, sessionID, agentID) (CanonicalState, error)` that loads state, dispatches one agent via the existing A2A client, returns the agent output without persisting. Reuses prompt assembly path.
+- `backend/internal/modules/iteration/service.go` — `Preview`, `Apply`, `DiscardPreview`. `Apply` merges using the standard merge strategy, increments iteration counter, persists, clears the preview slot. All three reject with 409 when a full iteration is in flight (check engine's per-session mutex).
+- `backend/internal/modules/iteration/handler.go` — new handlers for the three endpoints.
+- `backend/internal/platform/http/router.go` — register `POST /sessions/{id}/agents/{agent_id}/preview`, `POST .../apply`, `DELETE .../preview`.
+- `frontend/src/lib/services/api.ts` — `previewAgent`, `applyAgentPreview`, `discardAgentPreview`.
+- `frontend/src/lib/types.ts` — add `PreviewResult` type + `pipelineStage.preview?: PreviewResult` field.
+- `frontend/src/lib/components/PipelineStage.svelte` — render two new buttons: **Run This Agent** (calls preview) and **Apply** (disabled until preview exists); show a yellow `chip-warn` banner "Preview — not committed" above the preview log block.
+- `frontend/src/routes/session/[id]/+page.svelte` — wire button handlers; refresh canonical state on apply.
+
+**Validation**
+
+- `go test ./backend/internal/modules/iteration/... -run Preview` — covers preview store, 409 conflict during in-flight iteration, apply increments counter.
+- `pnpm check` — clean.
+- Manual: preview an agent, observe state unchanged; apply, observe state advanced; second iteration still works.
+
+**Prompt context needed:** §8.21 (preview/apply API contract, new in this task), §22.3 of `A2A-agent-Brainstorm.md`, Task 9 (iteration engine), Task 18 (PipelineStage component), Task 19 (session refresh path).
+
+---
+
+### Task 31 — SSE Real-time Agent Progress
+
+**Goal:** Replace the simulated progress bar with a live SSE stream of agent lifecycle events. See blueprint §22.4.
+
+**Files to create / modify**
+
+- `backend/internal/platform/sse/broadcaster.go` — `Broadcaster` with `Subscribe(sessionID) (<-chan Event, unsubscribe)`, `Publish(sessionID, evt)`, per-session ring buffer (cap 100) for `Last-Event-ID` replay. Bounded subscriber count.
+- `backend/internal/modules/iteration/events.go` — `Event` struct (`ID, Type, Data`), event-type constants (`iteration.start`, `agent.started`, `agent.complete`, `agent.error`, `iteration.complete`, `session.finalized`); `EventEmitter` interface.
+- `backend/internal/modules/iteration/engine.go` — accept an `EventEmitter` via constructor; emit `iteration.start` before the loop, `agent.started` before each dispatch, `agent.complete` after each merge (with confidence delta), `iteration.complete` after each pass, `agent.error` on dispatch failure. Same for `RunSingleAgent` (`agent.started` + `agent.complete`/`error`).
+- `backend/internal/modules/iteration/handler.go` — new `GET /sessions/{id}/events` SSE handler: validate session exists, set `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`; honor `Last-Event-ID` header by replaying ring buffer; flush after each event; close on client disconnect.
+- `backend/internal/modules/session/service.go` — emit `session.finalized` after successful finalize.
+- `backend/internal/platform/http/router.go` — register the SSE route.
+- `backend/cmd/server/main.go` — instantiate `Broadcaster`, inject into iteration + session services.
+- `frontend/src/lib/services/sse.ts` — small wrapper around `EventSource` with auto-reconnect + `Last-Event-ID` handling.
+- `frontend/src/routes/session/[id]/+page.svelte` — open the stream on mount, dispatch events to `sessionStore`; update each `PipelineStage` status (`waiting → running → done`) live; remove simulated progress code.
+- `frontend/src/lib/stores/sessionStore.ts` — add `applyEvent(evt)` reducer.
+
+**Validation**
+
+- `go test ./backend/internal/platform/sse/... ./backend/internal/modules/iteration/...` — covers broadcaster fan-out, ring-buffer replay, engine event emission ordering.
+- Manual: run an iteration with two agents, confirm 1× `iteration.start`, 2× `agent.started` + `agent.complete`, 1× `iteration.complete` in DevTools network tab; reconnect mid-iteration with `Last-Event-ID` and confirm replay.
+- `pnpm check` and `pnpm build` — clean.
+
+**Prompt context needed:** §8.22 (SSE event schema, new in this task), §22.4 of `A2A-agent-Brainstorm.md`, Task 9 (iteration engine hook points), Task 18 (PipelineStage status field), Task 30 (preview also emits events).
+
+---
+
 ## 6. Task Summary
 
-| Task | Name                                         | Key Files                                                                                                                                 | Depends On             | Complexity |
-| ---- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------- |
-| 1    | Project Scaffold                             | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                                     | —                      | Low        |
-| 2    | Platform: Config + DB + Logger               | `platform/config/`, `platform/db/`, `platform/logger/`                                                                                    | Task 1                 | Low        |
-| 3    | Platform: LLM Abstraction                    | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                                   | Task 2                 | Medium     |
-| 4    | Platform: A2A Layer                          | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                            | Task 2                 | Medium     |
-| 5    | State Module                                 | `modules/state/model.go`, `merge.go`, `validator.go`                                                                                      | Tasks 3, 4             | Medium     |
-| 6    | Agent Module: Models + DB Schema             | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                                    | Tasks 1, 5             | Medium     |
-| 7    | Agent Module: Service + Handler + Dispatch   | `modules/agent/service.go`, `handler.go`, `client.go`                                                                                     | Tasks 6, 3, 4          | High       |
-| 8    | Session Module                               | `modules/session/*`, `003_sessions.sql`                                                                                                   | Task 7                 | Medium     |
-| 9    | Iteration Engine + Convergence               | `iteration/engine.go`, `convergence/engine.go`                                                                                            | Tasks 5, 7, 8          | High       |
-| 10   | Markdown + Backend Wire-up                   | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                                  | Tasks 9, 8             | Medium     |
-| 11   | Agent Service Binary                         | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                                  | Tasks 3, 4             | High       |
-| 12   | Frontend: Scaffold + Stores + API Client     | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                                          | Task 1                 | Medium     |
-| 13   | Frontend: Session Workspace                  | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                                         | Task 12                | Medium     |
-| 14   | Frontend: Agent Registry + Skills            | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                                     | Task 12                | Medium     |
-| 15   | Integration Tests + Docs                     | `*_test.go` files, `README.md`                                                                                                            | Tasks 11, 13, 14       | Medium     |
-| 16   | Frontend: Design System Foundation           | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                         | Task 12                | Low        |
-| 17   | Frontend: Home View Redesign                 | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                             | Task 16                | Medium     |
-| 18   | Frontend: Session View + Pipeline Components | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte`             | Tasks 16, 17           | High       |
-| 19   | Backend: Session List + Artifact Content     | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                            | Tasks 10, 12           | Medium     |
-| 20   | Frontend: Settings View (Agents+Skills Tabs) | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                                    | Tasks 16, 19           | Medium     |
-| 21   | Frontend: Agent Form + Skill Form Views      | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                                  | Task 20                | Medium     |
-| 22   | Frontend: Roles Tab + Warning Modal          | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                                   | Task 20                | Medium     |
-| 23   | Frontend: Session History View               | `routes/history/+page.svelte`                                                                                                             | Tasks 16, 19           | Medium     |
-| 24   | Frontend: Finalize/Export View               | `routes/session/[id]/finalize/+page.svelte`                                                                                               | Tasks 19, 22           | Medium     |
-| 25   | Frontend: Navigation Wiring + Final UI Val   | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                              | Tasks 16–24            | Medium     |
-| 26   | Agent: OpenCode LLM Provider                 | `agent/internal/llm/opencode.go`, `opencode_test.go`, `agent/internal/config/config.go` (modified), `agent/cmd/server/main.go` (modified) | Task 11 (agent binary) | Medium     |
-| 27   | Infrastructure: OpenCode Service Wiring      | `docker-compose.yml`, `.env.example`, `Makefile`, `docs/STARTUP_GUIDE.md`                                                                 | Task 26                | Low        |
+| Task | Name                                         | Key Files                                                                                                                                                  | Depends On             | Complexity |
+| ---- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------- |
+| 1    | Project Scaffold                             | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                                                      | —                      | Low        |
+| 2    | Platform: Config + DB + Logger               | `platform/config/`, `platform/db/`, `platform/logger/`                                                                                                     | Task 1                 | Low        |
+| 3    | Platform: LLM Abstraction                    | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                                                    | Task 2                 | Medium     |
+| 4    | Platform: A2A Layer                          | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                                             | Task 2                 | Medium     |
+| 5    | State Module                                 | `modules/state/model.go`, `merge.go`, `validator.go`                                                                                                       | Tasks 3, 4             | Medium     |
+| 6    | Agent Module: Models + DB Schema             | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                                                     | Tasks 1, 5             | Medium     |
+| 7    | Agent Module: Service + Handler + Dispatch   | `modules/agent/service.go`, `handler.go`, `client.go`                                                                                                      | Tasks 6, 3, 4          | High       |
+| 8    | Session Module                               | `modules/session/*`, `003_sessions.sql`                                                                                                                    | Task 7                 | Medium     |
+| 9    | Iteration Engine + Convergence               | `iteration/engine.go`, `convergence/engine.go`                                                                                                             | Tasks 5, 7, 8          | High       |
+| 10   | Markdown + Backend Wire-up                   | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                                                   | Tasks 9, 8             | Medium     |
+| 11   | Agent Service Binary                         | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                                                   | Tasks 3, 4             | High       |
+| 12   | Frontend: Scaffold + Stores + API Client     | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                                                           | Task 1                 | Medium     |
+| 13   | Frontend: Session Workspace                  | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                                                          | Task 12                | Medium     |
+| 14   | Frontend: Agent Registry + Skills            | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                                                      | Task 12                | Medium     |
+| 15   | Integration Tests + Docs                     | `*_test.go` files, `README.md`                                                                                                                             | Tasks 11, 13, 14       | Medium     |
+| 16   | Frontend: Design System Foundation           | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                                          | Task 12                | Low        |
+| 17   | Frontend: Home View Redesign                 | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                                              | Task 16                | Medium     |
+| 18   | Frontend: Session View + Pipeline Components | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte`                              | Tasks 16, 17           | High       |
+| 19   | Backend: Session List + Artifact Content     | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                                             | Tasks 10, 12           | Medium     |
+| 20   | Frontend: Settings View (Agents+Skills Tabs) | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                                                     | Tasks 16, 19           | Medium     |
+| 21   | Frontend: Agent Form + Skill Form Views      | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                                                   | Task 20                | Medium     |
+| 22   | Frontend: Roles Tab + Warning Modal          | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                                                    | Task 20                | Medium     |
+| 23   | Frontend: Session History View               | `routes/history/+page.svelte`                                                                                                                              | Tasks 16, 19           | Medium     |
+| 24   | Frontend: Finalize/Export View               | `routes/session/[id]/finalize/+page.svelte`                                                                                                                | Tasks 19, 22           | Medium     |
+| 25   | Frontend: Navigation Wiring + Final UI Val   | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                                               | Tasks 16–24            | Medium     |
+| 26   | Agent: OpenCode LLM Provider                 | `agent/internal/llm/opencode.go`, `opencode_test.go`, `agent/internal/config/config.go` (modified), `agent/cmd/server/main.go` (modified)                  | Task 11 (agent binary) | Medium     |
+| 27   | Infrastructure: OpenCode Service Wiring      | `docker-compose.yml`, `.env.example`, `Makefile`, `docs/STARTUP_GUIDE.md`                                                                                  | Task 26                | Low        |
+| 28   | Backend + FE: Selectable Output Documents    | `005_session_output_docs.sql`, `session/*` (modified), `markdown/generator.go`, `+page.svelte`, `finalize/+page.svelte`                                    | Tasks 10, 19, 24       | Medium     |
+| 29   | Long-form Generators for All Output Docs     | `markdown/templates.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, paired `_test.go`, registry test | Task 28                | High       |
+| 30   | Per-Agent Preview/Apply (Backend + Frontend) | `iteration/preview.go`, `engine.go` (modified), `service.go`, `handler.go`, `PipelineStage.svelte`, `api.ts`                                               | Tasks 9, 18, 19        | High       |
+| 31   | SSE Real-time Agent Progress                 | `platform/sse/broadcaster.go`, `iteration/events.go`, `engine.go` + `handler.go` (modified), `sse.ts`, `session/[id]/+page.svelte`                         | Tasks 9, 18, 30        | High       |
 
 ---
 
@@ -2193,3 +2331,315 @@ The OpenCode server must authenticate to the underlying provider (e.g. GitHub Co
 4. Token is saved inside the container at `/root/.local/share/opencode/` — persisted in the `opencode-auth` Docker volume
 
 The `opencode-auth` Docker volume survives container restarts; re-authentication is only needed if the volume is deleted or the OAuth token expires.
+
+---
+
+### 8.19 Output Document Selection (v1.3)
+
+**Available keys** (extensible registry — see Task 29):
+
+```go
+var AllowedOutputDocs = map[string]bool{
+    "architecture": true,
+    "roadmap":      true,
+    "plan":         true,
+    "readme":       true,
+}
+```
+
+**Default:** `["architecture", "roadmap"]` — applied when a `POST /sessions` call omits the field.
+
+**DB schema (migration 005):**
+
+```sql
+ALTER TABLE sessions
+    ADD COLUMN output_docs TEXT[] NOT NULL DEFAULT ARRAY['architecture','roadmap'];
+
+UPDATE sessions
+    SET output_docs = ARRAY['architecture','roadmap']
+    WHERE output_docs IS NULL;
+```
+
+**Validation rules (service layer, both `Create` and `UpdateOutputDocs`):**
+
+1. `len(docs) >= 1` — must select at least one.
+2. Every entry must be in `AllowedOutputDocs` — unknown key → 400.
+3. No duplicates — case-sensitive uniqueness check → 400.
+4. `UpdateOutputDocs` rejects with 409 when `session.status == "finalized"`.
+5. `Finalize(input)` — if `input.OutputDocs != nil`, call `UpdateOutputDocs` first (subject to rule 4), then proceed.
+
+**Response shape from `POST /sessions/{id}/finalize`** (replaces the v1.1 fixed pair):
+
+```json
+{
+  "session_id": "uuid",
+  "documents": {
+    "architecture": {
+      "filename": "architecture.md",
+      "content": "...",
+      "line_count": 1247
+    },
+    "plan": { "filename": "PLAN.md", "content": "...", "line_count": 1083 }
+  }
+}
+```
+
+`GeneratedDocument` struct:
+
+```go
+type GeneratedDocument struct {
+    Filename  string `json:"filename"`
+    Content   string `json:"content"`
+    LineCount int    `json:"line_count"`
+}
+```
+
+---
+
+### 8.20 Long-form Generator Templates — All Output Documents (v1.3)
+
+**All four generators** (`GenerateArchitecture`, `GenerateRoadmap`, `GeneratePlan`, `GenerateReadme`) are pure functions with the same signature: `func(CanonicalState) (string, error)`. Same input must produce byte-identical output (enforced by determinism tests). Every generator wraps its body in `enforceMinLines` so the rendered document is **≥ 1000 lines, per document, individually** — not combined.
+
+**`GenerateArchitecture` section skeleton** — emits in this fixed order:
+
+```
+# <Title>                          ← from state.idea
+## 1. Overview                     ← state.idea + architecture summary
+## 2. System Components            ← per-component deep dive from state.architecture.components
+## 3. Data Flow                    ← ASCII diagram + textual walkthrough
+## 4. Tech Stack                   ← from state.architecture.tech_stack
+## 5. Module Boundaries            ← from state.architecture.modules
+## 6. Key Architecture Decisions   ← decisions table from state.architecture.decisions
+## 7. Data Model                   ← entities + relationships from state.architecture.data_model
+## 8. API Surface                  ← endpoints from state.architecture.api
+## 9. Failure Modes                ← from state.risks
+## 10. Observability               ← from state.architecture.observability
+## 11. Security Model              ← from state.architecture.security
+## 12. Open Questions              ← from state.open_questions
+```
+
+**`GenerateRoadmap` section skeleton** — emits in this fixed order:
+
+```
+# <Title> — Implementation Roadmap
+## 1. Goal                         ← from state.idea
+## 2. Milestones                   ← grouped from state.execution_plan
+## 3. Phase Breakdown              ← one section per phase with deliverables + exit criteria
+## 4. Dependencies                 ← cross-phase dependency graph
+## 5. Risks & Mitigations          ← from state.risks
+## 6. Assumptions                  ← from state.assumptions
+## 7. Validation Strategy          ← derived from execution_plan[*].validation
+## 8. Rollout Plan                 ← staged delivery from execution_plan
+```
+
+**`GeneratePlan` section skeleton** — emits in this fixed order:
+
+```
+> Version / Date / Author / Status / Source of Truth
+## 1. Goal                          ← from state.idea
+## 2. Architecture Overview         ← components diagram + decisions table
+## 3. Tech Stack                    ← from state.architecture.tech_stack
+## 4. Project Structure             ← from state.architecture.directory_layout
+## 5. Implementation Tasks
+###   Dependency Graph
+###   Task N — <name>               ← one per state.execution_plan[*]
+## 6. Task Summary                  ← table
+## 7. How to Use This Plan          ← static boilerplate
+## 8. Deep Knowledge Reference
+###   8.1 Canonical State Shape
+###   8.2 ...                       ← derived from architecture + assumptions + risks
+```
+
+**`GenerateReadme` section skeleton** — emits in this fixed order:
+
+```
+# <Title>
+> <one-line description>           ← from state.idea
+[badges row — placeholder]
+## Table of Contents
+## Overview                        ← state.idea + architecture summary
+## System Architecture             ← ASCII diagram + per-component description
+## Repository Structure            ← directory tree
+## Prerequisites
+## Quick Start
+## Configuration                   ← env var list
+## Testing                         ← from execution_plan[*].validation
+## Risk & Assumptions
+## Roadmap                         ← execution_plan summary
+## Documentation
+## Contributing
+## License
+```
+
+**Line-count enforcement (≥ 1000 lines per doc, individually):**
+
+```go
+const minDocLines = 1000
+
+func enforceMinLines(body string, state CanonicalState, padFn func(CanonicalState) string) string {
+    lines := strings.Count(body, "\n")
+    for lines < minDocLines {
+        body += "\n\n" + padFn(state)   // deterministic padder
+        lines = strings.Count(body, "\n")
+    }
+    return body
+}
+```
+
+Padding sources (deterministic, derived only from `state`):
+
+- Per-component deep-dive sub-sections (data flow, failure modes, observability, deployment notes)
+- Per-execution-plan-item elaboration (assumptions, risks, mitigations, validation matrix)
+- Full canonical state JSON dump in a fenced block (last resort)
+
+**Forbidden:** random/Lorem-ipsum text, timestamps, UUIDs not present in state.
+
+---
+
+### 8.21 Per-Agent Preview / Apply API Contract (v1.3)
+
+**`POST /sessions/{id}/agents/{agent_id}/preview`**
+
+Request body: none.
+
+Response `200`:
+
+```json
+{
+  "session_id": "uuid",
+  "agent_id":   "uuid",
+  "preview_id": "uuid",
+  "output":     { "...partial CanonicalState delta from this agent only..." },
+  "created_at": "2026-05-24T12:00:00Z"
+}
+```
+
+Response `409` when a full iteration is in flight for the session, or when the agent is not a member of the session.
+
+**`POST /sessions/{id}/agents/{agent_id}/apply`**
+
+Request body: optional `{"preview_id": "uuid"}` — when present, asserts the stored preview ID matches (prevents accidentally applying a stale preview). When absent, applies the latest preview for that agent.
+
+Response `200`: new full `CanonicalState` after merge + iteration counter incremented by 1.
+
+Response `404` when no preview exists. Response `409` during in-flight iteration or `412` when `preview_id` mismatches.
+
+**`DELETE /sessions/{id}/agents/{agent_id}/preview`** → `204`. Idempotent — `204` even when no preview exists.
+
+**In-memory store (`iteration/preview.go`):**
+
+```go
+type PreviewResult struct {
+    PreviewID uuid.UUID
+    AgentID   uuid.UUID
+    Output    state.CanonicalState
+    CreatedAt time.Time
+}
+
+type PreviewStore struct {
+    mu sync.RWMutex
+    m  map[uuid.UUID]map[uuid.UUID]PreviewResult  // sessionID → agentID → result
+}
+```
+
+Server restart clears all previews (by design — speculative state, not persisted).
+
+**Concurrency contract:** the iteration service holds a per-session `sync.Mutex`. `Iterate`, `RunSingleAgent` (preview), and `Apply` all acquire it; concurrent attempts return 409 immediately rather than blocking.
+
+---
+
+### 8.22 SSE Real-time Progress Event Schema (v1.3)
+
+**Endpoint:** `GET /sessions/{id}/events`
+
+**Headers (response):**
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+X-Accel-Buffering: no
+```
+
+**Headers (request, optional):** `Last-Event-ID: <int>` — when present and within the ring buffer (last 100 events), the server replays missed events before resuming live stream.
+
+**Event types:**
+
+| `event:`             | `data:` payload                                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| `iteration.start`    | `{"iteration": 3, "agents": [{"agent_id":"...","role":"...","position":0}, ...]}`                    |
+| `agent.started`      | `{"iteration": 3, "agent_id": "...", "role": "...", "position": 0}`                                  |
+| `agent.complete`     | `{"iteration": 3, "agent_id": "...", "partial_state": {...delta only...}, "confidence_delta": 0.07}` |
+| `agent.error`        | `{"iteration": 3, "agent_id": "...", "error": "dispatch timeout"}`                                   |
+| `iteration.complete` | `{"iteration": 3, "converged": false, "confidence": 0.81}`                                           |
+| `session.finalized`  | `{"documents": ["architecture","plan"]}`                                                             |
+
+**Wire example:**
+
+```
+id: 42
+event: agent.complete
+data: {"iteration":3,"agent_id":"7e1c...","partial_state":{"risks":[{"id":"r-12","title":"..."}]},"confidence_delta":0.07}
+
+id: 43
+event: iteration.complete
+data: {"iteration":3,"converged":false,"confidence":0.81}
+
+```
+
+(Two blank lines terminate each event; `id` is monotonically increasing per session.)
+
+**Broadcaster shape (`platform/sse/broadcaster.go`):**
+
+```go
+type Event struct {
+    ID   uint64
+    Type string
+    Data any
+}
+
+type Broadcaster struct {
+    mu       sync.RWMutex
+    subs     map[uuid.UUID]map[uint64]chan Event   // sessionID → subscriberID → channel
+    buffers  map[uuid.UUID][]Event                  // sessionID → ring buffer (cap 100)
+    nextSub  uint64
+    nextEvt  map[uuid.UUID]uint64                   // sessionID → next event ID
+}
+
+func (b *Broadcaster) Subscribe(sessionID uuid.UUID, lastEventID uint64) (<-chan Event, func())
+func (b *Broadcaster) Publish(sessionID uuid.UUID, evtType string, data any)
+```
+
+**Engine hook points (`iteration/engine.go`):**
+
+```go
+for i := 1; i <= maxIter; i++ {
+    emitter.Publish(sessionID, "iteration.start", ...)
+    for _, agent := range agents {
+        emitter.Publish(sessionID, "agent.started", ...)
+        out, err := dispatch(agent, current)
+        if err != nil {
+            emitter.Publish(sessionID, "agent.error", ...)
+            return ...
+        }
+        before := current.Metrics.Confidence
+        current = merge(current, out)
+        emitter.Publish(sessionID, "agent.complete", map[string]any{
+            "iteration":        i,
+            "agent_id":         agent.ID,
+            "partial_state":    diff(prev, current),
+            "confidence_delta": current.Metrics.Confidence - before,
+        })
+    }
+    emitter.Publish(sessionID, "iteration.complete", ...)
+    if convergence.Check(prev, current) { break }
+}
+```
+
+`RunSingleAgent` (preview path) emits only `agent.started` and `agent.complete` / `agent.error`. `session.finalized` is published from `session/service.go` after a successful finalize.
+
+**Bounded resources:**
+
+- Ring buffer cap: 100 events per session.
+- Max subscribers per session: 10 (hard limit; 11th `Subscribe` returns `nil` channel → handler responds `429`).
+- Subscriber channel buffer: 32. When full, the broadcaster drops the subscriber (treated as disconnected).

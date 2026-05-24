@@ -295,3 +295,120 @@ func TestEngineMaxIterations(t *testing.T) {
 		t.Errorf("expected %d persisted states, got %d", maxIter, len(store.states))
 	}
 }
+
+// TestEngineMetaAgentsPopulated verifies that the backend is authoritative for
+// Meta.Agents — name, role, provider, model, and skills are populated from the
+// agent registry, not from whatever the LLM returns.
+//
+// The mock dispatch deliberately zeroes out meta.agents to simulate an LLM
+// that strips or corrupts the field; the engine must restore the correct data.
+func TestEngineMetaAgentsPopulated(t *testing.T) {
+	t.Setenv("CONVERGENCE_THRESHOLD", "0.02")
+
+	const (
+		sessID   = "44444444-4444-4444-4444-444444444444"
+		agentAID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+		agentBID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	)
+
+	agentProv := &stubAgentProvider{
+		agents: map[string]agentpkg.Agent{
+			agentAID: {
+				ID:          agentAID,
+				Name:        "Builder Agent",
+				DefaultRole: agentpkg.RoleBuilder,
+				Endpoint:    "http://a",
+				LLMConfig:   &llm.LLMConfig{Provider: "opencode", Model: "claude-sonnet-4.6"},
+			},
+			agentBID: {
+				ID:          agentBID,
+				Name:        "Reviewer Agent",
+				DefaultRole: agentpkg.RoleReviewer,
+				Endpoint:    "http://b",
+				LLMConfig:   &llm.LLMConfig{Provider: "opencode", Model: "claude-sonnet-4.6"},
+			},
+		},
+	}
+
+	// stubAgentProviderWithSkills overrides ResolveActiveSkills to return named skills.
+	agentProvWithSkills := &stubAgentProviderWithSkills{
+		stubAgentProvider: agentProv,
+		skills: map[string][]agentpkg.Skill{
+			agentAID: {{ID: "s1", Name: "SkillA"}, {ID: "s2", Name: "SkillB"}},
+			agentBID: {{ID: "s3", Name: "SkillC"}},
+		},
+	}
+
+	store := &stubSessionStore{}
+
+	// Mock dispatch deliberately wipes Meta.Agents to simulate LLM corruption.
+	mockDispatch := func(
+		_ context.Context,
+		_ agentpkg.Agent,
+		_ agentpkg.Role,
+		_ []agentpkg.Skill,
+		_ *llm.LLMConfig,
+		current state.CanonicalState,
+	) (state.CanonicalState, error) {
+		out := current
+		out.Metrics.Confidence = 0.999
+		out.ExecutionPlan = []state.Step{completePlanStep()}
+		out.Meta.Agents = nil // simulate LLM stripping the field
+		return out, nil
+	}
+
+	eng := NewEngine(mockDispatch, agentProvWithSkills, store, testLogger())
+	sess := twoAgentSession(sessID, agentAID, agentBID, 5)
+
+	result, err := eng.Run(context.Background(), sess, state.CanonicalState{
+		Idea: map[string]any{"text": "test idea"},
+	})
+	if err != nil {
+		t.Fatalf("Run returned unexpected error: %v", err)
+	}
+
+	if len(result.Meta.Agents) != 2 {
+		t.Fatalf("expected 2 AgentMeta entries, got %d", len(result.Meta.Agents))
+	}
+
+	a := result.Meta.Agents[0]
+	if a.AgentID != agentAID {
+		t.Errorf("agent[0].AgentID = %q, want %q", a.AgentID, agentAID)
+	}
+	if a.Name != "Builder Agent" {
+		t.Errorf("agent[0].Name = %q, want %q", a.Name, "Builder Agent")
+	}
+	if a.Role != string(agentpkg.RoleBuilder) {
+		t.Errorf("agent[0].Role = %q, want %q", a.Role, agentpkg.RoleBuilder)
+	}
+	if a.Provider != "opencode" {
+		t.Errorf("agent[0].Provider = %q, want %q", a.Provider, "opencode")
+	}
+	if a.Model != "claude-sonnet-4.6" {
+		t.Errorf("agent[0].Model = %q, want %q", a.Model, "claude-sonnet-4.6")
+	}
+	if len(a.Skills) != 2 || a.Skills[0] != "SkillA" || a.Skills[1] != "SkillB" {
+		t.Errorf("agent[0].Skills = %v, want [SkillA SkillB]", a.Skills)
+	}
+
+	b := result.Meta.Agents[1]
+	if b.AgentID != agentBID {
+		t.Errorf("agent[1].AgentID = %q, want %q", b.AgentID, agentBID)
+	}
+	if b.Name != "Reviewer Agent" {
+		t.Errorf("agent[1].Name = %q, want %q", b.Name, "Reviewer Agent")
+	}
+	if len(b.Skills) != 1 || b.Skills[0] != "SkillC" {
+		t.Errorf("agent[1].Skills = %v, want [SkillC]", b.Skills)
+	}
+}
+
+// stubAgentProviderWithSkills extends stubAgentProvider with per-agent skills.
+type stubAgentProviderWithSkills struct {
+	*stubAgentProvider
+	skills map[string][]agentpkg.Skill
+}
+
+func (s *stubAgentProviderWithSkills) ResolveActiveSkills(_ context.Context, agentID string, _ *[]string) ([]agentpkg.Skill, error) {
+	return s.skills[agentID], nil
+}

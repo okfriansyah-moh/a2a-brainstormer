@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"regexp"
+	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -118,12 +120,16 @@ func (e *BrainstormExecutor) Execute(
 			stateJSON = []byte("{}")
 		}
 
-		// The OpenAI-compatible response_format:json_object requires the word
-		// "json" to appear in at least one message. We embed the state in a
-		// labelled instruction so the constraint is always satisfied regardless
-		// of what the system prompt contains.
+		// Construct the user message with a strict JSON-only instruction.
+		// Claude may still add prose unless we are very explicit; we also apply
+		// JSON extraction as a fallback in parsing (see extractJSON below).
 		userMessage := fmt.Sprintf(
-			"Current brainstorm state (JSON):\n%s\n\nRespond with the complete updated JSON state.",
+			"CRITICAL INSTRUCTION: You MUST respond with ONLY a valid JSON object.\n"+
+				"Do NOT include any explanation, commentary, markdown, or text outside the JSON.\n"+
+				"Your entire response must start with { and end with }.\n"+
+				"No prose before or after. No ```json fences. Pure JSON only.\n\n"+
+				"Current brainstorm state (JSON):\n%s\n\n"+
+				"Return the complete updated canonical state as a single JSON object.",
 			string(stateJSON),
 		)
 
@@ -160,8 +166,10 @@ func (e *BrainstormExecutor) Execute(
 		}
 
 		// Parse the LLM JSON response as the updated CanonicalState.
-		var updatedState any
-		if err := json.Unmarshal([]byte(resp.Content), &updatedState); err != nil {
+		// extractJSON handles responses where Claude wraps the JSON in prose or
+		// markdown code fences despite the explicit instruction.
+		updatedState, err := extractJSON(resp.Content)
+		if err != nil {
 			e.logError(ctx, "parse LLM response as state failed", err,
 				slog.String("content_prefix", truncate(resp.Content, 200)),
 			)
@@ -249,4 +257,43 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// jsonCodeFenceRE matches a ```json ... ``` or ``` ... ``` fenced code block.
+var jsonCodeFenceRE = regexp.MustCompile(`(?s)` + "```" + `(?:json)?\s*([\s\S]*?)` + "```")
+
+// extractJSON attempts to parse a valid JSON object from raw, which may be:
+//  1. Pure JSON (the expected case).
+//  2. JSON wrapped in ```json … ``` or ``` … ``` markdown fences.
+//  3. A JSON object embedded anywhere in prose text.
+//
+// Returns an error only when no valid JSON object can be found.
+func extractJSON(raw string) (any, error) {
+	raw = strings.TrimSpace(raw)
+
+	// Fast path: raw content is already valid JSON.
+	var out any
+	if err := json.Unmarshal([]byte(raw), &out); err == nil {
+		return out, nil
+	}
+
+	// Try extracting from a ```json … ``` or ``` … ``` code fence.
+	if m := jsonCodeFenceRE.FindStringSubmatch(raw); len(m) == 2 {
+		candidate := strings.TrimSpace(m[1])
+		if err := json.Unmarshal([]byte(candidate), &out); err == nil {
+			return out, nil
+		}
+	}
+
+	// Last resort: find the first '{' and the last '}' and try that substring.
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		candidate := raw[start : end+1]
+		if err := json.Unmarshal([]byte(candidate), &out); err == nil {
+			return out, nil
+		}
+	}
+
+	return nil, fmt.Errorf("response contains no valid JSON object (first 200 bytes: %s)", truncate(raw, 200))
 }

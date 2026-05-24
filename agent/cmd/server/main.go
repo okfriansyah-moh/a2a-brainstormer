@@ -74,12 +74,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	mux.Handle(a2asrv.WellKnownAgentCardPath, cardHandler)
 	mux.Handle("/", restHandler)
 
-	// HTTP server with conservative timeouts to match LLM call duration.
+	// HTTP server — WriteTimeout must exceed the longest expected LLM call.
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      120 * time.Second,
+		WriteTimeout:      config.GetHTTPWriteTimeout(),
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -148,7 +148,7 @@ func buildLLMProvider(logger *slog.Logger) (llm.LLMProvider, error) {
 			ModelID:     modelID,
 			UsernameRef: usernameRef,
 			PasswordRef: passwordRef,
-		}, nil, config.GetLLMAPIKey), nil
+		}, &http.Client{Timeout: config.GetOpenCodeHTTPTimeout()}, config.GetLLMAPIKey), nil
 
 	default: // "copilot" and any unrecognised value
 		credentialRef := config.GetLLMCredentialRef()

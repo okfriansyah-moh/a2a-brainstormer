@@ -66,7 +66,100 @@ func TestCanonicalState_JSONFieldNames(t *testing.T) {
 	}
 }
 
-// ── Merge: risks ─────────────────────────────────────────────────────────────
+// ── UnmarshalJSON: coerceStringSlice ─────────────────────────────────────────
+
+// TestUnmarshalJSON_AssumptionsAsObject verifies that an LLM returning assumptions
+// as a JSON object (instead of a string array) is coerced without error.
+// This is the real-world failure mode observed in production (see backend logs).
+func TestUnmarshalJSON_AssumptionsAsObject(t *testing.T) {
+	payload := `{
+		"idea": {"text": "MatchPoint"},
+		"architecture": {},
+		"execution_plan": [],
+		"risks": [],
+		"assumptions": {"a": "Budget is fixed", "b": "Timeline is 3 months"},
+		"open_questions": [],
+		"metrics": {"confidence": 0},
+		"meta": {"iteration": 1, "agents": []}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(payload), &cs); err != nil {
+		t.Fatalf("Unmarshal with object assumptions: %v", err)
+	}
+	if len(cs.Assumptions) != 2 {
+		t.Errorf("expected 2 assumptions from object, got %d: %v", len(cs.Assumptions), cs.Assumptions)
+	}
+}
+
+// TestUnmarshalJSON_OpenQuestionsAsObject verifies open_questions object coercion.
+func TestUnmarshalJSON_OpenQuestionsAsObject(t *testing.T) {
+	payload := `{
+		"idea": {"text": "MatchPoint"},
+		"architecture": {},
+		"execution_plan": [],
+		"risks": [],
+		"assumptions": [],
+		"open_questions": {"q1": "Who owns auth?", "q2": "What is the SLA?"},
+		"metrics": {"confidence": 0},
+		"meta": {"iteration": 1, "agents": []}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(payload), &cs); err != nil {
+		t.Fatalf("Unmarshal with object open_questions: %v", err)
+	}
+	if len(cs.OpenQuestions) != 2 {
+		t.Errorf("expected 2 open_questions from object, got %d: %v", len(cs.OpenQuestions), cs.OpenQuestions)
+	}
+}
+
+// TestUnmarshalJSON_AssumptionsAsString verifies a bare string is wrapped into a slice.
+func TestUnmarshalJSON_AssumptionsAsString(t *testing.T) {
+	payload := `{
+		"idea": {},
+		"architecture": {},
+		"execution_plan": [],
+		"risks": [],
+		"assumptions": "Budget is fixed",
+		"open_questions": [],
+		"metrics": {"confidence": 0},
+		"meta": {"iteration": 0, "agents": []}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(payload), &cs); err != nil {
+		t.Fatalf("Unmarshal with string assumptions: %v", err)
+	}
+	if len(cs.Assumptions) != 1 || cs.Assumptions[0] != "Budget is fixed" {
+		t.Errorf("expected [\"Budget is fixed\"], got %v", cs.Assumptions)
+	}
+}
+
+// TestUnmarshalJSON_AssumptionsNull verifies null coerces to an empty slice.
+func TestUnmarshalJSON_AssumptionsNull(t *testing.T) {
+	payload := `{
+		"idea": {},
+		"architecture": {},
+		"execution_plan": [],
+		"risks": [],
+		"assumptions": null,
+		"open_questions": null,
+		"metrics": {"confidence": 0},
+		"meta": {"iteration": 0, "agents": []}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(payload), &cs); err != nil {
+		t.Fatalf("Unmarshal with null assumptions/open_questions: %v", err)
+	}
+	if cs.Assumptions == nil {
+		t.Error("expected empty slice for null assumptions, got nil")
+	}
+	if cs.OpenQuestions == nil {
+		t.Error("expected empty slice for null open_questions, got nil")
+	}
+}
 
 func TestMerge_UnionRisks(t *testing.T) {
 	base := state.CanonicalState{
@@ -375,6 +468,60 @@ func TestUnmarshal_MixedRisksAndSteps(t *testing.T) {
 	}
 	if cs.ExecutionPlan[1].Title != "Plain string step" {
 		t.Errorf("string step title: got %q", cs.ExecutionPlan[1].Title)
+	}
+}
+
+func TestUnmarshal_ExecutionPlanAsObject(t *testing.T) {
+	// Claude sometimes emits execution_plan as an object instead of array.
+	input := `{
+		"idea": {"title": "Test"},
+		"architecture": {},
+		"execution_plan": {
+			"1": {"title": "Step One", "description": "Do it"},
+			"2": "Step Two plain string"
+		},
+		"risks": [],
+		"assumptions": [],
+		"open_questions": [],
+		"metrics": {"confidence": 0.5},
+		"meta": {"iteration": 1, "agents": [
+			{"agent_id":"a","name":"A","role":"build","provider":"p","model":"m","skills":[]},
+			{"agent_id":"b","name":"B","role":"review","provider":"p","model":"m","skills":[]}
+		]}
+	}`
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(input), &cs); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cs.ExecutionPlan) != 2 {
+		t.Fatalf("want 2 steps, got %d", len(cs.ExecutionPlan))
+	}
+}
+
+func TestUnmarshal_RisksAsObject(t *testing.T) {
+	// Claude sometimes emits risks as an object instead of array.
+	input := `{
+		"idea": {"title": "Test"},
+		"architecture": {},
+		"execution_plan": [],
+		"risks": {
+			"scalability": {"text": "Scalability risk", "severity": "high", "resolved": false},
+			"security": "Security risk plain string"
+		},
+		"assumptions": [],
+		"open_questions": [],
+		"metrics": {"confidence": 0.5},
+		"meta": {"iteration": 1, "agents": [
+			{"agent_id":"a","name":"A","role":"build","provider":"p","model":"m","skills":[]},
+			{"agent_id":"b","name":"B","role":"review","provider":"p","model":"m","skills":[]}
+		]}
+	}`
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(input), &cs); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cs.Risks) != 2 {
+		t.Fatalf("want 2 risks, got %d", len(cs.Risks))
 	}
 }
 

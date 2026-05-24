@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 )
 
 // ── Server ────────────────────────────────────────────────────────────────────
@@ -126,4 +128,30 @@ func GetOpenCodePasswordRef() string {
 		return v
 	}
 	return "OPENCODE_SERVER_PASSWORD"
+}
+
+// GetOpenCodeHTTPTimeout returns the HTTP timeout for a single OpenCode LLM
+// request. Large models (e.g. Claude on complex prompts) can take several
+// minutes. Defaults to 10 minutes.
+// Set AGENT_OPENCODE_HTTP_TIMEOUT_SECONDS to override.
+func GetOpenCodeHTTPTimeout() time.Duration {
+	if v := os.Getenv("AGENT_OPENCODE_HTTP_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 10 * time.Minute
+}
+
+// GetHTTPWriteTimeout returns the HTTP server write timeout for the agent.
+// Must be longer than the longest expected LLM call duration.
+// Defaults to 15 minutes. Set AGENT_HTTP_WRITE_TIMEOUT_SECONDS to override.
+// Set to 0 to disable the write timeout entirely.
+func GetHTTPWriteTimeout() time.Duration {
+	if v := os.Getenv("AGENT_HTTP_WRITE_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 15 * time.Minute
 }

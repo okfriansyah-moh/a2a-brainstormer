@@ -38,20 +38,30 @@ func NewService(engine *Engine, sessions sessionProvider, logger *slog.Logger) *
 	}
 }
 
+// IterationResult is returned by TriggerIteration and matches the
+// IterateResponse JSON shape expected by the frontend (§8.7 of docs/PLAN.md).
+type IterationResult struct {
+	SessionID string               `json:"session_id"`
+	Iteration int                  `json:"iteration"`
+	State     state.CanonicalState `json:"state"`
+	Converged bool                 `json:"converged"`
+}
+
 // TriggerIteration loads the session, seeds or continues the canonical state,
 // and runs the full iteration engine loop (which repeats until quality
-// convergence or the maxIter cap). It returns the final CanonicalState.
+// convergence or the maxIter cap). It returns an IterationResult containing
+// the final CanonicalState and convergence status.
 //
 // Returns ErrSessionTerminal if the session status is "approved".
 // Returns a wrapped session.ErrNotFound if the session does not exist.
-func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (state.CanonicalState, error) {
+func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (IterationResult, error) {
 	s.logger.InfoContext(ctx, "iteration trigger received",
 		slog.String("session_id", sessionID),
 	)
 
 	sess, err := s.sessions.GetSession(ctx, sessionID)
 	if err != nil {
-		return state.CanonicalState{}, fmt.Errorf("trigger iteration: load session %s: %w", sessionID, err)
+		return IterationResult{}, fmt.Errorf("trigger iteration: load session %s: %w", sessionID, err)
 	}
 
 	s.logger.InfoContext(ctx, "session loaded for iteration",
@@ -63,7 +73,7 @@ func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (state
 
 	// Guard: do not re-trigger on explicitly approved sessions.
 	if sess.Status == session.StatusApproved {
-		return state.CanonicalState{}, fmt.Errorf("trigger iteration: session %s is already approved: %w",
+		return IterationResult{}, fmt.Errorf("trigger iteration: session %s is already approved: %w",
 			sessionID, ErrSessionTerminal)
 	}
 
@@ -91,7 +101,7 @@ func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (state
 
 	result, err := s.engine.Run(ctx, sess, initial)
 	if err != nil {
-		return result, fmt.Errorf("trigger iteration: run engine: %w", err)
+		return IterationResult{}, fmt.Errorf("trigger iteration: run engine: %w", err)
 	}
 
 	s.logger.InfoContext(ctx, "iteration completed",
@@ -100,5 +110,12 @@ func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (state
 		slog.Float64("confidence", result.Metrics.Confidence),
 	)
 
-	return result, nil
+	// The engine always marks the session "converged" on a successful run
+	// (either by quality convergence or by exhausting max iterations).
+	return IterationResult{
+		SessionID: sessionID,
+		Iteration: result.Meta.Iteration,
+		State:     result,
+		Converged: true,
+	}, nil
 }

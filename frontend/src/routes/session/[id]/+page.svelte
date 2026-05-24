@@ -9,12 +9,7 @@
   import ConfidenceBar from "$lib/components/ConfidenceBar.svelte";
   import CanonicalStatePanel from "$lib/components/CanonicalStatePanel.svelte";
   import RiskBoard from "$lib/components/RiskBoard.svelte";
-  import {
-    getSession,
-    getAgents,
-    iterate,
-    finalizeSession,
-  } from "$lib/services/api";
+  import { getSession, getAgents, iterate } from "$lib/services/api";
   import type { Agent, SessionAgent } from "$lib/types";
 
   /** True when the backend signals the session has converged. */
@@ -169,16 +164,7 @@
 
   async function handleFinalize() {
     if ($sessionStore.loading || !sessionId) return;
-    sessionStore.setLoading(true);
-    actionError = "";
-    try {
-      await finalizeSession(sessionId);
-      await goto(`/session/${sessionId}/finalize`);
-    } catch (err) {
-      actionError =
-        err instanceof Error ? err.message : "Failed to finalize session.";
-      sessionStore.setLoading(false);
-    }
+    await goto(`/session/${sessionId}/finalize`);
   }
 
   function handleToggleFeedback() {

@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { sessionStore } from "$lib/stores/sessionStore";
   import { getSession, finalizeSession } from "$lib/services/api";
   import type { Session } from "$lib/types";
 
@@ -165,31 +164,19 @@
     pageLoading = true;
     error = "";
 
-    // Use session store if already loaded for this session
-    if ($sessionStore.session_id === sid && $sessionStore.idea) {
-      session = {
-        id: sid,
-        idea: $sessionStore.idea,
-        status: "active",
-        max_iterations: 10,
-        current_state: $sessionStore.state,
-        created_at: "",
-        updated_at: "",
-      } as Session;
+    // Always fetch fresh session status from the API so we get the real
+    // status ("converged", "approved", etc.) rather than a stale store value.
+    try {
+      session = await getSession(sid);
       pageLoading = false;
-    } else {
-      try {
-        session = await getSession(sid);
-        pageLoading = false;
-      } catch (err) {
-        error = err instanceof Error ? err.message : "Failed to load session.";
-        pageLoading = false;
-        return;
-      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Failed to load session.";
+      pageLoading = false;
+      return;
     }
 
-    // If session is already approved, auto-load content without animation
     if (session?.status === "approved") {
+      // Session was previously finalized — reload the markdown without animation
       alreadyFinalized = true;
       archStatus = "generating";
       roadStatus = "generating";
@@ -208,6 +195,9 @@
         archStatus = "pending";
         roadStatus = "pending";
       }
+    } else if (session?.status === "converged") {
+      // Arrived from the workspace after iterating — auto-trigger generation
+      generate();
     }
   });
 </script>

@@ -238,19 +238,24 @@ make opencode-up
 This starts a single `opencode` container listening on port 4096. The first start
 takes 20–30 seconds while it installs the OpenCode package.
 
-**Step 3 — Authenticate with GitHub Copilot:**
+**Step 3 — Authenticate with GitHub Copilot (once only):**
 
 ```bash
 make opencode-auth
 ```
 
-A browser window opens with a GitHub OAuth prompt. Follow the steps to authorise.
-If the browser does not open automatically, copy the URL printed in the terminal and
-open it manually.
+This opens an interactive prompt **inside the container**. Use the arrow keys to select
+**GitHub Copilot → GitHub.com**, then:
+
+1. Visit `https://github.com/login/device` in your browser.
+2. Enter the 8-character code shown in the terminal.
+3. Click **Authorize** on GitHub.
+4. The terminal prints `Login successful` and exits.
 
 The OAuth token is saved to a Docker volume called `opencode-auth`. It persists across
-container restarts, so you only need to do this once (unless you delete the volume or
-the token expires).
+container restarts and upgrades — **you only need to do this once**. The only reason
+to repeat it is if you delete the volume or the token expires (GitHub Copilot tokens
+last ~1 year).
 
 **Step 4 — Check that OpenCode is healthy:**
 
@@ -268,18 +273,25 @@ Open `.env` and add or update these values:
 ```env
 AGENT_LLM_PROVIDER=opencode
 AGENT_OPENCODE_BASE_URL=http://opencode:4096
-AGENT_OPENCODE_MODEL=github/gpt-4o
+AGENT_OPENCODE_MODEL=github/gpt-4.1
 OPENCODE_SERVER_USERNAME=opencode
-OPENCODE_SERVER_PASSWORD=change-me-to-a-strong-password
+OPENCODE_SERVER_PASSWORD=opencode-local
 ```
 
-> ⚠️ Change `OPENCODE_SERVER_PASSWORD` to a real password. This is what the agent
-> uses to authenticate to the OpenCode container. Never leave it as the example value.
+**About `OPENCODE_SERVER_PASSWORD`:**
 
-**Step 6 — Restart the agent to pick up the new env vars:**
+The agent requires a non-empty password to start (security invariant: absent credential → agent unavailable). The OpenCode server uses the same value to authenticate incoming requests.
+
+| Situation                              | What to do                                                                                                 |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Local dev (only you use this machine)  | Use a simple password like `opencode-local` — the server is only reachable inside Docker's private network |
+| Shared machine or exposed to a LAN/VPN | Set a strong password so other users cannot proxy LLM calls through your Copilot token                     |
+| Production / cloud deployment          | Always set a strong, random password                                                                       |
+
+**Step 6 — Restart both OpenCode and the agent to pick up the new env vars:**
 
 ```bash
-docker compose up -d agent
+docker compose --profile opencode up -d opencode agent
 ```
 
 The agent now routes all LLM calls through OpenCode.
@@ -392,14 +404,14 @@ make docker-down
 
 ### Makefile reference for OpenCode
 
-| Command                | What it does                                                            |
-| ---------------------- | ----------------------------------------------------------------------- |
-| `make opencode-up`     | Start the OpenCode container (first start installs the package ~30 s)   |
-| `make opencode-auth`   | Open browser OAuth flow to authenticate with GitHub Copilot (once only) |
-| `make opencode-status` | Print the OpenCode health JSON — confirms it is running and reachable   |
-| `make opencode-logs`   | Tail live logs from the OpenCode container                              |
-| `make opencode-down`   | Stop the OpenCode container (auth token volume is preserved)            |
-| `make docker-down`     | Stop all containers including OpenCode                                  |
+| Command                | What it does                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `make opencode-up`     | Start the OpenCode container (first start installs the package ~30 s)         |
+| `make opencode-auth`   | Interactive device-code OAuth to authenticate with GitHub Copilot (once only) |
+| `make opencode-status` | Print the OpenCode health JSON — confirms it is running and reachable         |
+| `make opencode-logs`   | Tail live logs from the OpenCode container                                    |
+| `make opencode-down`   | Stop the OpenCode container (auth token volume is preserved)                  |
+| `make docker-down`     | Stop all containers including OpenCode                                        |
 
 ---
 
@@ -437,14 +449,14 @@ Then run `make opencode-auth` again.
 
 ### Troubleshooting
 
-| Symptom                                                       | Fix                                                                                         |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `make opencode-status` — "connection refused"                 | OpenCode is not running. Run `make opencode-up` and wait 30 s.                              |
-| `make opencode-auth` exits immediately with no browser prompt | OpenCode is still starting. Wait 30 s and retry.                                            |
-| Agent returns `401 Unauthorized`                              | Wrong `OPENCODE_SERVER_PASSWORD` in `.env`. Update it and run `docker compose up -d agent`. |
-| Agent returns `403 Forbidden`                                 | Copilot OAuth token expired. Run `make opencode-auth` then `docker compose up -d agent`.    |
-| Agent fails to start with "credential not set"                | `OPENCODE_SERVER_PASSWORD` env var is empty. Set it in `.env` and restart the agent.        |
-| `make opencode-logs` shows repeated errors                    | Check `.env` values for `AGENT_OPENCODE_BASE_URL` and `AGENT_OPENCODE_MODEL`.               |
+| Symptom                                                     | Fix                                                                                           |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `make opencode-status` — "connection refused"               | OpenCode is not running. Run `make opencode-up` and wait 30 s.                                |
+| `make opencode-auth` exits immediately or shows an error    | OpenCode is still starting. Wait 30 s and retry.                                              |
+| Agent returns `401 Unauthorized`                            | Wrong `OPENCODE_SERVER_PASSWORD` in `.env`. Update it and run `docker compose up -d agent`.   |
+| Agent returns `403 Forbidden`                               | Copilot OAuth token expired. Run `make opencode-auth` then `docker compose up -d agent`.      |
+| Agent returns `500` and logs `credential env var … not set` | `OPENCODE_SERVER_PASSWORD` is set in `.env` but not loaded. Run `docker compose up -d agent`. |
+| `make opencode-logs` shows repeated errors                  | Check `.env` values for `AGENT_OPENCODE_BASE_URL` and `AGENT_OPENCODE_MODEL`.                 |
 
 ## 10) Where to Read Next
 

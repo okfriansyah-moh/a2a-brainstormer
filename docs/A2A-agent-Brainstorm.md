@@ -1473,3 +1473,220 @@ background:
 | Add `GET /sessions`          | `session/handler.go` + `repository.go`  | Session list for history view                                                             |
 | Return content in finalize   | `POST /sessions/{id}/finalize` response | `architecture_markdown` + `roadmap_markdown` strings for download                         |
 | `GenerateContent()` function | `markdown/generator.go`                 | Returns markdown strings instead of writing files; `WriteArtifacts` calls this internally |
+
+
+---
+
+# **22. Feature Enhancements (v1.2)**
+
+> Added in PLAN.md v1.3 / blueprint v1.2. Source of truth for Tasks 28–31. These four features extend the system without changing the canonical state model, the A2A wire format, or the LLM provider abstraction.
+
+## **22.1 Feature 1 — Selectable Output Documents**
+
+The system previously generated a fixed pair (`architecture.md` + `roadmap.md`). v1.2 introduces **document selection**: users choose which artifacts to generate, both at **session creation** and at **finalize time** (selection is editable until finalize succeeds).
+
+### Available Document Types
+
+| Key             | File              | Generator             | Min Lines |
+| --------------- | ----------------- | --------------------- | --------- |
+| `architecture`  | `architecture.md` | `GenerateArchitecture`| 1000      |
+| `roadmap`      | `roadmap.md`     | `GenerateRoadmap`     | 1000      |
+| `plan`         | `PLAN.md`        | `GeneratePlan`        | 1000      |
+| `readme`       | `README.md`      | `GenerateReadme`      | 1000      |
+
+### Schema Changes
+
+- `sessions.output_docs` — `TEXT[] NOT NULL DEFAULT ARRAY['architecture','roadmap']` — ordered list of document keys to generate. Validation: non-empty, only known keys, no duplicates.
+
+### API Changes
+
+**`POST /sessions`** request body — adds optional `output_docs`:
+
+```json
+{
+  "idea": "...",
+  "agent_ids": ["uuid-1", "uuid-2"],
+  "output_docs": ["architecture", "roadmap", "plan", "readme"]
+}
+```
+
+When `output_docs` is omitted: default `["architecture","roadmap"]`.
+
+**`PATCH /sessions/{id}/output-docs`** — update the selection (only allowed while session status is `active`; rejected with `409` if status is `finalized`):
+
+```json
+{ "output_docs": ["architecture", "plan"] }
+```
+
+**`POST /sessions/{id}/finalize`** request body — optional override (overrides the session value for this finalize call only and persists the new selection):
+
+```json
+{ "output_docs": ["architecture", "plan", "readme"] }
+```
+
+Response shape becomes a map keyed by document key:
+
+```json
+{
+  "session_id": "...",
+  "documents": {
+    "architecture": { "filename": "architecture.md", "content": "...", "line_count": 1247 },
+    "plan": { "filename": "PLAN.md", "content": "...", "line_count": 1083 }
+  }
+}
+```
+
+## **22.2 Feature 2 — PLAN.md and README.md Generators**
+
+Two new deterministic generators are added to `backend/internal/modules/markdown/`. Each must produce **at least 1000 lines per document, individually** (not combined). Content is derived from the canonical state plus the static template scaffolding shown below.
+
+### `GeneratePlan(state CanonicalState) (string, error)`
+
+Mirrors the structure of `docs/PLAN.md`:
+
+1. **Header** — Version, Date, Author = "AI-Generated", Status, Source of Truth (the session idea).
+2. **§1 Goal** — derived from `state.idea`.
+3. **§2 Architecture Overview** — ASCII flow diagram from `state.architecture.components`; decision table from `state.architecture.decisions`.
+4. **§3 Tech Stack** — from `state.architecture.tech_stack`.
+5. **§4 Project Structure** — from `state.architecture.directory_layout`.
+6. **§5 Implementation Tasks** — dependency graph + one task block per `state.execution_plan[*]`. Each task expands to: Goal, Files to create, Validation, Prompt context needed.
+7. **§6 Task Summary** — table from `state.execution_plan`.
+8. **§7 How to Use This Plan** — boilerplate.
+9. **§8 Deep Knowledge Reference** — schemas / interfaces / pseudocode / merge rules / API endpoints derived from `state.architecture`, `state.assumptions`, `state.open_questions`, `state.risks`.
+
+**Line-count enforcement:** if the rendered output is shorter than 1000 lines, the generator pads §8 with full schema dumps and per-task elaboration (assumptions, risks, mitigations, validation matrix) until the threshold is met. Padding content is deterministic — derived only from `state` — never random text.
+
+### `GenerateReadme(state CanonicalState) (string, error)`
+
+Mirrors the structure of a production `README.md`:
+
+1. **Title + one-line description** — from `state.idea`.
+2. **Badges row** — license, language, build status (placeholders).
+3. **Table of Contents** — derived from generated section headings.
+4. **Overview** — from `state.idea` + summarized `state.architecture`.
+5. **System Architecture** — ASCII diagram + per-component description.
+6. **Repository Structure** — directory tree from `state.architecture.directory_layout`.
+7. **Prerequisites + Quick Start** — language toolchain inferred from `state.architecture.tech_stack`.
+8. **Makefile / CLI Commands** — derived from `state.execution_plan` validation steps.
+9. **Configuration** — env var list from `state.architecture.config`.
+10. **Testing** — derived from `state.execution_plan[*].validation`.
+11. **Risk & Assumptions** — from `state.risks` + `state.assumptions`.
+12. **Roadmap** — from `state.execution_plan` summary.
+13. **Documentation Links** — back-references to other generated artifacts.
+14. **Contributing / Development** — boilerplate templated on language.
+15. **License / Disclaimer** — placeholder.
+
+**Line-count enforcement:** same rule — pad with deterministic per-component sub-sections (data flow, failure modes, observability, deployment notes) until ≥ 1000 lines.
+
+### Generator Registry
+
+`markdown/generator.go` exposes a registry indexed by document key:
+
+```go
+var Generators = map[string]func(state CanonicalState) (string, error){
+    "architecture": GenerateArchitecture,
+    "roadmap":      GenerateRoadmap,
+    "plan":         GeneratePlan,
+    "readme":       GenerateReadme,
+}
+```
+
+`GenerateAll(state, keys)` iterates `keys` in order, calls the registered generator, and returns `map[string]GeneratedDocument`. Unknown keys return `400` to the caller.
+
+## **22.3 Feature 3 — Per-Agent Run Button (Preview Mode, Option A)**
+
+Users can run a single agent against the current state **without committing** the result. The output is shown in that agent's PipelineStage card. A separate "Apply" action commits the preview to canonical state.
+
+### New API Endpoints
+
+```
+POST /sessions/{id}/agents/{agent_id}/preview
+POST /sessions/{id}/agents/{agent_id}/apply
+DELETE /sessions/{id}/agents/{agent_id}/preview
+```
+
+**`POST .../preview`** — dispatches the named agent with the current canonical state. Stores the result in an in-memory `session.preview` map keyed by `agent_id`. Returns the agent's raw output:
+
+```json
+{
+  "agent_id": "uuid-1",
+  "preview_id": "uuid-...",
+  "output": { "...partial canonical state delta..." },
+  "created_at": "2026-05-24T12:00:00Z"
+}
+```
+
+**`POST .../apply`** — merges the stored preview into canonical state using the standard merge strategy (§10). Advances iteration counter by 1 (counted as a partial pass). Clears the preview slot. Returns the new canonical state.
+
+**`DELETE .../preview`** — discards the preview without applying.
+
+### Persistence Rules
+
+- Previews are **ephemeral** — stored in the iteration engine's in-memory map for the session, **not persisted in the database**. Restart loses all previews — by design (previews are speculative).
+- A session may have at most one active preview per agent. A second `POST .../preview` on the same agent overwrites the previous one.
+- Previews and full iterations are **mutually exclusive** at the API boundary: while a full `POST /sessions/{id}/iterate` is in flight, preview/apply requests for that session return `409 Conflict`.
+
+### Frontend Behaviour
+
+- Each `PipelineStage` card gains two buttons (visible only when session status is `active`):
+  - **Run This Agent** → calls `.../preview` → loads result into the card's "Preview" tab
+  - **Apply** → calls `.../apply` (disabled until a preview exists)
+- The existing **Run Next Iteration** button (runs the full pipeline) remains unchanged. Users may choose: run-one-then-apply, or run-all.
+- Preview output is visually distinguished — yellow `chip-warn` "Preview — not committed" banner above the log block.
+
+## **22.4 Feature 4 — Real-time Agent Progress via SSE**
+
+Replaces simulated progress with a live event stream. The frontend opens an `EventSource` to receive per-agent lifecycle events as the iteration engine runs.
+
+### New API Endpoint
+
+```
+GET /sessions/{id}/events    Server-Sent Events stream
+```
+
+Content-Type: `text/event-stream`. The connection stays open for the session lifetime; clients reconnect with `Last-Event-ID` on disconnect.
+
+### Event Types
+
+| Event              | Data Payload                                                                                | Emitted When                            |
+| ------------------ | ------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `iteration.start` | `{iteration: N, agents: [...ordered]}`                                                     | An iteration begins                     |
+| `agent.started`   | `{iteration: N, agent_id, role, position}`                                                 | The orchestrator dispatches an agent    |
+| `agent.complete`  | `{iteration: N, agent_id, partial_state: {...delta only...}, confidence_delta: 0.07}`     | The agent's A2A reply is received       |
+| `agent.error`     | `{iteration: N, agent_id, error: "..."}`                                                   | Dispatch fails                          |
+| `iteration.complete` | `{iteration: N, converged: bool, confidence: 0.81}`                                     | Full pipeline pass completes            |
+| `session.finalized` | `{documents: [...keys]}`                                                                   | Finalize succeeds                       |
+
+Event format (SSE):
+
+```
+id: 42
+event: agent.complete
+data: {"iteration":3,"agent_id":"uuid-1","partial_state":{...},"confidence_delta":0.07}
+
+```
+
+### Engine Integration
+
+The iteration engine takes an `EventEmitter` interface:
+
+```go
+type EventEmitter interface {
+    Emit(sessionID uuid.UUID, evt Event) error
+}
+```
+
+A `BroadcastEmitter` in `platform/sse/` fan-outs to all connected clients per session. In-memory only — no persistence. Disconnected clients miss events; `Last-Event-ID` is implemented by replaying the last 100 events held in a per-session ring buffer.
+
+### Frontend Behaviour
+
+- `session/[id]/+page.svelte` opens `new EventSource('/api/sessions/{id}/events')` on mount.
+- Handlers update `sessionStore.pipeline` in real time — each `PipelineStage` shows live status (`waiting` → `running` → `done`) and streams the partial state into its log block as events arrive.
+- The existing animated "Pipeline Pass N / M" bar updates from `iteration.start` / `iteration.complete`.
+- Simulated progress code is removed.
+
+### Security & Backpressure
+
+- One SSE stream per session — anonymous (no auth in MVP, same as REST endpoints).
+- Server flushes after every event; if write fails (client disconnected) the broadcaster drops the subscriber.
+- Ring buffer cap: 100 events × max 50 concurrent sessions = bounded memory.
