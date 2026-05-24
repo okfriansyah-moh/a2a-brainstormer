@@ -11,7 +11,7 @@
 | Document                       | Purpose                                                                                                               |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | `docs/A2A-agent-Brainstorm.md` | **Single source of truth.** Architecture, modules, A2A interaction model, API endpoints, canonical state, data flows. |
-| `docs/PLAN.md`                 | 15-task implementation plan with exact files, validation steps, and deep knowledge reference (§8).                    |
+| `docs/PLAN.md`                 | 31-task implementation plan (v1.3) with exact files, validation steps, and deep knowledge reference (§8).             |
 | `AGENTS.md`                    | Agent & skill governance — registry, composition matrix, protected files policy, naming rules.                        |
 | `.github/agents/`              | Agent definitions (`.agent.md`). Each file is one deployable Copilot agent mode.                                      |
 | `.github/skills/`              | Skill definitions (`SKILL.md`). Pre-digested knowledge packages loaded on demand.                                     |
@@ -60,6 +60,7 @@ When generating code, refer to these documents for exact schemas, interfaces, an
 - Interface: `Generate(ctx context.Context, req LLMRequest) (LLMResponse, error)`
 - Tiered config resolver: session override → agent-level → global default (see `docs/PLAN.md §8.12`)
 - `LLMConfig.CredentialRef` stores the **env var name only** (e.g. `"CLAUDE_API_KEY"`) — never the key value
+- Agent binary ships three provider implementations: **Copilot** (`copilot.go`), **OpenCode** (`opencode.go`), **Claude** (backend `platform/llm/copilot.go`)
 - See `.github/skills/llm-provider-abstraction/SKILL.md`
 
 ### Database Rules
@@ -152,6 +153,31 @@ The agent binary receives only the assembled `SystemPrompt` string. It has no kn
 - `POST /sessions` requires `agent_ids` with ≥ 2 entries — reject with `400` otherwise
 - `skill_overrides`: omitted = use agent defaults; empty array `[]` = disable all skills for that agent
 - `role_overrides`: optional; if absent, use `agent.DefaultRoles(agentCount)` distribution
+- `output_docs` (Task 28, v1.3): optional string array of document keys to generate; valid keys: `architecture`, `roadmap`, `plan`, `readme`; omit = generate all four
+
+### Output Documents (Tasks 28–29, v1.3)
+
+- `GenerateContent` is **deprecated**. The new signature is `GenerateAll(state CanonicalState, keys []string) (map[string]GeneratedDocument, error)`
+- Each document key maps to a dedicated generator function registered in a `Generators` map (`markdown/generator.go`)
+- Valid keys: `architecture`, `roadmap`, `plan`, `readme` — each generator produces ≥ 1000 lines of formatted Markdown
+- Add new document types by extending the `Generators` registry map — never hardcode new keys in service or handler
+- `enforceMinLines(body string, min int) string` pads short outputs with structured section stubs; min is read from config, never hardcoded
+- Long-form templates live in `backend/internal/modules/markdown/templates.go` — no raw template strings in `generator.go`
+
+### Per-Agent Preview/Apply (Task 30, v1.3)
+
+- `RunSingleAgent(ctx, sessionID, agentID, state) (CanonicalState, error)` dispatches one agent without persisting state
+- Preview results are held in a keyed in-memory store (`iteration/preview.go`); key = `sessionID + ":" + agentID`
+- Three new endpoints: `POST /sessions/{id}/preview/{agentID}`, `GET /sessions/{id}/preview/{agentID}`, `POST /sessions/{id}/preview/{agentID}/apply`
+- `Apply` replaces the session's live canonical state with the previewed state and persists it
+
+### SSE Real-time Progress (Task 31, v1.3)
+
+- SSE broadcaster lives in `backend/internal/platform/sse/broadcaster.go` — no WebSocket, no third-party push libs
+- The iteration engine receives an `EventEmitter` interface; fires `IterationStarted`, `AgentDispatched`, `AgentDone`, `IterationDone`, `ConvergenceReached` events
+- Endpoint: `GET /sessions/{id}/events` (text/event-stream, keep-alive)
+- Frontend subscribes via native `EventSource` — see `frontend/src/lib/services/sse.ts`
+- Events are fire-and-forget; a closed client must not block or crash the engine
 
 ---
 
@@ -215,17 +241,17 @@ Reference skills by path in any prompt:
 
 ## Forbidden Patterns
 
-| Category     | Forbidden                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Architecture | Microservices between backend modules, inter-module RPC, shared mutable global state                                                                                                                                                                                                                                                                                                                                                                           |
-| Database     | ORM frameworks (`gorm`, `ent`), direct driver imports in `internal/modules/`, SQL string concat                                                                                                                                                                                                                                                                                                                                                                |
-| LLM          | Direct Copilot/Claude SDK calls in `internal/modules/` or `agent/internal/executor/`                                                                                                                                                                                                                                                                                                                                                                           |
-| Config       | Hardcoded API keys, hardcoded ports, hardcoded model names, `os.Getenv` outside config                                                                                                                                                                                                                                                                                                                                                                         |
-| Credentials  | Storing raw API keys anywhere other than environment variables                                                                                                                                                                                                                                                                                                                                                                                                 |
-| State        | Per-agent mutable global state; non-deterministic ID generation (UUID v4 for new IDs is fine; never use timestamps as IDs)                                                                                                                                                                                                                                                                                                                                     |
-| Naming       | Task codes as file names (`phase4.go`, `b3_test.go`), single-letter files (`h.go`)                                                                                                                                                                                                                                                                                                                                                                             |
-| File format  | Duplicate `package` declaration at line 1 — automated formatters sometimes prepend a bare `package <name>` line before the doc-comment block, causing `expected declaration, found 'package'` compile errors. **Always check line 1 of every `.go` file for a stray `package` declaration before the doc comment.** Remove the duplicate if found.                                                                                                             |
-| UI (v1.1)    | Hard-coding color hex values in Svelte components — always use CSS custom properties (`var(--accent)`, `var(--ok)`, etc.). Do not create new `/agents` or `/skills` pages; they redirect to `/settings`. Do not use `AgentPanel`, `StateView`, or `Timeline` components in new code — use `PipelineStage`, `CanonicalStatePanel`, or inline patterns respectively. Do not add Tailwind `gray-*` classes that conflict with the warm/cool design token palette. |
+| Category     | Forbidden                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture | Microservices between backend modules, inter-module RPC, shared mutable global state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Database     | ORM frameworks (`gorm`, `ent`), direct driver imports in `internal/modules/`, SQL string concat                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| LLM          | Direct Copilot/Claude SDK calls in `internal/modules/` or `agent/internal/executor/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Config       | Hardcoded API keys, hardcoded ports, hardcoded model names, `os.Getenv` outside config                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Credentials  | Storing raw API keys anywhere other than environment variables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| State        | Per-agent mutable global state; non-deterministic ID generation (UUID v4 for new IDs is fine; never use timestamps as IDs)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Naming       | Task codes as file names (`phase4.go`, `b3_test.go`), single-letter files (`h.go`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| File format  | Duplicate `package` declaration at line 1 — automated formatters sometimes prepend a bare `package <name>` line before the doc-comment block, causing `expected declaration, found 'package'` compile errors. **Always check line 1 of every `.go` file for a stray `package` declaration before the doc comment.** Remove the duplicate if found.                                                                                                                                                                                                                                                                                      |
+| UI (v1.1+)   | Hard-coding color hex values in Svelte components — always use CSS custom properties (`var(--accent)`, `var(--ok)`, etc.). Do not create new `/agents` or `/skills` pages; they redirect to `/settings`. Do not use `AgentPanel`, `StateView`, or `Timeline` components in new code — use `PipelineStage`, `CanonicalStatePanel`, or inline patterns respectively. Do not add Tailwind `gray-*` classes that conflict with the warm/cool design token palette. For v1.3 SSE: never use WebSocket or polling — use native `EventSource` only. For v1.3 preview/apply: add Run+Apply controls to `PipelineStage`, not to a new component. |
 
 ---
 
@@ -239,7 +265,9 @@ a2a-brainstorm/
 ├── Makefile
 ├── docs/
 │   ├── A2A-agent-Brainstorm.md      ← architecture blueprint (read-only)
-│   └── PLAN.md                      ← implementation plan (task progress only)
+│   ├── PLAN.md                      ← implementation plan (task progress only)
+│   ├── STARTUP_GUIDE.md             ← local dev setup guide
+│   └── seeds/                       ← local test seed data (gitignored)
 ├── backend/
 │   ├── go.mod
 │   ├── cmd/server/main.go
@@ -250,22 +278,23 @@ a2a-brainstorm/
 │   │   │   ├── logger/              ← log/slog wrapper
 │   │   │   ├── http/                ← net/http server, CORS, middleware
 │   │   │   ├── llm/                 ← LLMProvider interface + impls + resolver
+│   │   │   ├── sse/                 ← SSE broadcaster (Task 31, v1.3)
 │   │   │   └── a2a/                 ← a2aclient factory, AgentCard resolver
 │   │   ├── shared/                  ← types shared across modules
 │   │   └── modules/                 ← domain modules (vertical slices)
 │   │       ├── session/
-│   │       ├── iteration/
+│   │       ├── iteration/           ← engine.go, service.go, handler.go; events.go + preview.go (Task 30-31)
 │   │       ├── agent/
 │   │       ├── state/
 │   │       ├── convergence/
-│   │       └── markdown/
+│   │       └── markdown/            ← generator.go; templates.go added in Task 29
 ├── agent/
 │   ├── go.mod
 │   ├── agentcard.go
 │   ├── cmd/server/main.go
 │   └── internal/
 │       ├── executor/                ← BrainstormExecutor implements a2asrv.AgentExecutor
-│       ├── llm/                     ← LLMProvider implementations (Copilot, Claude)
+│       ├── llm/                     ← LLMProvider implementations: Copilot (copilot.go), OpenCode (opencode.go)
 │       └── config/                  ← ALL os.Getenv() calls for agent binary live here
 ├── frontend/
 │   └── src/
@@ -305,8 +334,11 @@ a2a-brainstorm/
 │           │   ├── sessionStore.ts
 │           │   ├── agentRegistryStore.ts
 │           │   └── uiStore.ts                ← v1.1: modal state + nav guard
-│           └── services/api.ts
-├── migrations/                      ← SQL migration files (numbered, append-only)
+│           └── services/
+│               ├── api.ts
+│               ├── api.test.ts
+│               └── sse.ts                   ← SSE EventSource client (Task 31)
+├── migrations/                      ← SQL migration files (numbered, append-only); 001–004 implemented; 005_session_output_docs.sql added by Task 28
 └── .github/
     ├── copilot-instructions.md      ← this file
     ├── AGENTS.md                    → root AGENTS.md (canonical)

@@ -1,8 +1,15 @@
 <script lang="ts">
   import "../app.css";
+  import { goto } from "$app/navigation";
   import WarningModal from "$lib/components/WarningModal.svelte";
   import { uiStore } from "$lib/stores/uiStore";
   import { page } from "$app/stores";
+
+  function handleNavClick(event: MouseEvent, href: string): void {
+    // Keep native anchor fallback while forcing client-side navigation when hydrated.
+    event.preventDefault();
+    void goto(href);
+  }
 </script>
 
 <svelte:head>
@@ -19,17 +26,21 @@
 </svelte:head>
 
 <div class="topbar">
-  <a href="/" class="topbar-logo">A2A Brainstorm</a>
+  <a href="/" class="topbar-logo" on:click={(e) => handleNavClick(e, "/")}
+    >A2A Brainstorm</a
+  >
   <nav class="topbar-nav">
     <a
       href="/history"
       class="topbar-link"
-      class:active={$page.url.pathname === "/history"}>Session History</a
+      class:active={$page.url.pathname === "/history"}
+      on:click={(e) => handleNavClick(e, "/history")}>Session History</a
     >
     <a
       href="/settings"
       class="topbar-link"
-      class:active={$page.url.pathname.startsWith("/settings")}>⚙ Settings</a
+      class:active={$page.url.pathname.startsWith("/settings")}
+      on:click={(e) => handleNavClick(e, "/settings")}>⚙ Settings</a
     >
   </nav>
 </div>

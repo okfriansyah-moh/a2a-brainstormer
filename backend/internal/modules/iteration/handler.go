@@ -24,7 +24,7 @@ import (
 	"regexp"
 
 	"a2a-brainstorm/backend/internal/modules/session"
-	"a2a-brainstorm/backend/internal/modules/state"
+	"a2a-brainstorm/backend/internal/platform/config"
 )
 
 // uuidRE matches UUID v4 format used for session IDs.
@@ -33,7 +33,7 @@ var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 // iterationSvc is the subset of *Service required by the Handler.
 // Using an interface enables test stubs without a live DB.
 type iterationSvc interface {
-	TriggerIteration(ctx context.Context, sessionID string) (state.CanonicalState, error)
+	TriggerIteration(ctx context.Context, sessionID string) (IterationResult, error)
 }
 
 // Handler provides the HTTP handler for the iteration endpoint.
@@ -60,8 +60,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 // handleIterate handles POST /sessions/{id}/iterate.
 //
-// Triggers the full iteration engine loop for the session and returns the
-// resulting CanonicalState as JSON.
+// Triggers the full iteration engine loop for the session and returns an
+// IterationResult JSON envelope matching the IterateResponse shape (§8.7).
 func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 	if !uuidRE.MatchString(sessionID) {
@@ -69,7 +69,22 @@ func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.svc.TriggerIteration(r.Context(), sessionID)
+	h.logger.InfoContext(r.Context(), "iteration requested",
+		slog.String("session_id", sessionID),
+	)
+
+	// Detach the pipeline context from the HTTP request context. A client
+	// disconnect or the server's WriteTimeout would otherwise cancel r.Context()
+	// mid-pipeline, aborting the in-flight LLM calls. context.WithoutCancel
+	// (Go 1.21+) copies values but ignores the parent's cancellation signal.
+	// A separate deadline provides the upper-bound safety net.
+	iterCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(r.Context()),
+		config.GetIterationTimeout(),
+	)
+	defer cancel()
+
+	result, err := h.svc.TriggerIteration(iterCtx, sessionID)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "trigger iteration failed",
 			slog.String("session_id", sessionID),

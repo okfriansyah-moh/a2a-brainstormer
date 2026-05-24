@@ -123,8 +123,22 @@
       </div>
     </div>
     <nav class="topbar-nav">
-      <a href="/" class="topbar-link">New Session</a>
-      <a href="/history" class="topbar-link">Sessions</a>
+      <a
+        href="/"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/");
+        }}>New Session</a
+      >
+      <a
+        href="/history"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/history");
+        }}>Sessions</a
+      >
     </nav>
   </div>
 
@@ -174,6 +188,10 @@
           class="btn-primary"
           href="/settings/agent/new"
           style="display:inline-block;text-decoration:none;"
+          on:click={(e) => {
+            e.preventDefault();
+            goto("/settings/agent/new");
+          }}
         >
           + New Agent
         </a>
@@ -188,6 +206,10 @@
             class="btn-primary"
             href="/settings/agent/new"
             style="display:inline-block;text-decoration:none;margin-top:12px;"
+            on:click={(e) => {
+              e.preventDefault();
+              goto("/settings/agent/new");
+            }}
           >
             Register First Agent
           </a>
@@ -224,7 +246,14 @@
                 <td>{agent.skills.length}</td>
                 <td><span class="chip-ok">Healthy</span></td>
                 <td>
-                  <a class="btn-action" href="/settings/agent/{agent.id}">
+                  <a
+                    class="btn-action"
+                    href="/settings/agent/{agent.id}"
+                    on:click={(e) => {
+                      e.preventDefault();
+                      goto(`/settings/agent/${agent.id}`);
+                    }}
+                  >
                     Edit
                   </a>
                   <button
@@ -307,6 +336,10 @@
           class="btn-primary"
           href="/settings/skill/new"
           style="display:inline-block;text-decoration:none;"
+          on:click={(e) => {
+            e.preventDefault();
+            goto("/settings/skill/new");
+          }}
         >
           + New Skill
         </a>
@@ -321,6 +354,10 @@
             class="btn-primary"
             href="/settings/skill/new"
             style="display:inline-block;text-decoration:none;margin-top:12px;"
+            on:click={(e) => {
+              e.preventDefault();
+              goto("/settings/skill/new");
+            }}
           >
             Add First Skill
           </a>
@@ -345,7 +382,14 @@
                   {agentCountForSkill(skill) === 1 ? "agent" : "agents"}
                 </td>
                 <td>
-                  <a class="btn-action" href="/settings/skill/{skill.id}">
+                  <a
+                    class="btn-action"
+                    href="/settings/skill/{skill.id}"
+                    on:click={(e) => {
+                      e.preventDefault();
+                      goto(`/settings/skill/${skill.id}`);
+                    }}
+                  >
                     Edit
                   </a>
                   <button

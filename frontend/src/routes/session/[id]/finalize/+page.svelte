@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { page } from "$app/stores";
-  import { sessionStore } from "$lib/stores/sessionStore";
+  import { goto } from "$app/navigation";
   import { getSession, finalizeSession } from "$lib/services/api";
   import type { Session } from "$lib/types";
 
@@ -164,31 +164,19 @@
     pageLoading = true;
     error = "";
 
-    // Use session store if already loaded for this session
-    if ($sessionStore.session_id === sid && $sessionStore.idea) {
-      session = {
-        id: sid,
-        idea: $sessionStore.idea,
-        status: "active",
-        max_iterations: 10,
-        current_state: $sessionStore.state,
-        created_at: "",
-        updated_at: "",
-      } as Session;
+    // Always fetch fresh session status from the API so we get the real
+    // status ("converged", "approved", etc.) rather than a stale store value.
+    try {
+      session = await getSession(sid);
       pageLoading = false;
-    } else {
-      try {
-        session = await getSession(sid);
-        pageLoading = false;
-      } catch (err) {
-        error = err instanceof Error ? err.message : "Failed to load session.";
-        pageLoading = false;
-        return;
-      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Failed to load session.";
+      pageLoading = false;
+      return;
     }
 
-    // If session is already approved, auto-load content without animation
     if (session?.status === "approved") {
+      // Session was previously finalized — reload the markdown without animation
       alreadyFinalized = true;
       archStatus = "generating";
       roadStatus = "generating";
@@ -207,6 +195,9 @@
         archStatus = "pending";
         roadStatus = "pending";
       }
+    } else if (session?.status === "converged") {
+      // Arrived from the workspace after iterating — auto-trigger generation
+      generate();
     }
   });
 </script>
@@ -244,9 +235,22 @@
       {#if alreadyFinalized}
         <span class="chip-ok fin-status-chip">Already finalized</span>
       {/if}
-      <a href={`/session/${sessionId}`} class="topbar-link">← Back to Session</a
+      <a
+        href={`/session/${sessionId}`}
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto(`/session/${sessionId}`);
+        }}>← Back to Session</a
       >
-      <a href="/history" class="topbar-link">Session History</a>
+      <a
+        href="/history"
+        class="topbar-link"
+        on:click={(e) => {
+          e.preventDefault();
+          goto("/history");
+        }}>Session History</a
+      >
     </div>
   </div>
 
@@ -386,7 +390,14 @@
           <button class="btn-primary" on:click={downloadAll}>
             Download All
           </button>
-          <a href="/" class="btn-ghost">New Session</a>
+          <a
+            href="/"
+            class="btn-ghost"
+            on:click={(e) => {
+              e.preventDefault();
+              goto("/");
+            }}>New Session</a
+          >
         </div>
         <div class="run-status">Both documents generated successfully.</div>
       </div>

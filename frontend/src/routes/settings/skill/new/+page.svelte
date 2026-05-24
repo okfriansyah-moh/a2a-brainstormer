@@ -50,7 +50,14 @@
         Define a knowledge package injected into agent system prompts
       </div>
     </div>
-    <a href="/settings?tab=skills" class="back-link">← Back to Settings</a>
+    <a
+      href="/settings?tab=skills"
+      class="back-link"
+      on:click={(e) => {
+        e.preventDefault();
+        goto("/settings?tab=skills");
+      }}>← Back to Settings</a
+    >
   </div>
 
   <!-- ── Form panel ─────────────────────────────────────────────────────── -->

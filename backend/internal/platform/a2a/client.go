@@ -13,9 +13,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"time"
+
+	"a2a-brainstorm/backend/internal/platform/config"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -36,6 +40,10 @@ var cardResolver = agentcard.DefaultResolver
 // NewClient resolves the AgentCard from {agentEndpoint}/.well-known/agent-card.json
 // and constructs an a2aclient.Client using the negotiated transport.
 //
+// The HTTP client used for A2A calls is configured with a timeout sourced from
+// config.GetAgentCallTimeout() (default 10 minutes) to accommodate long-running
+// LLM inference calls that exceed the SDK's built-in 3-minute default.
+//
 // The caller owns the returned *Client and must not share it across goroutines
 // without synchronisation.
 func NewClient(ctx context.Context, agentEndpoint string) (*a2aclient.Client, error) {
@@ -44,7 +52,14 @@ func NewClient(ctx context.Context, agentEndpoint string) (*a2aclient.Client, er
 		return nil, fmt.Errorf("resolve agent card for %q: %w", agentEndpoint, err)
 	}
 
-	client, err := a2aclient.NewFromCard(ctx, card)
+	// Override the SDK default 3-minute HTTP timeout with a longer, configurable
+	// value so that large LLM inference calls don't time out prematurely.
+	httpClient := &http.Client{Timeout: config.GetAgentCallTimeout()}
+
+	client, err := a2aclient.NewFromCard(ctx, card,
+		a2aclient.WithJSONRPCTransport(httpClient),
+		a2aclient.WithRESTTransport(httpClient),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create a2a client for %q: %w", agentEndpoint, err)
 	}
@@ -68,6 +83,12 @@ func SendPayload(ctx context.Context, client *a2aclient.Client, payload Brainsto
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
+			slog.Default().WarnContext(ctx, "A2A send failed, retrying",
+				slog.Int("attempt", attempt),
+				slog.Int("max_retries", maxRetries),
+				slog.String("error", lastErr.Error()),
+				slog.String("next_delay", delay.String()),
+			)
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("context cancelled waiting for retry: %w", ctx.Err())
@@ -75,6 +96,11 @@ func SendPayload(ctx context.Context, client *a2aclient.Client, payload Brainsto
 			}
 			delay *= 2
 		}
+
+		slog.Default().InfoContext(ctx, "sending A2A message",
+			slog.Int("attempt", attempt+1),
+			slog.Int("max_attempts", maxRetries+1),
+		)
 
 		result, err := client.SendMessage(ctx, req)
 		if err == nil {

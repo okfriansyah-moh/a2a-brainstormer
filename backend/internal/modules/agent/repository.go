@@ -89,7 +89,7 @@ func (r *Repository) ListAgents(ctx context.Context) ([]Agent, error) {
 	}
 	defer rows.Close()
 
-	var agents []Agent
+	agents := make([]Agent, 0)
 	for rows.Next() {
 		a, err := scanAgent(rows)
 		if err != nil {
@@ -174,7 +174,7 @@ func (r *Repository) ListSkills(ctx context.Context) ([]Skill, error) {
 	}
 	defer rows.Close()
 
-	var skills []Skill
+	skills := make([]Skill, 0)
 	for rows.Next() {
 		sk, err := scanSkill(rows)
 		if err != nil {
@@ -264,7 +264,7 @@ func (r *Repository) GetAgentSkills(ctx context.Context, agentID string) ([]Skil
 	}
 	defer rows.Close()
 
-	var skills []Skill
+	skills := make([]Skill, 0)
 	for rows.Next() {
 		sk, err := scanSkill(rows)
 		if err != nil {
@@ -298,6 +298,7 @@ func scanAgent(row rowScanner) (Agent, error) {
 		a.SystemPrompt = *systemPrompt
 	}
 	a.DefaultRole = Role(defaultRole)
+	a.Skills = []Skill{}
 	if len(llmJSON) > 0 {
 		var cfg llm.LLMConfig
 		if err := json.Unmarshal(llmJSON, &cfg); err != nil {

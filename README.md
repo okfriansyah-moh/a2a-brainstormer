@@ -76,6 +76,23 @@ Scale example:
 make docker-scale SCALE=3
 ```
 
+### OpenCode (optional — GitHub Copilot proxy)
+
+OpenCode is a separate opt-in container. It is only needed when using GitHub Copilot
+as the LLM provider (Copilot uses OAuth, not a plain API key). See
+[docs/STARTUP_GUIDE.md §9](docs/STARTUP_GUIDE.md) for the full beginner walkthrough.
+
+| Command                | Description                                                               |
+| ---------------------- | ------------------------------------------------------------------------- |
+| `make opencode-up`     | Start the OpenCode container (first start takes ~30 s to install)         |
+| `make opencode-auth`   | One-time browser OAuth flow to authenticate with GitHub Copilot           |
+| `make opencode-status` | Print OpenCode health JSON — confirms the server is running and reachable |
+| `make opencode-logs`   | Tail live logs from the OpenCode container                                |
+| `make opencode-down`   | Stop the OpenCode container (auth token volume is preserved)              |
+
+> `make docker-down` stops **everything** including OpenCode.
+> `make opencode-down` stops **only** OpenCode while keeping the main stack running.
+
 ### Database
 
 | Command        | Description                                 |

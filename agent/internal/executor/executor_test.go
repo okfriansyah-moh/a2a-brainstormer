@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -21,6 +22,17 @@ type mockLLMProvider struct {
 
 func (m *mockLLMProvider) Generate(_ context.Context, _ llm.LLMRequest) (llm.LLMResponse, error) {
 	return llm.LLMResponse{Content: m.response}, m.err
+}
+
+// capturingLLMProvider records the most-recent LLMRequest so tests can inspect it.
+type capturingLLMProvider struct {
+	response string
+	captured llm.LLMRequest
+}
+
+func (c *capturingLLMProvider) Generate(_ context.Context, req llm.LLMRequest) (llm.LLMResponse, error) {
+	c.captured = req
+	return llm.LLMResponse{Content: c.response}, nil
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -267,5 +279,29 @@ func TestTruncate(t *testing.T) {
 		if got != c.want {
 			t.Errorf("truncate(%q, %d) = %q, want %q", c.input, c.n, got, c.want)
 		}
+	}
+}
+
+// TestExecute_UserMessageContainsJSON verifies that the user message sent to
+// the LLM always contains the word "json". This satisfies the OpenAI-compatible
+// API requirement that at least one message must include "json" when
+// response_format=json_object is specified.
+func TestExecute_UserMessageContainsJSON(t *testing.T) {
+	updatedState := map[string]any{"metrics": map[string]any{"confidence": 0.9}}
+	respJSON, _ := json.Marshal(updatedState)
+
+	provider := &capturingLLMProvider{response: string(respJSON)}
+	exec := New(provider, nil)
+	payload := BrainstormPayload{
+		Role:         "build",
+		SystemPrompt: "You are an agent.", // intentionally no "json" here
+		State:        map[string]any{"idea": map[string]any{"text": "seed"}},
+	}
+
+	_, _ = collectEvents(exec, makeExecCtx(payload))
+
+	if !strings.Contains(strings.ToLower(provider.captured.UserMessage), "json") {
+		t.Errorf("user message must contain the word 'json' to satisfy response_format=json_object; got: %q",
+			provider.captured.UserMessage)
 	}
 }

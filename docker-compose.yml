@@ -34,13 +34,19 @@ services:
       AGENT_ENDPOINTS: ${AGENT_ENDPOINTS:-http://agent:${AGENT_PORT:-9090}}
       MAX_ITERATIONS: ${MAX_ITERATIONS:-10}
       CONVERGENCE_THRESHOLD: ${CONVERGENCE_THRESHOLD:-0.02}
+      ITERATION_TIMEOUT_SECONDS: ${ITERATION_TIMEOUT_SECONDS:-1800}
+      AGENT_CALL_TIMEOUT_SECONDS: ${AGENT_CALL_TIMEOUT_SECONDS:-600}
+      COPILOT_API_KEY: ${COPILOT_API_KEY:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      # Uses busybox multi-call binary (sh + wget) copied into the distroless image.
-      test: ["CMD", "/usr/local/bin/busybox", "sh", "-c",
-             "wget -qO- http://localhost:${BACKEND_PORT:-8080}/health"]
+      # busybox is a multi-call binary; invoke it directly as `busybox wget`
+      # rather than via `sh -c wget` (wget is not in PATH inside the shell).
+      test: ["CMD", "/usr/local/bin/busybox", "wget", "-qO-",
+             "http://localhost:${BACKEND_PORT:-8080}/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -60,9 +66,20 @@ services:
       AGENT_LLM_PROVIDER: ${AGENT_LLM_PROVIDER:-copilot}
       AGENT_LLM_MODEL: ${AGENT_LLM_MODEL:-gpt-4o}
       AGENT_LLM_CREDENTIAL_REF: ${AGENT_LLM_CREDENTIAL_REF:-COPILOT_API_KEY}
+      # AGENT_PUBLIC_URL is the URL the backend uses to call this container over the Docker network.
+      # It is embedded in the A2A AgentCard's SupportedInterfaces so the backend's a2aclient
+      # follows the correct internal hostname instead of localhost.
+      AGENT_PUBLIC_URL: http://agent:${AGENT_PORT:-9090}
+      COPILOT_API_KEY: ${COPILOT_API_KEY:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      # OpenCode proxy (only used when AGENT_LLM_PROVIDER=opencode)
+      AGENT_OPENCODE_BASE_URL: ${AGENT_OPENCODE_BASE_URL:-http://opencode:4096}
+      AGENT_OPENCODE_MODEL: ${AGENT_OPENCODE_MODEL:-github/gpt-4o}
+      OPENCODE_SERVER_USERNAME: ${OPENCODE_SERVER_USERNAME:-opencode}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "/usr/local/bin/busybox", "sh", "-c",
-             "wget -qO- http://localhost:${AGENT_PORT:-9090}/.well-known/agent-card.json"]
+      test: ["CMD", "/usr/local/bin/busybox", "wget", "-qO-",
+             "http://localhost:${AGENT_PORT:-9090}/.well-known/agent-card.json"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -82,5 +99,40 @@ services:
       backend:
         condition: service_healthy
 
+  # ── OpenCode server (opt-in — only started with --profile opencode) ──────────
+  # The OpenCode server proxies LLM calls to GitHub Copilot (or any other
+  # OpenCode-supported provider) so that agent containers do not need individual
+  # Copilot API keys. Start with: make opencode-up
+  #
+  # To use the agent binary with OpenCode, set in .env:
+  #   AGENT_LLM_PROVIDER=opencode
+  #   AGENT_OPENCODE_BASE_URL=http://opencode:4096
+  # The agent service has no hard `depends_on: opencode` so the default
+  # `docker compose up` workflow is unaffected when the opencode profile is off.
+  opencode:
+    image: node:22-slim
+    profiles: [opencode]
+    working_dir: /app
+    entrypoint:
+      - sh
+      - -c
+      - "npm install -g opencode-ai && opencode serve --hostname 0.0.0.0 --port 4096 --cors http://localhost:5173"
+    ports:
+      - "4096:4096"
+    environment:
+      - OPENCODE_SERVER_USERNAME=${OPENCODE_SERVER_USERNAME:-opencode}
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+    volumes:
+      - opencode-auth:/root/.local/share/opencode
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4096/global/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   postgres_data:
+  # Persists the GitHub Copilot OAuth token across container restarts.
+  # Delete this volume only if you need to re-authenticate: docker volume rm opencode-auth
+  opencode-auth:

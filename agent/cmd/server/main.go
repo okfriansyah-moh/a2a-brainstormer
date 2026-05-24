@@ -2,7 +2,7 @@
 //
 // Start-up sequence:
 //  1. Read all configuration from env vars via agent/internal/config.
-//  2. Warn if LLM credential is unavailable (agent still starts; calls fail fast).
+//  2. Fail fast if LLM credential is unavailable (agent must not start without resolvable credentials).
 //  3. Build AgentCard, LLMProvider, and BrainstormExecutor.
 //  4. Wire HTTP routes: AgentCard handler + A2A REST handler.
 //  5. Serve until SIGTERM/SIGINT, then graceful shutdown.
@@ -15,10 +15,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,26 +48,18 @@ func main() {
 
 func run(ctx context.Context, logger *slog.Logger) error {
 	port := config.GetPort()
-	credentialRef := config.GetLLMCredentialRef()
-	model := config.GetLLMModel()
 
-	// Validate credential availability at startup — warn but do not abort so the
-	// AgentCard endpoint remains servable even when the LLM key is temporarily
-	// absent. Individual Execute calls will fail fast if the key is still missing.
-	if _, err := config.GetLLMAPIKey(credentialRef); err != nil {
-		logger.WarnContext(ctx, "LLM credential unavailable at startup",
-			slog.String("credential_ref", credentialRef),
-		)
+	// Build LLM provider (copilot by default; opencode when AGENT_LLM_PROVIDER=opencode).
+	// Fails fast if required credentials are absent — security invariant: absent credential → agent unavailable.
+	llmProvider, err := buildLLMProvider(logger)
+	if err != nil {
+		return fmt.Errorf("startup: %w", err)
 	}
 
-	// Build AgentCard. parsePort falls back to 9090 on parse failure.
-	portInt := parsePort(port)
-	card := agentpkg.NewAgentCard(portInt)
-
-	// Build LLM provider.
-	// config.GetLLMAPIKey is passed as resolveKey so that all os.Getenv calls
-	// remain confined to agent/internal/config/config.go.
-	llmProvider := llm.NewCopilotProvider(model, credentialRef, "", nil, config.GetLLMAPIKey)
+	// Build AgentCard. The public URL is read from AGENT_PUBLIC_URL env var
+	// (set to http://agent:{port} in Docker Compose so backend→agent calls work
+	// via the Docker service name; defaults to http://localhost:{port}).
+	card := agentpkg.NewAgentCard()
 
 	// Build executor.
 	exec := executor.New(llmProvider, logger)
@@ -80,12 +74,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	mux.Handle(a2asrv.WellKnownAgentCardPath, cardHandler)
 	mux.Handle("/", restHandler)
 
-	// HTTP server with conservative timeouts to match LLM call duration.
+	// HTTP server — WriteTimeout must exceed the longest expected LLM call.
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      120 * time.Second,
+		WriteTimeout:      config.GetHTTPWriteTimeout(),
 		IdleTimeout:       120 * time.Second,
 	}
 
@@ -114,17 +108,56 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	return <-errCh
 }
 
-// parsePort converts a decimal port string to int, returning 9090 on failure.
-func parsePort(s string) int {
-	n := 0
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 9090
+// buildLLMProvider constructs the LLMProvider selected by AGENT_LLM_PROVIDER.
+//
+// Supported values:
+//   - "opencode" — proxies through a running OpenCode HTTP server instance.
+//   - "copilot" (default) — calls the GitHub Copilot chat completions API directly.
+//
+// Security invariant: os.Getenv is never called here. All configuration is
+// obtained through agent/internal/config; that package is the sole allowed
+// caller of os.Getenv in this binary.
+func buildLLMProvider(logger *slog.Logger) (llm.LLMProvider, error) {
+	provider := config.GetLLMProvider()
+	logger.Info("LLM provider", slog.String("provider", provider))
+
+	switch provider {
+	case "opencode":
+		model := config.GetOpenCodeModel()
+		parts := strings.SplitN(model, "/", 2)
+		providerID, modelID := "github", "gpt-4o" // safe default
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			providerID, modelID = parts[0], parts[1]
+		} else {
+			logger.Warn("AGENT_OPENCODE_MODEL must be 'providerID/modelID'; using default github/gpt-4o",
+				slog.String("value", model),
+			)
 		}
-		n = n*10 + int(c-'0')
+		// Validate OpenCode credentials are resolvable before starting.
+		usernameRef := config.GetOpenCodeUsernameRef()
+		passwordRef := config.GetOpenCodePasswordRef()
+		if _, err := config.GetLLMAPIKey(usernameRef); err != nil {
+			return nil, fmt.Errorf("OpenCode username credential %q is not set: %w", usernameRef, err)
+		}
+		if _, err := config.GetLLMAPIKey(passwordRef); err != nil {
+			return nil, fmt.Errorf("OpenCode password credential %q is not set: %w", passwordRef, err)
+		}
+		return llm.NewOpenCodeProvider(llm.OpenCodeConfig{
+			BaseURL:     config.GetOpenCodeBaseURL(),
+			ProviderID:  providerID,
+			ModelID:     modelID,
+			UsernameRef: usernameRef,
+			PasswordRef: passwordRef,
+		}, &http.Client{Timeout: config.GetOpenCodeHTTPTimeout()}, config.GetLLMAPIKey), nil
+
+	default: // "copilot" and any unrecognised value
+		credentialRef := config.GetLLMCredentialRef()
+		model := config.GetLLMModel()
+
+		// Fail fast if credential is absent — security invariant: absent credential → agent unavailable.
+		if _, err := config.GetLLMAPIKey(credentialRef); err != nil {
+			return nil, fmt.Errorf("LLM credential %q is not set: set the env var before starting the agent", credentialRef)
+		}
+		return llm.NewCopilotProvider(model, credentialRef, "", nil, config.GetLLMAPIKey), nil
 	}
-	if n == 0 {
-		return 9090
-	}
-	return n
 }

@@ -22,7 +22,7 @@ type Agent struct {
 	LLMConfig    *llm.LLMConfig `json:"llm_config,omitempty"`
 	Endpoint     string         `json:"endpoint"`
 	CreatedAt    time.Time      `json:"created_at"`
-	Skills       []Skill        `json:"skills,omitempty"`
+	Skills       []Skill        `json:"skills"`
 }
 
 // Skill is a prompt-level behaviour fragment injected into an agent's assembled

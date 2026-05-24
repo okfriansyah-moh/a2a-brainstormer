@@ -127,6 +127,18 @@ export interface CanonicalState {
 
 // ── Session ──────────────────────────────────────────────────────────────────
 
+/**
+ * One agent slot binding in a session — mirrors backend session.SessionAgent.
+ * Populated on GET /sessions/{id} (not list). Contains only the binding info
+ * (no agent name/model); cross-reference with the agent registry for full details.
+ */
+export interface SessionAgentSlot {
+  session_id: string;
+  agent_id: string;
+  position: number;
+  role: string;
+}
+
 export interface Session {
   id: string;
   idea: string;
@@ -135,6 +147,8 @@ export interface Session {
   current_state: CanonicalState | null;
   created_at: string;
   updated_at: string;
+  /** Ordered agent bindings — present on single GET, absent on list. */
+  agents?: SessionAgentSlot[];
 }
 
 // ── API request / response shapes (§8.7) ─────────────────────────────────────

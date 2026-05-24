@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ── Database ─────────────────────────────────────────────────────────────────
@@ -104,6 +105,22 @@ func GetBackendPort() string {
 // artifacts (architecture.md, roadmap.md) are written. Defaults to "output".
 func GetOutputDir() string {
 	return envString("OUTPUT_DIR", "output")
+}
+
+// GetIterationTimeout returns the maximum duration allowed for a single full
+// iteration pipeline run (all agents × all passes). The timer is independent
+// of the HTTP request lifetime so that a client disconnect cannot abort an
+// in-flight LLM pipeline. Defaults to 30 minutes.
+// Set ITERATION_TIMEOUT_SECONDS to override.
+func GetIterationTimeout() time.Duration {
+	return time.Duration(envInt("ITERATION_TIMEOUT_SECONDS", 1800)) * time.Second
+}
+
+// GetAgentCallTimeout returns the HTTP timeout for a single A2A agent call.
+// LLM inference (especially Claude on large prompts) can take several minutes.
+// Defaults to 10 minutes. Set AGENT_CALL_TIMEOUT_SECONDS to override.
+func GetAgentCallTimeout() time.Duration {
+	return time.Duration(envInt("AGENT_CALL_TIMEOUT_SECONDS", 600)) * time.Second
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

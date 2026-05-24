@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 )
 
 // ── Server ────────────────────────────────────────────────────────────────────
@@ -19,6 +21,18 @@ func GetPort() string {
 		return v
 	}
 	return "9090"
+}
+
+// GetPublicURL returns the base URL advertised in the A2A AgentCard.
+// Reads AGENT_PUBLIC_URL; defaults to "http://localhost:{AGENT_PORT}" when unset.
+//
+// In Docker Compose, set AGENT_PUBLIC_URL=http://agent:{AGENT_PORT} so that
+// the backend (also inside Docker) can reach the agent via the service name.
+func GetPublicURL() string {
+	if v := os.Getenv("AGENT_PUBLIC_URL"); v != "" {
+		return v
+	}
+	return fmt.Sprintf("http://localhost:%s", GetPort())
 }
 
 // ── LLM Provider ──────────────────────────────────────────────────────────────
@@ -69,4 +83,75 @@ func GetLLMAPIKey(credentialRef string) (string, error) {
 		return "", fmt.Errorf("credential env var %q is not set or empty — agent unavailable", credentialRef)
 	}
 	return key, nil
+}
+
+// ── OpenCode Provider ─────────────────────────────────────────────────────────
+
+// GetOpenCodeBaseURL returns the base URL of the OpenCode HTTP server.
+// Reads AGENT_OPENCODE_BASE_URL; defaults to "http://localhost:4096" when unset.
+func GetOpenCodeBaseURL() string {
+	if v := os.Getenv("AGENT_OPENCODE_BASE_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:4096"
+}
+
+// GetOpenCodeModel returns the model identifier in "providerID/modelID" format.
+// Reads AGENT_OPENCODE_MODEL; defaults to "github/gpt-4o" when unset.
+// The caller must split on "/" to obtain ProviderID and ModelID.
+func GetOpenCodeModel() string {
+	if v := os.Getenv("AGENT_OPENCODE_MODEL"); v != "" {
+		return v
+	}
+	return "github/gpt-4o"
+}
+
+// GetOpenCodeUsernameRef returns the env var NAME that holds the OpenCode server
+// username. Reads AGENT_OPENCODE_USERNAME_REF; defaults to "OPENCODE_SERVER_USERNAME".
+//
+// Security invariant: this returns the env var *name*, never its value.
+// Resolve the actual username via GetLLMAPIKey(GetOpenCodeUsernameRef()).
+func GetOpenCodeUsernameRef() string {
+	if v := os.Getenv("AGENT_OPENCODE_USERNAME_REF"); v != "" {
+		return v
+	}
+	return "OPENCODE_SERVER_USERNAME"
+}
+
+// GetOpenCodePasswordRef returns the env var NAME that holds the OpenCode server
+// password. Reads AGENT_OPENCODE_PASSWORD_REF; defaults to "OPENCODE_SERVER_PASSWORD".
+//
+// Security invariant: this returns the env var *name*, never its value.
+// Resolve the actual password via GetLLMAPIKey(GetOpenCodePasswordRef()).
+func GetOpenCodePasswordRef() string {
+	if v := os.Getenv("AGENT_OPENCODE_PASSWORD_REF"); v != "" {
+		return v
+	}
+	return "OPENCODE_SERVER_PASSWORD"
+}
+
+// GetOpenCodeHTTPTimeout returns the HTTP timeout for a single OpenCode LLM
+// request. Large models (e.g. Claude on complex prompts) can take several
+// minutes. Defaults to 10 minutes.
+// Set AGENT_OPENCODE_HTTP_TIMEOUT_SECONDS to override.
+func GetOpenCodeHTTPTimeout() time.Duration {
+	if v := os.Getenv("AGENT_OPENCODE_HTTP_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 10 * time.Minute
+}
+
+// GetHTTPWriteTimeout returns the HTTP server write timeout for the agent.
+// Must be longer than the longest expected LLM call duration.
+// Defaults to 15 minutes. Set AGENT_HTTP_WRITE_TIMEOUT_SECONDS to override.
+// Set to 0 to disable the write timeout entirely.
+func GetHTTPWriteTimeout() time.Duration {
+	if v := os.Getenv("AGENT_HTTP_WRITE_TIMEOUT_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 15 * time.Minute
 }
