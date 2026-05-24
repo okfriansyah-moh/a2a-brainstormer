@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { get } from "svelte/store";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -9,8 +9,17 @@
   import ConfidenceBar from "$lib/components/ConfidenceBar.svelte";
   import CanonicalStatePanel from "$lib/components/CanonicalStatePanel.svelte";
   import RiskBoard from "$lib/components/RiskBoard.svelte";
-  import { getSession, getAgents, iterate } from "$lib/services/api";
-  import type { Agent, SessionAgent } from "$lib/types";
+  import {
+    getSession,
+    getAgents,
+    iterate,
+    previewAgent,
+    applyAgentPreview,
+    discardAgentPreview,
+  } from "$lib/services/api";
+  import { createSSEClient } from "$lib/services/sse";
+  import type { Agent, PreviewResult, SessionAgent } from "$lib/types";
+  import type { SSEClient } from "$lib/services/sse";
 
   /** True when the backend signals the session has converged. */
   let converged = false;
@@ -21,9 +30,24 @@
   let loadError = "";
   let actionError = "";
 
+  /** Active SSE client — closed on component destroy. */
+  let sseClient: SSEClient | null = null;
+
   /** Controls visibility of the feedback textarea. */
   let showFeedback = false;
   let feedbackText = "";
+
+  /**
+   * Map of agentId → true while a preview dispatch is in flight for that agent.
+   * Used to disable per-agent buttons during the request.
+   */
+  let previewRunningMap: Record<string, boolean> = {};
+
+  /**
+   * Map of agentId → PreviewResult for previews that have been fetched but
+   * not yet applied. Displayed as the "Preview — not committed" banner.
+   */
+  let previewMap: Record<string, PreviewResult> = {};
 
   $: sessionId = $page.params.id;
 
@@ -35,32 +59,21 @@
   /** Current iteration number (0 before first iteration). */
   $: currentIteration = $sessionStore.state?.meta?.iteration ?? 0;
 
-  /** Derive per-stage status from agents + loading state. */
-  $: stageStatuses = computeStageStatuses(
-    $sessionStore.agents,
-    $sessionStore.loading,
-    currentIteration,
-  );
-
-  function computeStageStatuses(
-    agents: SessionAgent[],
-    loading: boolean,
-    iteration: number,
-  ): Array<"done" | "running" | "waiting"> {
-    // The backend does not return per-agent outputs — only a single
-    // CanonicalState after the full pipeline pass. After any completed
-    // iteration all agents have contributed, so they are all "done".
-    // While a pass is in flight the first stage is "running"; the rest wait.
-    if (!loading && iteration > 0) {
-      return agents.map(() => "done" as const);
-    }
-    if (loading) {
-      return agents.map((_, i): "running" | "waiting" =>
-        i === 0 ? "running" : "waiting",
-      );
-    }
-    return agents.map(() => "waiting" as const);
-  }
+  /**
+   * Per-stage status array driven by SSE agentStatuses.
+   * Falls back to loading-based inference before any SSE events arrive.
+   * Maps 'error' → 'waiting' since PipelineStage only accepts done/running/waiting.
+   */
+  $: stageStatuses = $sessionStore.agents.map((agent, i) => {
+    const live = $sessionStore.agentStatuses[agent.id];
+    if (live === "running") return "running" as const;
+    if (live === "done") return "done" as const;
+    // Fallback simulation when SSE data is absent.
+    if (!$sessionStore.loading && currentIteration > 0) return "done" as const;
+    if ($sessionStore.loading)
+      return i === 0 ? ("running" as const) : ("waiting" as const);
+    return "waiting" as const;
+  });
 
   function stageOutputText(agent: SessionAgent): string {
     if (!agent.output) return "";
@@ -145,12 +158,23 @@
     } finally {
       sessionStore.setLoading(false);
     }
+
+    // Open SSE stream for real-time agent progress events.
+    sseClient = createSSEClient(`/api/sessions/${sessionId}/events`, (evt) =>
+      sessionStore.applyEvent(evt),
+    );
+  });
+
+  onDestroy(() => {
+    sseClient?.close();
   });
 
   async function handleNextIteration() {
     if ($sessionStore.loading || !sessionId || converged) return;
     sessionStore.setLoading(true);
     actionError = "";
+    // Clear any local previews — a full pipeline pass supersedes them.
+    previewMap = {};
     try {
       const result = await iterate(sessionId);
       sessionStore.updateState(result.state);
@@ -178,6 +202,58 @@
     actionError = "";
     showFeedback = false;
     feedbackText = "";
+  }
+
+  async function handlePreviewAgent(agentId: string) {
+    if (!sessionId || $sessionStore.loading || previewRunningMap[agentId])
+      return;
+    previewRunningMap = { ...previewRunningMap, [agentId]: true };
+    actionError = "";
+    try {
+      const result = await previewAgent(sessionId, agentId);
+      previewMap = { ...previewMap, [agentId]: result };
+    } catch (err) {
+      actionError =
+        err instanceof Error ? err.message : "Preview dispatch failed.";
+    } finally {
+      previewRunningMap = { ...previewRunningMap, [agentId]: false };
+    }
+  }
+
+  async function handleApplyPreview(agentId: string) {
+    if (!sessionId || $sessionStore.loading || previewRunningMap[agentId])
+      return;
+    const existing = previewMap[agentId];
+    if (!existing) return;
+    previewRunningMap = { ...previewRunningMap, [agentId]: true };
+    actionError = "";
+    try {
+      const newState = await applyAgentPreview(
+        sessionId,
+        agentId,
+        existing.preview_id,
+      );
+      sessionStore.updateState(newState);
+      // Clear the applied preview locally.
+      const { [agentId]: _removed, ...rest } = previewMap;
+      previewMap = rest;
+    } catch (err) {
+      actionError =
+        err instanceof Error ? err.message : "Apply preview failed.";
+    } finally {
+      previewRunningMap = { ...previewRunningMap, [agentId]: false };
+    }
+  }
+
+  async function handleDiscardPreview(agentId: string) {
+    if (!sessionId) return;
+    try {
+      await discardAgentPreview(sessionId, agentId);
+    } catch {
+      // Discard is best-effort — ignore errors.
+    }
+    const { [agentId]: _removed, ...rest } = previewMap;
+    previewMap = rest;
   }
 </script>
 
@@ -263,6 +339,11 @@
             status={stageStatuses[i] ?? "waiting"}
             output={stageOutputText(agent)}
             summary={stageSummaryText(agent)}
+            pipelineRunning={$sessionStore.loading}
+            previewRunning={previewRunningMap[agent.id] ?? false}
+            preview={previewMap[agent.id]}
+            onPreview={() => handlePreviewAgent(agent.id)}
+            onApply={() => handleApplyPreview(agent.id)}
           />
           {#if i < $sessionStore.agents.length - 1}
             <div

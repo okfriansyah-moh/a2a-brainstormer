@@ -160,18 +160,28 @@ describe("finalizeSession", () => {
     await expect(finalizeSession("s1")).resolves.toBeDefined();
   });
 
-  it("returns FinalizeResponse with markdown content on 200", async () => {
+  it("returns FinalizeResponse with documents on 200", async () => {
     const response = {
       session_id: "s1",
-      architecture_markdown: "# Architecture\n\nDetails here.",
-      roadmap_markdown: "# Roadmap\n\nPhase 1: ...",
+      documents: {
+        architecture: {
+          filename: "architecture.md",
+          content: "# Architecture\n\nDetails here.",
+          line_count: 3,
+        },
+        roadmap: {
+          filename: "roadmap.md",
+          content: "# Roadmap\n\nPhase 1: ...",
+          line_count: 3,
+        },
+      },
       status: "approved",
     };
     mockFetch(200, response);
     const result = await finalizeSession("s1");
     expect(result.session_id).toBe("s1");
-    expect(result.architecture_markdown).toContain("# Architecture");
-    expect(result.roadmap_markdown).toContain("# Roadmap");
+    expect(result.documents["architecture"].content).toContain("# Architecture");
+    expect(result.documents["roadmap"].content).toContain("# Roadmap");
     expect(result.status).toBe("approved");
   });
 

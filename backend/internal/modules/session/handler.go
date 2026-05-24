@@ -3,8 +3,10 @@
 // Routes registered:
 //
 //	POST   /sessions
+//	GET    /sessions
 //	GET    /sessions/{id}
 //	POST   /sessions/{id}/finalize
+//	PATCH  /sessions/{id}/output-docs
 //
 // Input validation:
 //   - Session IDs are validated as UUID v4 format before any DB call.
@@ -14,6 +16,7 @@
 // Error mapping:
 //
 //	ErrNotFound              → 404
+//	ErrConflict              → 409
 //	validation errors        → 400
 //	other errors             → 500 (detail never exposed to caller)
 package session
@@ -28,6 +31,7 @@ import (
 	"regexp"
 
 	"a2a-brainstorm/backend/internal/modules/state"
+	"a2a-brainstorm/backend/internal/shared"
 )
 
 // uuidRE matches UUID v4 format used for session and agent IDs.
@@ -39,14 +43,15 @@ type sessionService interface {
 	CreateSession(ctx context.Context, req CreateSessionRequest) (Session, error)
 	GetSession(ctx context.Context, id string) (Session, error)
 	ListSessions(ctx context.Context) (ListSessionsResponse, error)
-	FinalizeSession(ctx context.Context, id string) (Session, error)
+	FinalizeSession(ctx context.Context, id string, input FinalizeInput) (Session, error)
+	UpdateOutputDocs(ctx context.Context, id string, docs []string) error
 }
 
 // markdownWriter is the subset of the markdown package required by the Handler.
 // Injecting an interface keeps the markdown package out of the import graph
 // for unit tests that do not need file I/O.
 type markdownWriter interface {
-	GenerateContent(s state.CanonicalState) (arch string, roadmap string, err error)
+	GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error)
 	WriteArtifacts(s state.CanonicalState, outputDir string) error
 }
 
@@ -77,6 +82,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sessions", h.listSessions)
 	mux.HandleFunc("GET /sessions/{id}", h.getSession)
 	mux.HandleFunc("POST /sessions/{id}/finalize", h.finalizeSession)
+	mux.HandleFunc("PATCH /sessions/{id}/output-docs", h.updateOutputDocs)
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -145,19 +151,31 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, err := h.svc.FinalizeSession(r.Context(), id)
+	// Parse optional body — an empty body is treated as FinalizeInput{}.
+	var input FinalizeInput
+	if r.ContentLength > 0 {
+		if err := readJSON(r, &input); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	sess, err := h.svc.FinalizeSession(r.Context(), id, input)
 	if err != nil {
 		h.handleServiceError(w, r, err)
 		return
 	}
 
-	// Generate markdown content for the response body and optionally write
-	// the artifact files to disk. Artifact write failure is non-fatal (the
-	// session remains approved), but content generation failure is returned
-	// as 500 because the finalize response body depends on it.
-	var archContent, roadmapContent string
+	// Generate documents for the response body. Document keys come from the
+	// persisted session.OutputDocs (which FinalizeSession may have updated
+	// from the input override before returning).
+	documents := make(map[string]shared.GeneratedDocument)
 	if h.markdown != nil && sess.CurrentState != nil {
-		arch, road, merr := h.markdown.GenerateContent(*sess.CurrentState)
+		keys := sess.OutputDocs
+		if len(keys) == 0 {
+			keys = DefaultOutputDocs
+		}
+		docs, merr := h.markdown.GenerateAll(*sess.CurrentState, keys)
 		if merr != nil {
 			if h.logger != nil {
 				h.logger.ErrorContext(r.Context(), "markdown generation failed",
@@ -167,8 +185,7 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "markdown generation failed")
 			return
 		}
-		archContent = arch
-		roadmapContent = road
+		documents = docs
 
 		if h.outputDir != "" {
 			if werr := h.markdown.WriteArtifacts(*sess.CurrentState, h.outputDir); werr != nil {
@@ -177,17 +194,40 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 						slog.String("session_id", id),
 						slog.Any("error", werr))
 				}
-				// Write failure is non-fatal.
+				// Write failure is non-fatal — session remains approved.
 			}
 		}
 	}
 
 	writeJSON(w, http.StatusOK, FinalizeResponse{
-		SessionID:            sess.ID,
-		ArchitectureMarkdown: archContent,
-		RoadmapMarkdown:      roadmapContent,
-		Status:               sess.Status,
+		SessionID: sess.ID,
+		Documents: documents,
+		Status:    sess.Status,
 	})
+}
+
+func (h *Handler) updateOutputDocs(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidRE.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid session ID format")
+		return
+	}
+
+	var req UpdateOutputDocsRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.OutputDocs) == 0 {
+		writeError(w, http.StatusBadRequest, "output_docs must contain at least one document key")
+		return
+	}
+
+	if err := h.svc.UpdateOutputDocs(r.Context(), id, req.OutputDocs); err != nil {
+		h.handleServiceError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── Error helpers ─────────────────────────────────────────────────────────────
@@ -195,6 +235,10 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if errors.Is(err, ErrConflict) {
+		writeError(w, http.StatusConflict, "operation not permitted in current session state")
 		return
 	}
 	// Surface validation errors (produced by service layer) as 400.
@@ -221,6 +265,9 @@ func isValidationError(err error) bool {
 		"at least 2",
 		"invalid role",
 		"agent ",
+		"output_docs",
+		"invalid output doc key",
+		"duplicate output doc key",
 	}
 	for _, p := range prefixes {
 		if len(msg) >= len(p) && msg[:len(p)] == p {

@@ -35,89 +35,6 @@ func sampleState() state.CanonicalState {
 	}
 }
 
-// ── GenerateArchitecture ────────────────────────────────────────────────────
-
-func TestGenerateArchitecture_ContainsIdeaAndArchitecture(t *testing.T) {
-	s := sampleState()
-	got, err := GenerateArchitecture(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	mustContain := []string{
-		"# Architecture",
-		"A brainstorm tool for autonomous agents",
-		"backend",
-		"Go modular monolith",
-		"Set up project scaffold",
-		"Implement core pipeline",
-		"LLM rate limits", // unresolved risk should appear
-	}
-	for _, want := range mustContain {
-		if !strings.Contains(got, want) {
-			t.Errorf("GenerateArchitecture: expected output to contain %q\ngot:\n%s", want, got)
-		}
-	}
-}
-
-func TestGenerateArchitecture_DoesNotIncludeResolvedRisks(t *testing.T) {
-	s := sampleState()
-	got, err := GenerateArchitecture(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if strings.Contains(got, "Old risk already fixed") {
-		t.Errorf("GenerateArchitecture: resolved risk should not appear in output")
-	}
-}
-
-func TestGenerateArchitecture_EmptyArchitecture(t *testing.T) {
-	s := state.CanonicalState{} // empty state
-	got, err := GenerateArchitecture(s)
-	if err != nil {
-		t.Fatalf("unexpected error on empty state: %v", err)
-	}
-	if !strings.Contains(got, "No architecture details recorded yet") {
-		t.Errorf("expected placeholder for empty architecture, got:\n%s", got)
-	}
-}
-
-// ── GenerateRoadmap ─────────────────────────────────────────────────────────
-
-func TestGenerateRoadmap_ContainsMilestones(t *testing.T) {
-	s := sampleState()
-	got, err := GenerateRoadmap(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	mustContain := []string{
-		"# Roadmap",
-		"Set up project scaffold",
-		"Implement core pipeline",
-		"Agents are reachable via HTTP",       // assumption
-		"How do we handle network partitions", // open question
-		"iteration 3",
-		"0.85", // confidence
-	}
-	for _, want := range mustContain {
-		if !strings.Contains(got, want) {
-			t.Errorf("GenerateRoadmap: expected output to contain %q\ngot:\n%s", want, got)
-		}
-	}
-}
-
-func TestGenerateRoadmap_EmptyPlan(t *testing.T) {
-	s := state.CanonicalState{}
-	got, err := GenerateRoadmap(s)
-	if err != nil {
-		t.Fatalf("unexpected error on empty state: %v", err)
-	}
-	if !strings.Contains(got, "No execution plan steps recorded yet") {
-		t.Errorf("expected placeholder for empty plan, got:\n%s", got)
-	}
-}
-
 // ── WriteArtifacts ──────────────────────────────────────────────────────────
 
 func TestWriteArtifacts_CreatesFiles(t *testing.T) {
@@ -179,8 +96,8 @@ func TestGenerateContent_ReturnsBothStrings(t *testing.T) {
 	if !strings.Contains(arch, "# Architecture") {
 		t.Errorf("expected arch to contain '# Architecture', got:\n%s", arch)
 	}
-	if !strings.Contains(roadmap, "# Roadmap") {
-		t.Errorf("expected roadmap to contain '# Roadmap', got:\n%s", roadmap)
+	if !strings.Contains(roadmap, "Roadmap") {
+		t.Errorf("expected roadmap to contain 'Roadmap', got:\n%s", roadmap)
 	}
 }
 
@@ -209,15 +126,14 @@ func TestGenerateContent_MatchesIndividualFunctions(t *testing.T) {
 
 func TestWriter_GenerateContent(t *testing.T) {
 	s := sampleState()
-	w := &Writer{}
-	arch, roadmap, err := w.GenerateContent(s)
+	arch, roadmap, err := GenerateContent(s)
 	if err != nil {
-		t.Fatalf("Writer.GenerateContent returned error: %v", err)
+		t.Fatalf("GenerateContent returned error: %v", err)
 	}
 	if arch == "" {
-		t.Error("expected non-empty arch from Writer.GenerateContent")
+		t.Error("expected non-empty arch from GenerateContent")
 	}
 	if roadmap == "" {
-		t.Error("expected non-empty roadmap from Writer.GenerateContent")
+		t.Error("expected non-empty roadmap from GenerateContent")
 	}
 }

@@ -134,7 +134,7 @@ func TestEngineConvergence(t *testing.T) {
 		return out, nil
 	}
 
-	eng := NewEngine(mockDispatch, agentProv, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, 10)
 
 	initial := state.CanonicalState{
@@ -209,7 +209,7 @@ func TestEnginePipelineOrder(t *testing.T) {
 		return out, nil
 	}
 
-	eng := NewEngine(mockDispatch, agentProv, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, 5)
 
 	initial := state.CanonicalState{
@@ -270,7 +270,7 @@ func TestEngineMaxIterations(t *testing.T) {
 	}
 
 	const maxIter = 3
-	eng := NewEngine(mockDispatch, agentProv, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, maxIter)
 
 	result, err := eng.Run(context.Background(), sess, state.CanonicalState{
@@ -357,7 +357,7 @@ func TestEngineMetaAgentsPopulated(t *testing.T) {
 		return out, nil
 	}
 
-	eng := NewEngine(mockDispatch, agentProvWithSkills, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProvWithSkills, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, 5)
 
 	result, err := eng.Run(context.Background(), sess, state.CanonicalState{

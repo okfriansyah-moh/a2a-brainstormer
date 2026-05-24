@@ -3,7 +3,7 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { getSession, finalizeSession } from "$lib/services/api";
-  import type { Session } from "$lib/types";
+  import type { Session, GeneratedDocument } from "$lib/types";
 
   // ── Route param ─────────────────────────────────────────────────────────
   $: sessionId = $page.params.id;
@@ -16,29 +16,29 @@
   let generated = false;
   let alreadyFinalized = false;
 
-  let archMarkdown = "";
-  let roadmapMarkdown = "";
-  let archStatus: "pending" | "generating" | "done" = "pending";
-  let roadStatus: "pending" | "generating" | "done" = "pending";
+  /** Document key → generated artifact. Populated after generation. */
+  let documents: Record<string, GeneratedDocument> = {};
+  /** The doc keys the user wants to generate for this finalize call. */
+  let selectedDocs: string[] = ["architecture", "roadmap"];
+  /** Per-document copied state for clipboard feedback. */
+  let copiedDoc: Record<string, boolean> = {};
+  /** Overall doc generation status (applied to all docs uniformly). */
+  let docStatus: "pending" | "generating" | "done" = "pending";
 
+  // ── Log animation sequence ───────────────────────────────────────────────
   let logLines: string[] = [];
   let runningLine: string | null = null;
   let logDone = false;
   let logBadgeDone = false;
 
-  let copiedArch = false;
-  let copiedRoadmap = false;
-
-  // ── Log animation sequence ───────────────────────────────────────────────
   const LOG_SEQUENCE = [
     "Reading canonical state snapshot…",
     "Extracting architecture decisions and component boundaries…",
     "Extracting execution plan — steps, milestones, rollback gates…",
     "Extracting risks, assumptions, and open questions…",
-    "Assembling architecture.md sections…",
-    "Assembling roadmap.md phases and milestones…",
+    "Assembling document sections…",
     "Writing output artifacts…",
-    "Generation complete. 2 documents ready. ✓",
+    "Generation complete. Documents ready. ✓",
   ];
 
   function runLogAnimation(): Promise<void> {
@@ -77,25 +77,21 @@
     if (!sid || generating || generated) return;
     error = "";
     generating = true;
-    archStatus = "generating";
-    roadStatus = "generating";
+    docStatus = "generating";
 
     try {
       // Run animation and API call in parallel; show content when both finish
       const [resp] = await Promise.all([
-        finalizeSession(sid),
+        finalizeSession(sid, { output_docs: selectedDocs }),
         runLogAnimation(),
       ]);
 
-      archMarkdown = resp.architecture_markdown;
-      roadmapMarkdown = resp.roadmap_markdown;
-      archStatus = "done";
-      roadStatus = "done";
+      documents = resp.documents ?? {};
+      docStatus = "done";
       generated = true;
     } catch (err) {
       error = err instanceof Error ? err.message : "Generation failed.";
-      archStatus = "pending";
-      roadStatus = "pending";
+      docStatus = "pending";
       logDone = false;
       logBadgeDone = false;
     } finally {
@@ -115,20 +111,18 @@
   }
 
   function downloadAll() {
-    if (archMarkdown) downloadFile(archMarkdown, "architecture.md");
-    if (roadmapMarkdown) downloadFile(roadmapMarkdown, "roadmap.md");
+    for (const doc of Object.values(documents)) {
+      downloadFile(doc.content, doc.filename);
+    }
   }
 
-  async function copyToClipboard(text: string, which: "arch" | "roadmap") {
+  async function copyToClipboard(text: string, key: string) {
     try {
       await navigator.clipboard.writeText(text);
-      if (which === "arch") {
-        copiedArch = true;
-        setTimeout(() => (copiedArch = false), 2000);
-      } else {
-        copiedRoadmap = true;
-        setTimeout(() => (copiedRoadmap = false), 2000);
-      }
+      copiedDoc = { ...copiedDoc, [key]: true };
+      setTimeout(() => {
+        copiedDoc = { ...copiedDoc, [key]: false };
+      }, 2000);
     } catch {
       // Clipboard API unavailable — silently ignore
     }
@@ -178,26 +172,27 @@
     if (session?.status === "approved") {
       // Session was previously finalized — reload the markdown without animation
       alreadyFinalized = true;
-      archStatus = "generating";
-      roadStatus = "generating";
+      docStatus = "generating";
+      selectedDocs = session.output_docs ?? ["architecture", "roadmap"];
       try {
         const resp = await finalizeSession(sid);
-        archMarkdown = resp.architecture_markdown;
-        roadmapMarkdown = resp.roadmap_markdown;
-        archStatus = "done";
-        roadStatus = "done";
+        documents = resp.documents ?? {};
+        docStatus = "done";
         generated = true;
         logBadgeDone = true;
         logLines = ["Loaded from previously generated session. ✓"];
       } catch {
         // Fallback: let user click "Generate Documents"
         alreadyFinalized = false;
-        archStatus = "pending";
-        roadStatus = "pending";
+        docStatus = "pending";
       }
     } else if (session?.status === "converged") {
       // Arrived from the workspace after iterating — auto-trigger generation
+      selectedDocs = session.output_docs ?? ["architecture", "roadmap"];
       generate();
+    } else {
+      // Active session: seed selectedDocs from stored session value
+      selectedDocs = session?.output_docs ?? ["architecture", "roadmap"];
     }
   });
 </script>
@@ -223,7 +218,11 @@
         {#if alreadyFinalized}
           Session complete — previously generated documents
         {:else if generated}
-          Session complete — 2 documents generated
+          Session complete — {Object.keys(documents).length} document{Object.keys(
+            documents,
+          ).length !== 1
+            ? "s"
+            : ""} generated
         {:else if generating}
           Generating output documents…
         {:else}
@@ -264,7 +263,40 @@
     <!-- ── Generate button (shown when not yet generated) ─────────────── -->
     {#if !generated && !alreadyFinalized}
       <div class="fin-cta">
-        <button class="btn-primary" disabled={generating} on:click={generate}>
+        <!-- Docs selector -->
+        <div style="margin-bottom:14px;">
+          <div
+            style="font-weight:600;font-size:0.8125rem;margin-bottom:7px;color:var(--ink-900);"
+          >
+            Documents to Generate
+          </div>
+          <div style="display:flex;gap:20px;flex-wrap:wrap;">
+            {#each [{ key: "architecture", label: "Architecture" }, { key: "roadmap", label: "Roadmap" }, { key: "plan", label: "Plan" }, { key: "readme", label: "README" }] as doc (doc.key)}
+              <label
+                style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.875rem;"
+              >
+                <input
+                  type="checkbox"
+                  value={doc.key}
+                  checked={selectedDocs.includes(doc.key)}
+                  on:change={(e) => {
+                    if ((e.target as HTMLInputElement).checked) {
+                      selectedDocs = [...selectedDocs, doc.key];
+                    } else {
+                      selectedDocs = selectedDocs.filter((k) => k !== doc.key);
+                    }
+                  }}
+                />
+                {doc.label}
+              </label>
+            {/each}
+          </div>
+        </div>
+        <button
+          class="btn-primary"
+          disabled={generating || selectedDocs.length === 0}
+          on:click={generate}
+        >
           {#if generating}
             Generating…
           {:else}
@@ -272,9 +304,7 @@
           {/if}
         </button>
         <p class="fin-cta-hint">
-          This will finalize the session and produce <code>architecture.md</code
-          >
-          and <code>roadmap.md</code>.
+          This will finalize the session and produce the selected documents.
         </p>
       </div>
     {/if}
@@ -309,77 +339,49 @@
     <!-- ── Output file cards ─────────────────────────────────────────── -->
     {#if generating || generated || alreadyFinalized}
       <div class="output-grid">
-        <!-- architecture.md card -->
-        <div class="output-card">
-          <div class="output-head">
-            <div class="output-file">architecture.md</div>
-            <span class={statusClass(archStatus)}
-              >{statusLabel(archStatus)}</span
+        {#each Object.entries(documents) as [key, doc] (key)}
+          <div class="output-card">
+            <div class="output-head">
+              <div class="output-file">{doc.filename}</div>
+              <span class={statusClass(docStatus)}
+                >{statusLabel(docStatus)}</span
+              >
+            </div>
+            <div class="output-desc">{doc.line_count} lines</div>
+            <div class="output-preview">
+              {#if doc.content}
+                {doc.content}
+              {:else}
+                Waiting…
+              {/if}
+            </div>
+            <div class="output-actions">
+              <button
+                class="btn-soft"
+                disabled={!doc.content}
+                on:click={() => copyToClipboard(doc.content, key)}
+              >
+                {copiedDoc[key] ? "Copied!" : "Copy"}
+              </button>
+              <button
+                class="btn-soft"
+                disabled={!doc.content}
+                on:click={() => downloadFile(doc.content, doc.filename)}
+              >
+                Download
+              </button>
+            </div>
+          </div>
+        {:else}
+          {#if generating}
+            <div
+              class="output-card"
+              style="grid-column:1/-1;text-align:center;color:var(--ink-500);"
             >
-          </div>
-          <div class="output-desc">
-            Component design, data flows, technology choices
-          </div>
-          <div class="output-preview">
-            {#if archMarkdown}
-              {archMarkdown}
-            {:else}
-              Waiting…
-            {/if}
-          </div>
-          <div class="output-actions">
-            <button
-              class="btn-soft"
-              disabled={!archMarkdown}
-              on:click={() => copyToClipboard(archMarkdown, "arch")}
-            >
-              {copiedArch ? "Copied!" : "Copy"}
-            </button>
-            <button
-              class="btn-soft"
-              disabled={!archMarkdown}
-              on:click={() => downloadFile(archMarkdown, "architecture.md")}
-            >
-              Download
-            </button>
-          </div>
-        </div>
-
-        <!-- roadmap.md card -->
-        <div class="output-card">
-          <div class="output-head">
-            <div class="output-file">roadmap.md</div>
-            <span class={statusClass(roadStatus)}
-              >{statusLabel(roadStatus)}</span
-            >
-          </div>
-          <div class="output-desc">
-            Phased execution plan with milestones and risks
-          </div>
-          <div class="output-preview">
-            {#if roadmapMarkdown}
-              {roadmapMarkdown}
-            {:else}
-              Waiting…
-            {/if}
-          </div>
-          <div class="output-actions">
-            <button
-              class="btn-soft"
-              disabled={!roadmapMarkdown}
-              on:click={() => copyToClipboard(roadmapMarkdown, "roadmap")}
-            >
-              {copiedRoadmap ? "Copied!" : "Copy"}
-            </button>
-            <button
-              class="btn-soft"
-              disabled={!roadmapMarkdown}
-              on:click={() => downloadFile(roadmapMarkdown, "roadmap.md")}
-            >
-              Download
-            </button>
-          </div>
-        </div>
+              Generating documents…
+            </div>
+          {/if}
+        {/each}
       </div>
     {/if}
 
@@ -399,7 +401,12 @@
             }}>New Session</a
           >
         </div>
-        <div class="run-status">Both documents generated successfully.</div>
+        <div class="run-status">
+          {Object.keys(documents).length} document{Object.keys(documents)
+            .length !== 1
+            ? "s"
+            : ""} generated successfully.
+        </div>
       </div>
     {/if}
   {/if}
@@ -457,15 +464,6 @@
     font-size: 13px;
     color: var(--ink-500);
     margin: 0;
-  }
-
-  .fin-cta-hint code {
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 12px;
-    background: var(--bg-1);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 1px 5px;
   }
 
   /* ─── Error / loading ─────────────────────────────────────────────── */

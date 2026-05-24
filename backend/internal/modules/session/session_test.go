@@ -135,8 +135,11 @@ func (stubSessionService) GetSession(_ context.Context, _ string) (session.Sessi
 func (stubSessionService) ListSessions(_ context.Context) (session.ListSessionsResponse, error) {
 	return session.ListSessionsResponse{Sessions: []session.SessionListItem{}, Total: 0}, nil
 }
-func (stubSessionService) FinalizeSession(_ context.Context, _ string) (session.Session, error) {
+func (stubSessionService) FinalizeSession(_ context.Context, _ string, _ session.FinalizeInput) (session.Session, error) {
 	return session.Session{}, session.ErrNotFound
+}
+func (stubSessionService) UpdateOutputDocs(_ context.Context, _ string, _ []string) error {
+	return session.ErrNotFound
 }
 
 func buildTestMux() *http.ServeMux {
@@ -250,7 +253,7 @@ func TestHandler_ListSessions_ReturnsEmptyEnvelope(t *testing.T) {
 // stubFinalizeService returns a valid Session with approved status for finalize.
 type stubFinalizeService struct{ stubSessionService }
 
-func (stubFinalizeService) FinalizeSession(_ context.Context, id string) (session.Session, error) {
+func (stubFinalizeService) FinalizeSession(_ context.Context, id string, _ session.FinalizeInput) (session.Session, error) {
 	return session.Session{
 		ID:     id,
 		Status: "approved",

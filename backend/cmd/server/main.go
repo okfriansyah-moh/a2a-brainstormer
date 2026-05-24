@@ -30,6 +30,7 @@ import (
 	"a2a-brainstorm/backend/internal/platform/db"
 	platformHTTP "a2a-brainstorm/backend/internal/platform/http"
 	"a2a-brainstorm/backend/internal/platform/logger"
+	"a2a-brainstorm/backend/internal/platform/sse"
 )
 
 func main() {
@@ -64,8 +65,14 @@ func run(ctx context.Context, log *logger.Logger) error {
 	agentSvc := agentmod.NewService(agentRepo, log.Slog())
 	sessSvc := sessmod.NewService(sessRepo, agentSvc, log.Slog())
 
-	iterEngine := itermod.NewEngine(agentmod.Dispatch, agentSvc, sessRepo, log.Slog())
-	iterSvc := itermod.NewService(iterEngine, sessSvc, log.Slog())
+	// ── SSE broadcaster ─────────────────────────────────────────────────────
+	broadcaster := sse.NewBroadcaster()
+
+	// Inject the broadcaster into session service so finalize emits events.
+	sessSvc.SetEmitter(broadcaster)
+
+	iterEngine := itermod.NewEngine(agentmod.Dispatch, agentSvc, sessRepo, broadcaster, log.Slog())
+	iterSvc := itermod.NewService(iterEngine, sessSvc, sessRepo, log.Slog())
 
 	// ── Markdown writer ─────────────────────────────────────────────────────
 	outputDir := config.GetOutputDir()
@@ -74,7 +81,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 	// ── Handlers ────────────────────────────────────────────────────────────
 	agentHandler := agentmod.NewHandler(agentSvc, log.Slog())
 	sessHandler := sessmod.NewHandler(sessSvc, mdWriter, outputDir, log.Slog())
-	iterHandler := itermod.NewHandler(iterSvc, log.Slog())
+	iterHandler := itermod.NewHandler(iterSvc, broadcaster, log.Slog())
 
 	// ── Router ──────────────────────────────────────────────────────────────
 	router := platformHTTP.NewRouter(platformHTTP.Deps{

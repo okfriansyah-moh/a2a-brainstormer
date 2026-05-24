@@ -18,12 +18,15 @@ import type {
   CreateSessionRequest,
   CreateSessionResponse,
   CreateSkillRequest,
+  FinalizeRequest,
   FinalizeResponse,
   IterateResponse,
   ListSessionsResponse,
+  PreviewResult,
   Session,
   Skill,
   UpdateAgentRequest,
+  UpdateOutputDocsRequest,
   UpdateSkillRequest,
 } from "$lib/types";
 
@@ -125,16 +128,38 @@ export async function iterate(sessionId: string): Promise<IterateResponse> {
 /**
  * Finalize (approve) a session — triggers markdown artifact generation
  * and transitions the session to `approved` status.
- * Returns the session ID, status, and the rendered markdown content for
- * both output artifacts (architecture + roadmap).
+ * Returns the session ID, status, and generated documents map.
+ * Pass `req.output_docs` to override the session's stored document selection.
  */
 export async function finalizeSession(
   sessionId: string,
+  req?: FinalizeRequest,
 ): Promise<FinalizeResponse> {
+  const init: RequestInit = { method: "POST" };
+  if (req && Object.keys(req).length > 0) {
+    Object.assign(init, json(req));
+  }
   return request<FinalizeResponse>(
     `/sessions/${encodeURIComponent(sessionId)}/finalize`,
+    init,
+  );
+}
+
+/**
+ * Update the output document selection for a session.
+ * Replaces the session's stored output_docs with the provided list.
+ * Returns 204 on success. Throws ApiError on 409 if session is already approved.
+ */
+export async function updateOutputDocs(
+  sessionId: string,
+  docs: string[],
+): Promise<void> {
+  const body: UpdateOutputDocsRequest = { output_docs: docs };
+  await request<void>(
+    `/sessions/${encodeURIComponent(sessionId)}/output-docs`,
     {
-      method: "POST",
+      method: "PATCH",
+      ...json(body),
     },
   );
 }
@@ -242,6 +267,66 @@ export async function detachSkill(
 ): Promise<void> {
   return request<void>(
     `/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ── Per-agent Preview / Apply (§8.21) ─────────────────────────────────────────
+
+/**
+ * Run a single agent preview — dispatches the agent against the session's
+ * current state without persisting the result. Returns a PreviewResult
+ * containing the agent output and an opaque preview_id for Apply guarding.
+ *
+ * Returns HTTP 409 if an iteration pass is already in flight.
+ */
+export async function previewAgent(
+  sessionId: string,
+  agentId: string,
+): Promise<PreviewResult> {
+  return request<PreviewResult>(
+    `/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/preview`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * Apply a stored preview — merges the preview output into the session's live
+ * canonical state and persists it.
+ *
+ * Pass `previewId` to enable optimistic concurrency: the backend will return
+ * HTTP 412 if the stored preview has been replaced since you fetched it.
+ * Omit `previewId` to skip the guard.
+ *
+ * Returns HTTP 404 if no preview exists. Returns HTTP 409 if an iteration
+ * pass is already in flight.
+ */
+export async function applyAgentPreview(
+  sessionId: string,
+  agentId: string,
+  previewId?: string,
+): Promise<PreviewResult["output"]> {
+  const body = previewId ? { preview_id: previewId } : undefined;
+  const init: RequestInit = { method: "POST" };
+  if (body) {
+    Object.assign(init, json(body));
+  }
+  return request<PreviewResult["output"]>(
+    `/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/apply`,
+    init,
+  );
+}
+
+/**
+ * Discard any stored preview for an agent. Idempotent — always resolves on
+ * HTTP 204, even when no preview existed.
+ */
+export async function discardAgentPreview(
+  sessionId: string,
+  agentId: string,
+): Promise<void> {
+  return request<void>(
+    `/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/preview`,
     { method: "DELETE" },
   );
 }

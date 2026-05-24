@@ -27,6 +27,10 @@ import (
 // ErrNotFound is returned when a requested session or session_agent does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrConflict is returned when an operation cannot proceed due to the current
+// state of the resource (e.g. updating output_docs on an approved session).
+var ErrConflict = errors.New("conflict")
+
 // Repository provides all DB operations for the session domain.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -43,13 +47,18 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // ID and timestamps are populated by the database.
 func (r *Repository) CreateSession(ctx context.Context, s Session) (Session, error) {
 	const q = `
-		INSERT INTO sessions (idea, status, max_iterations, current_state)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, idea, status, max_iterations, current_state, created_at, updated_at`
+		INSERT INTO sessions (idea, status, max_iterations, current_state, output_docs)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, idea, status, max_iterations, output_docs, current_state, created_at, updated_at`
 
 	stateJSON, err := marshalState(s.CurrentState)
 	if err != nil {
 		return Session{}, fmt.Errorf("create session: marshal state: %w", err)
+	}
+
+	outputDocs := s.OutputDocs
+	if len(outputDocs) == 0 {
+		outputDocs = DefaultOutputDocs
 	}
 
 	row := r.pool.QueryRow(ctx, q,
@@ -57,6 +66,7 @@ func (r *Repository) CreateSession(ctx context.Context, s Session) (Session, err
 		s.Status,
 		s.MaxIterations,
 		stateJSON,
+		outputDocs,
 	)
 	return scanSession(row)
 }
@@ -97,7 +107,7 @@ func (r *Repository) CreateSessionWithAgents(ctx context.Context, s Session, age
 // SessionAgent list (populated via GetOrderedAgents internally).
 func (r *Repository) GetSession(ctx context.Context, id string) (Session, error) {
 	const q = `
-		SELECT id, idea, status, max_iterations, current_state, created_at, updated_at
+		SELECT id, idea, status, max_iterations, output_docs, current_state, created_at, updated_at
 		FROM sessions
 		WHERE id = $1`
 
@@ -120,7 +130,7 @@ func (r *Repository) GetSession(ctx context.Context, id string) (Session, error)
 // issuing N+1 queries per session.
 func (r *Repository) ListSessions(ctx context.Context) ([]Session, error) {
 	const q = `
-		SELECT s.id, s.idea, s.status, s.max_iterations, s.current_state,
+		SELECT s.id, s.idea, s.status, s.max_iterations, s.output_docs, s.current_state,
 		       s.created_at, s.updated_at,
 		       COUNT(sa.agent_id)::int AS agent_count
 		FROM sessions s
@@ -141,7 +151,7 @@ func (r *Repository) ListSessions(ctx context.Context) ([]Session, error) {
 			stateJSON []byte
 		)
 		if err := rows.Scan(
-			&s.ID, &s.Idea, &s.Status, &s.MaxIterations, &stateJSON,
+			&s.ID, &s.Idea, &s.Status, &s.MaxIterations, &s.OutputDocs, &stateJSON,
 			&s.CreatedAt, &s.UpdatedAt, &s.AgentCount,
 		); err != nil {
 			return nil, fmt.Errorf("list sessions: scan: %w", err)
@@ -167,6 +177,24 @@ func (r *Repository) UpdateStatus(ctx context.Context, id, status string) error 
 	tag, err := r.pool.Exec(ctx, q, id, status)
 	if err != nil {
 		return fmt.Errorf("update session status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateOutputDocs replaces the output_docs column for the given session.
+// The caller must validate docs before invoking this method.
+// Returns ErrNotFound when no session with that ID exists.
+func (r *Repository) UpdateOutputDocs(ctx context.Context, id string, docs []string) error {
+	const q = `
+		UPDATE sessions SET output_docs = $2, updated_at = now()
+		WHERE id = $1`
+
+	tag, err := r.pool.Exec(ctx, q, id, docs)
+	if err != nil {
+		return fmt.Errorf("update output docs: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
@@ -211,13 +239,18 @@ type queryRowExecer interface {
 
 func createSessionWithQuerier(ctx context.Context, q queryRowExecer, s Session) (Session, error) {
 	const insertSession = `
-		INSERT INTO sessions (idea, status, max_iterations, current_state)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, idea, status, max_iterations, current_state, created_at, updated_at`
+		INSERT INTO sessions (idea, status, max_iterations, current_state, output_docs)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, idea, status, max_iterations, output_docs, current_state, created_at, updated_at`
 
 	stateJSON, err := marshalState(s.CurrentState)
 	if err != nil {
 		return Session{}, fmt.Errorf("create session: marshal state: %w", err)
+	}
+
+	outputDocs := s.OutputDocs
+	if len(outputDocs) == 0 {
+		outputDocs = DefaultOutputDocs
 	}
 
 	row := q.QueryRow(ctx, insertSession,
@@ -225,6 +258,7 @@ func createSessionWithQuerier(ctx context.Context, q queryRowExecer, s Session) 
 		s.Status,
 		s.MaxIterations,
 		stateJSON,
+		outputDocs,
 	)
 	created, err := scanSession(row)
 	if err != nil {
@@ -307,6 +341,7 @@ func scanSession(row rowScanner) (Session, error) {
 		&s.Idea,
 		&s.Status,
 		&s.MaxIterations,
+		&s.OutputDocs,
 		&stateJSON,
 		&s.CreatedAt,
 		&s.UpdatedAt,

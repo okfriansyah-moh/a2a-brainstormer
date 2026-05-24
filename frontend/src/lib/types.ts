@@ -52,6 +52,23 @@ export interface SessionAgent {
   model: string;
   skills: string[]; // active skill names for this session (observability)
   output?: CanonicalState; // last output from this agent in the current iteration
+  /** In-memory preview result, if one exists for this agent. Not persisted. */
+  preview?: PreviewResult;
+}
+
+// ── Preview / Apply (§8.21) ───────────────────────────────────────────────────
+
+/**
+ * Result from POST /sessions/{id}/agents/{agent_id}/preview.
+ * Holds the agent's unpersisted output and the opaque preview_id token
+ * used to guard concurrent apply calls.
+ */
+export interface PreviewResult {
+  session_id: string;
+  agent_id: string;
+  preview_id: string;
+  output: CanonicalState;
+  created_at: string;
 }
 
 // ── Canonical state model (§8.1) ─────────────────────────────────────────────
@@ -144,6 +161,7 @@ export interface Session {
   idea: string;
   status: "active" | "converged" | "approved" | "failed";
   max_iterations: number;
+  output_docs: string[];
   current_state: CanonicalState | null;
   created_at: string;
   updated_at: string;
@@ -158,6 +176,7 @@ export interface CreateSessionRequest {
   idea: string;
   agent_ids: string[]; // min 2 required
   max_iterations?: number;
+  output_docs?: string[];
   role_overrides?: Record<string, string>;
   llm_overrides?: Record<string, Partial<LLMConfig>>;
   skill_overrides?: Record<string, string[]>;
@@ -208,14 +227,31 @@ export interface ListSessionsResponse {
 // ── Finalize response ─────────────────────────────────────────────────────────
 
 /**
+ * One generated output document returned by POST /sessions/{id}/finalize.
+ */
+export interface GeneratedDocument {
+  filename: string;
+  content: string;
+  line_count: number;
+}
+
+/** Optional body for POST /sessions/{id}/finalize. */
+export interface FinalizeRequest {
+  output_docs?: string[];
+}
+
+/** Body for PATCH /sessions/{id}/output-docs. */
+export interface UpdateOutputDocsRequest {
+  output_docs: string[];
+}
+
+/**
  * Response from POST /sessions/{id}/finalize.
- * Includes the rendered markdown content so the frontend can offer
- * inline preview and download without a separate fetch.
+ * Documents is a map keyed by output doc key ("architecture", "roadmap", etc.).
  */
 export interface FinalizeResponse {
   session_id: string;
-  architecture_markdown: string;
-  roadmap_markdown: string;
+  documents: Record<string, GeneratedDocument>;
   status: string;
 }
 

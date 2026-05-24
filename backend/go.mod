@@ -2,10 +2,12 @@ module a2a-brainstorm/backend
 
 go 1.26
 
-require github.com/jackc/pgx/v5 v5.9.2
+require (
+	github.com/google/uuid v1.6.0
+	github.com/jackc/pgx/v5 v5.9.2
+)
 
 require (
-	github.com/google/uuid v1.6.0 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 )
 

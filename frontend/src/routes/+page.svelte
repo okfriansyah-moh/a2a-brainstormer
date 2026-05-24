@@ -12,6 +12,7 @@
   let skillOverrides: Record<string, string[]> = {};
   let modelOverrides: Record<string, string> = {};
   let maxIterations = 5;
+  let selectedDocs: string[] = ["architecture", "roadmap"];
   let submitting = false;
   let error = "";
 
@@ -61,6 +62,7 @@
         idea: idea.trim(),
         agent_ids: selectedAgentIds,
         max_iterations: maxIterations,
+        output_docs: selectedDocs.length > 0 ? selectedDocs : undefined,
         role_overrides: resolvedRoleOverrides,
         llm_overrides:
           Object.keys(llmOverrides).length > 0 ? llmOverrides : undefined,
@@ -149,6 +151,35 @@
           </p>
         {/if}
       </div>
+    </div>
+
+    <!-- Documents to generate -->
+    <div style="margin-bottom:18px;">
+      <div class="field-label">Documents to Generate</div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        {#each [{ key: "architecture", label: "Architecture" }, { key: "roadmap", label: "Roadmap" }, { key: "plan", label: "Plan" }, { key: "readme", label: "README" }] as doc (doc.key)}
+          <label
+            style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.875rem;"
+          >
+            <input
+              type="checkbox"
+              value={doc.key}
+              checked={selectedDocs.includes(doc.key)}
+              on:change={(e) => {
+                if ((e.target as HTMLInputElement).checked) {
+                  selectedDocs = [...selectedDocs, doc.key];
+                } else {
+                  selectedDocs = selectedDocs.filter((k) => k !== doc.key);
+                }
+              }}
+            />
+            {doc.label}
+          </label>
+        {/each}
+      </div>
+      <p style="font-size:0.72rem;color:var(--ink-300);margin:4px 0 0;">
+        Select which documents to generate at finalize time.
+      </p>
     </div>
 
     <!-- CTA row -->

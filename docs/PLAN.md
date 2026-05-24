@@ -1278,7 +1278,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 28 — Backend + Frontend: Selectable Output Documents
+### Task 28 — Backend + Frontend: Selectable Output Documents <!-- ✅ Task 28 completed -->
 
 **Goal:** Let users choose which artifacts (`architecture`, `roadmap`, `plan`, `readme`) are generated, both at session creation and at finalize time. Selection is editable while the session is `active`. See blueprint §22.1.
 
@@ -1306,7 +1306,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 29 — Backend: Long-form Generators for All Output Documents
+### Task 29 — Backend: Long-form Generators for All Output Documents <!-- ✅ Task 29 completed -->
 
 **Goal:** Bring **every** output document — `architecture.md`, `roadmap.md`, `PLAN.md`, `README.md` — to the same long-form quality bar (≥ 1000 lines per document, individually) via a single generator registry. Refactor the two existing generators (`GenerateArchitecture`, `GenerateRoadmap`) to use the shared template helpers + line-count enforcer, and add the two new generators (`GeneratePlan`, `GenerateReadme`). See blueprint §22.2.
 
@@ -1346,7 +1346,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 30 — Per-Agent Run Button (Preview / Apply)
+### Task 30 — Per-Agent Run Button (Preview / Apply) <!-- ✅ Task 30 completed -->
 
 **Goal:** Add per-agent preview and apply endpoints + frontend buttons on each `PipelineStage`. Coexists with the existing full-iteration run. See blueprint §22.3.
 
@@ -1372,7 +1372,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 31 — SSE Real-time Agent Progress
+### Task 31 — SSE Real-time Agent Progress <!-- ✅ Task 31 completed -->
 
 **Goal:** Replace the simulated progress bar with a live SSE stream of agent lifecycle events. See blueprint §22.4.
 
