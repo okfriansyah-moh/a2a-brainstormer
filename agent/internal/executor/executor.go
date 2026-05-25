@@ -182,9 +182,34 @@ func (e *BrainstormExecutor) Execute(
 
 		// Emit the updated state as a DataPart artifact.
 		if e.logger != nil {
+			// Extract key metrics from the parsed state map for observability.
+			confidence := 0.0
+			openQCount := 0
+			risksCount := 0
+			planSteps := 0
+			if stateMap, ok := updatedState.(map[string]any); ok {
+				if m, ok := stateMap["metrics"].(map[string]any); ok {
+					if c, ok := m["confidence"].(float64); ok {
+						confidence = c
+					}
+				}
+				if oq, ok := stateMap["open_questions"].([]any); ok {
+					openQCount = len(oq)
+				}
+				if r, ok := stateMap["risks"].([]any); ok {
+					risksCount = len(r)
+				}
+				if p, ok := stateMap["execution_plan"].([]any); ok {
+					planSteps = len(p)
+				}
+			}
 			e.logger.InfoContext(ctx, "state updated, emitting artifact",
 				slog.String("task_id", string(execCtx.TaskID)),
 				slog.String("role", payload.Role),
+				slog.Float64("confidence", confidence),
+				slog.Int("execution_plan_steps", planSteps),
+				slog.Int("risks_count", risksCount),
+				slog.Int("open_questions_count", openQCount),
 			)
 		}
 		if !yield(a2a.NewArtifactEvent(execCtx, a2a.NewDataPart(updatedState)), nil) {

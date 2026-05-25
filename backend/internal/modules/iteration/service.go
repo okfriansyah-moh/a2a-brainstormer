@@ -45,6 +45,7 @@ type sessionProvider interface {
 // Satisfied by *session.Repository in production.
 type stateWriter interface {
 	UpdateState(ctx context.Context, id string, cs *state.CanonicalState) error
+	UpdateStatus(ctx context.Context, id string, status string) error
 }
 
 // sessionLockMap is an append-only map of per-session mutexes.
@@ -176,8 +177,19 @@ func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (Itera
 	// single-agent previews.
 	s.previews.Clear(sessionID)
 
+	// Mark session as running so clients that reload can detect the in-flight
+	// iteration and enter watching mode instead of triggering a duplicate run.
+	if statusErr := s.store.UpdateStatus(ctx, sessionID, session.StatusRunning); statusErr != nil {
+		s.logger.WarnContext(ctx, "failed to set session status to running",
+			slog.String("session_id", sessionID),
+			slog.String("error", statusErr.Error()),
+		)
+	}
+
 	result, err := s.engine.Run(ctx, sess, initial)
 	if err != nil {
+		// Reset to active so the session can be retried.
+		_ = s.store.UpdateStatus(context.Background(), sessionID, session.StatusActive)
 		return IterationResult{}, fmt.Errorf("trigger iteration: run engine: %w", err)
 	}
 

@@ -180,7 +180,9 @@ describe("finalizeSession", () => {
     mockFetch(200, response);
     const result = await finalizeSession("s1");
     expect(result.session_id).toBe("s1");
-    expect(result.documents["architecture"].content).toContain("# Architecture");
+    expect(result.documents["architecture"].content).toContain(
+      "# Architecture",
+    );
     expect(result.documents["roadmap"].content).toContain("# Roadmap");
     expect(result.status).toBe("approved");
   });

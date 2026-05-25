@@ -80,14 +80,15 @@ function createSessionStore() {
     },
 
     /**
-     * applyEvent updates agentStatuses based on incoming SSE lifecycle events.
+     * applyEvent updates store state based on incoming SSE lifecycle events.
      * Called by the session workspace page for every event from the SSE stream.
      *
      * Events handled:
-     *   agent.started  → set agent status to 'running'
-     *   agent.complete → set agent status to 'done'
-     *   agent.error    → set agent status to 'error'
-     *   iteration.start → reset all agent statuses to 'waiting'
+     *   iteration.start    → set loading=true, reset all agent statuses to 'waiting'
+     *   iteration.complete → set loading=false, update state from embedded payload
+     *   agent.started      → set agent status to 'running'
+     *   agent.complete     → set agent status to 'done'
+     *   agent.error        → set agent status to 'error'
      */
     applyEvent(evt: SSEEvent) {
       const payload = evt.data as Record<string, unknown> | null;
@@ -99,12 +100,28 @@ function createSessionStore() {
       update((s) => {
         switch (evt.type) {
           case "iteration.start": {
-            // Reset all agent statuses to waiting at the start of a new iteration.
+            // Reset all agent statuses to waiting and mark as loading for the
+            // new pass. This also fires on SSE replay after a page reload so
+            // clients reconnecting mid-iteration enter the correct loading state.
             const reset: Record<string, AgentStatus> = {};
             for (const agent of s.agents) {
-              reset[agent.id] = 'waiting';
+              reset[agent.id] = "waiting";
             }
-            return { ...s, agentStatuses: reset };
+            return { ...s, agentStatuses: reset, loading: true };
+          }
+          case "iteration.complete": {
+            // The backend embeds the merged CanonicalState in this event so the
+            // frontend can update in real-time without an extra GET /sessions/{id}.
+            const newState = payload?.["state"] as CanonicalState | undefined;
+            if (newState) {
+              return {
+                ...s,
+                state: newState,
+                iteration: newState.meta?.iteration ?? s.iteration,
+                loading: false,
+              };
+            }
+            return { ...s, loading: false };
           }
           case "agent.started": {
             if (!agentID) return s;
@@ -115,8 +132,17 @@ function createSessionStore() {
           }
           case "agent.complete": {
             if (!agentID) return s;
+            // The backend embeds the agent's output CanonicalState so the
+            // frontend can render per-agent contributions immediately.
+            const agentOutput = (payload?.["output"] ?? undefined) as
+              | CanonicalState
+              | undefined;
+            const updatedAgents = s.agents.map((a) =>
+              a.id === agentID ? { ...a, output: agentOutput } : a,
+            );
             return {
               ...s,
+              agents: updatedAgents,
               agentStatuses: { ...s.agentStatuses, [agentID]: "done" },
             };
           }

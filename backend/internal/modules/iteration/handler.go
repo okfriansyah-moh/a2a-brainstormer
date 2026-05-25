@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -308,9 +309,18 @@ func (h *Handler) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse Last-Event-ID header for replay support.
+	// Parse Last-Event-ID for replay support.
+	// The frontend manually manages reconnects via EventSource (sse.ts) and
+	// encodes the last received ID as a query parameter (?lastEventId=N) because
+	// the native EventSource API does not allow setting custom request headers.
+	// Native browser auto-reconnect sends it as the Last-Event-ID header instead.
+	// Check the query param first; fall back to the standard header.
 	var lastEventID uint64
-	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
+	if raw := r.URL.Query().Get("lastEventId"); raw != "" {
+		if parsed, err := strconv.ParseUint(raw, 10, 64); err == nil {
+			lastEventID = parsed
+		}
+	} else if raw := r.Header.Get("Last-Event-ID"); raw != "" {
 		if parsed, err := strconv.ParseUint(raw, 10, 64); err == nil {
 			lastEventID = parsed
 		}
@@ -338,6 +348,13 @@ func (h *Handler) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	flusher, canFlush := w.(http.Flusher)
 
+	// Keep-alive ticker: LLM calls can take minutes with no SSE data flowing.
+	// Without a heartbeat the browser (or any intermediate proxy) may close an
+	// idle SSE connection, forcing a reconnect that briefly loses the agent
+	// "running" status in the UI.
+	keepalive := time.NewTicker(25 * time.Second)
+	defer keepalive.Stop()
+
 	for {
 		select {
 		case evt, ok := <-ch:
@@ -347,6 +364,15 @@ func (h *Handler) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := writeSSEEvent(w, evt); err != nil {
 				// Client disconnected.
+				return
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		case <-keepalive.C:
+			// SSE comment line — not parsed as an event by the browser;
+			// prevents idle-timeout disconnects during long LLM calls.
+			if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
 				return
 			}
 			if canFlush {

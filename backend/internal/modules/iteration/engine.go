@@ -153,6 +153,9 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 			slog.String("session_id", sess.ID),
 			slog.Int("iteration", i),
 			slog.Float64("confidence", merged.Metrics.Confidence),
+			slog.Int("execution_plan_steps", len(merged.ExecutionPlan)),
+			slog.Int("risks_count", len(merged.Risks)),
+			slog.Int("open_questions_count", len(merged.OpenQuestions)),
 		)
 
 		converged := convergence.Check(current, merged)
@@ -160,6 +163,7 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 			"iteration":  i,
 			"converged":  converged,
 			"confidence": merged.Metrics.Confidence,
+			"state":      merged, // embed state so the frontend updates in real-time
 		})
 
 		// Quality convergence check (§8.6 conditions 1–3).
@@ -281,6 +285,7 @@ func (e *Engine) runPipelinePass(
 		// not be the source of truth for agent observability data.
 		out.Meta.Agents = cloneAgentMetas(roster)
 
+		confAfter := out.Metrics.Confidence
 		e.logger.InfoContext(ctx, "agent pass complete",
 			slog.String("session_id", sess.ID),
 			slog.String("agent_id", sa.AgentID),
@@ -288,12 +293,19 @@ func (e *Engine) runPipelinePass(
 			slog.String("role", sa.Role),
 			slog.Int("iteration", iterNum),
 			slog.Int64("duration_ms", time.Since(dispatchStart).Milliseconds()),
+			slog.Float64("confidence_before", confBefore),
+			slog.Float64("confidence_after", confAfter),
+			slog.Float64("confidence_delta", confAfter-confBefore),
+			slog.Int("execution_plan_steps", len(out.ExecutionPlan)),
+			slog.Int("risks_count", len(out.Risks)),
+			slog.Int("open_questions_count", len(out.OpenQuestions)),
 		)
 
 		e.emitter.Emit(sess.ID, EventAgentComplete, map[string]any{
 			"iteration":        iterNum,
 			"agent_id":         sa.AgentID,
-			"confidence_delta": out.Metrics.Confidence - confBefore,
+			"confidence_delta": confAfter - confBefore,
+			"output":           out, // included so the frontend can render per-agent output
 		})
 
 		current = out

@@ -160,6 +160,10 @@ func (s *stubStateWriter) UpdateState(_ context.Context, _ string, cs *state.Can
 	return s.err
 }
 
+func (s *stubStateWriter) UpdateStatus(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
 // ─── Service.DiscardPreview ───────────────────────────────────────────────────
 
 func TestService_DiscardPreview_Idempotent(t *testing.T) {

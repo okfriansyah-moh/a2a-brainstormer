@@ -103,6 +103,17 @@ func Dispatch(
 	if err != nil {
 		return state.CanonicalState{}, fmt.Errorf("dispatch agent %s: convert state: %w", agent.ID, err)
 	}
+
+	slog.Default().InfoContext(ctx, "agent state extracted",
+		slog.String("agent_id", agent.ID),
+		slog.String("agent_name", agent.Name),
+		slog.String("role", string(role)),
+		slog.Float64("confidence", updated.Metrics.Confidence),
+		slog.Int("execution_plan_steps", len(updated.ExecutionPlan)),
+		slog.Int("risks_count", len(updated.Risks)),
+		slog.Int("open_questions_count", len(updated.OpenQuestions)),
+	)
+
 	return updated, nil
 }
 

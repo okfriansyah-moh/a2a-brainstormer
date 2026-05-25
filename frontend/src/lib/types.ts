@@ -159,7 +159,7 @@ export interface SessionAgentSlot {
 export interface Session {
   id: string;
   idea: string;
-  status: "active" | "converged" | "approved" | "failed";
+  status: "active" | "running" | "converged" | "approved" | "failed";
   max_iterations: number;
   output_docs: string[];
   current_state: CanonicalState | null;

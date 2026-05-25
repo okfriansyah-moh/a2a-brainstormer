@@ -4,7 +4,7 @@
 -- Default: ['architecture','roadmap'] (backwards-compatible with existing sessions)
 
 ALTER TABLE sessions
-    ADD COLUMN output_docs TEXT[] NOT NULL DEFAULT ARRAY['architecture','roadmap'];
+    ADD COLUMN IF NOT EXISTS output_docs TEXT[] NOT NULL DEFAULT ARRAY['architecture','roadmap'];
 
 UPDATE sessions
     SET output_docs = ARRAY['architecture','roadmap']

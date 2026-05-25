@@ -54,7 +54,7 @@
   $: canApply = !pipelineRunning && !previewRunning && !!preview;
 </script>
 
-<div class="stage stage-{status}">
+<div class="stage stage-{status}" role="region" aria-label={agent.name}>
   <div class="stage-header">
     <div class="stage-left">
       <span class="stage-num">{position}</span>
@@ -141,6 +141,23 @@
 <style>
   .stage {
     padding: 16px 18px;
+    background: #fff;
+    border-radius: 14px;
+    border: 1.5px solid var(--line-solid, #cfd8ea);
+    box-shadow: 0 2px 8px rgba(35, 46, 82, 0.05);
+    transition:
+      border-color 0.25s,
+      box-shadow 0.25s;
+  }
+
+  .stage-done {
+    border-color: #b8e8d0;
+    box-shadow: 0 2px 12px rgba(27, 159, 102, 0.08);
+  }
+
+  .stage-running {
+    border-color: var(--accent-2, #1f7ae0);
+    box-shadow: 0 2px 14px rgba(31, 122, 224, 0.12);
   }
 
   .stage-header {
@@ -164,21 +181,23 @@
   .btn-stage-preview {
     font-size: 0.75rem;
     font-weight: 600;
-    padding: 5px 10px;
+    padding: 5px 12px;
     border-radius: 999px;
-    border: 1px solid var(--accent-2, #4d8fd6);
-    background: transparent;
-    color: var(--accent-2, #4d8fd6);
+    border: 1.5px solid var(--accent-2, #1f7ae0);
+    background: var(--accent-2, #1f7ae0);
+    color: #fff;
     cursor: pointer;
     white-space: nowrap;
     transition:
       background 0.15s,
-      color 0.15s;
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
 
   .btn-stage-preview:hover:not(:disabled) {
-    background: var(--accent-2, #4d8fd6);
-    color: white;
+    background: #1560b8;
+    border-color: #1560b8;
+    box-shadow: 0 2px 8px rgba(31, 122, 224, 0.35);
   }
 
   .btn-stage-preview:disabled {
@@ -345,6 +364,9 @@
     padding: 9px 12px;
     font-size: 0.8125rem;
     color: #1a7a50;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.55;
   }
 
   .stage-waiting {

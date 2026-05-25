@@ -36,7 +36,7 @@ import type {
  * Backend base URL. Set VITE_API_BASE_URL in .env to override.
  * Never embed credentials or API keys in this URL.
  */
-const API_BASE: string =
+export const API_BASE: string =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 
 // ── Error type ────────────────────────────────────────────────────────────────

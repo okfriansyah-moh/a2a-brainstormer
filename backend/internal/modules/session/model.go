@@ -22,6 +22,7 @@ import (
 // StatusActive is the initial session status set at creation time.
 const (
 	StatusActive    = "active"
+	StatusRunning   = "running" // set while an iteration is in-flight
 	StatusConverged = "converged"
 	StatusApproved  = "approved"
 	StatusFailed    = "failed"

@@ -30,6 +30,36 @@ type Step struct {
 	Description string `json:"description"`
 }
 
+// UnmarshalJSON normalises LLM output that uses "name" or "phase_name"
+// instead of "title", and "summary" instead of "description".
+func (s *Step) UnmarshalJSON(data []byte) error {
+	type stepAlias struct {
+		Title       string `json:"title"`
+		Name        string `json:"name"`       // LLM alias
+		PhaseName   string `json:"phase_name"` // LLM alias
+		Description string `json:"description"`
+		Summary     string `json:"summary"` // LLM alias for description
+	}
+	var a stepAlias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	s.Title = a.Title
+	if s.Title == "" {
+		switch {
+		case a.Name != "":
+			s.Title = a.Name
+		case a.PhaseName != "":
+			s.Title = a.PhaseName
+		}
+	}
+	s.Description = a.Description
+	if s.Description == "" && a.Summary != "" {
+		s.Description = a.Summary
+	}
+	return nil
+}
+
 // Risk describes a potential project risk surfaced by an agent.
 type Risk struct {
 	Text     string `json:"text"`
