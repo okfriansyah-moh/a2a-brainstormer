@@ -165,6 +165,38 @@ var defaultSkillBundlePaths = []string{
 	".github/skills/plan-management/SKILL.md",
 }
 
+// ── OpenCode (used when GLOBAL_LLM_PROVIDER=opencode) ────────────────────────
+
+// GetGlobalOpenCodeBaseURL returns the HTTP base URL of the OpenCode server
+// that the backend will use for AI document generation.
+// Defaults to "http://opencode:4096" (Docker service name). Override with
+// GLOBAL_OPENCODE_BASE_URL (e.g. "http://localhost:4096" for local dev without Docker).
+func GetGlobalOpenCodeBaseURL() string {
+	return envString("GLOBAL_OPENCODE_BASE_URL", "http://opencode:4096")
+}
+
+// GetGlobalOpenCodeModel returns the providerID/modelID string for the OpenCode
+// server request. Format: "<providerID>/<modelID>", e.g.
+// "github-copilot/claude-sonnet-4.6". Defaults to that value.
+// Set GLOBAL_OPENCODE_MODEL to override.
+func GetGlobalOpenCodeModel() string {
+	return envString("GLOBAL_OPENCODE_MODEL", "github-copilot/claude-sonnet-4.6")
+}
+
+// GetOpenCodeServerUsernameRef returns the env var NAME that holds the
+// Basic-Auth username for the OpenCode server. Defaults to
+// "OPENCODE_SERVER_USERNAME".
+func GetOpenCodeServerUsernameRef() string {
+	return envString("OPENCODE_USERNAME_REF", "OPENCODE_SERVER_USERNAME")
+}
+
+// GetOpenCodeServerPasswordRef returns the env var NAME that holds the
+// Basic-Auth password for the OpenCode server. Defaults to
+// "OPENCODE_SERVER_PASSWORD".
+func GetOpenCodeServerPasswordRef() string {
+	return envString("OPENCODE_PASSWORD_REF", "OPENCODE_SERVER_PASSWORD")
+}
+
 // GetAIDocMaxRepairs returns the maximum number of rubric-driven repair
 // attempts the AI doc generator may issue per document. Clamped to [0, 5].
 // Defaults to 3 — long-form (≥1000 line) documents typically require at

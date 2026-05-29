@@ -3,7 +3,6 @@ package llm_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -180,9 +179,9 @@ func TestOpenCodeProvider_Generate_AbsentCredential_ReturnsError(t *testing.T) {
 	}
 }
 
-// ── Test: ensureSession is called exactly once across multiple Generate calls ──
+// ── Test: a new session is created for each Generate call ──────────────────────────────────────
 
-func TestOpenCodeProvider_Generate_SessionCreatedOnce(t *testing.T) {
+func TestOpenCodeProvider_Generate_FreshSessionPerCall(t *testing.T) {
 	var sessionCalls atomic.Int32
 
 	srv := newMockServer(t,
@@ -214,8 +213,10 @@ func TestOpenCodeProvider_Generate_SessionCreatedOnce(t *testing.T) {
 		}
 	}
 
-	if got := sessionCalls.Load(); got != 1 {
-		t.Errorf("POST /session called %d times; want exactly 1", got)
+	// Each Generate call must create its own session to avoid context-window
+	// overflow from accumulated conversation history.
+	if got := sessionCalls.Load(); got != calls {
+		t.Errorf("POST /session called %d times; want %d (one per Generate call)", got, calls)
 	}
 }
 
@@ -251,18 +252,17 @@ func TestOpenCodeProvider_Generate_HTTP401_PropagatedNotRetried(t *testing.T) {
 		t.Errorf("error should mention HTTP 401; got: %v", err)
 	}
 
-	// 401 is a 4xx — must not be silently retried.
-	// session creation should be attempted only once (sync.Once).
+	// 401 is a 4xx — must not be silently retried within a single Generate call.
 	if got := sessionCalls.Load(); got != 1 {
 		t.Errorf("POST /session called %d times after 401; want 1 (no retry)", got)
 	}
 
-	// A second Generate call must NOT attempt a new session (sync.Once persists error).
+	// A second Generate call creates a fresh session attempt (no sync.Once caching).
 	_, err2 := provider.Generate(context.Background(), llm.LLMRequest{UserMessage: "hi again"})
-	if !errors.Is(err2, err) && err2 == nil {
-		t.Fatalf("second Generate call: expected same session init error, got nil")
+	if err2 == nil {
+		t.Fatal("second Generate call: expected error for 401, got nil")
 	}
-	if got := sessionCalls.Load(); got != 1 {
-		t.Errorf("POST /session called again after initial failure; want still 1, got %d", got)
+	if got := sessionCalls.Load(); got != 2 {
+		t.Errorf("POST /session called %d times total; want 2 (one per Generate call)", got)
 	}
 }

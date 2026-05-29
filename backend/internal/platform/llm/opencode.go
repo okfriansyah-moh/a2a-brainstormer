@@ -1,11 +1,14 @@
 // Package llm — OpenCodeProvider proxies LLM requests through a running
-// OpenCode HTTP server instance.
+// OpenCode HTTP server instance. Mirrors the agent-binary implementation so
+// that the backend's markdown generator can use the same OpenCode path as the
+// brainstorm agents — no direct GitHub Copilot API key required.
 //
 // Session lifecycle:
-//   - A fresh OpenCode chat session is created on every Generate call.
-//   - This prevents context-window overflow when the same provider instance is
-//     reused across many iterations: each LLM turn starts with a clean session
-//     containing only the system prompt and the current-state user message.
+//   - A fresh OpenCode chat session is created for every Generate call.
+//     This ensures concurrent callers (e.g. parallel document generators)
+//     each get an independent session and do not serialise on the server side.
+//     Single-turn callers (like the markdown finalizer) have no need for
+//     cross-call session history, so the overhead is one extra HTTP round trip.
 //
 // Security invariants:
 //   - os.Getenv is never called here; credentials are resolved via the injected
@@ -26,38 +29,41 @@ import (
 )
 
 const (
-	openCodeHTTPTimeout  = 600 * time.Second // Claude Sonnet 4.6 can take 5–6 min per turn
-	openCodeMaxRespBytes = 4 << 20           // 4 MiB
+	// openCodeHTTPTimeout is intentionally generous: the OpenCode server
+	// proxies to GitHub Copilot / Claude / etc. and a single Claude Sonnet 4.6
+	// turn can take 5+ minutes for long-form (markdown) output. The finalize
+	// handler enforces its own outer ceiling via GetFinalizeTimeout().
+	openCodeHTTPTimeout  = 600 * time.Second
+	openCodeMaxRespBytes = 4 << 20 // 4 MiB
 	openCodeRetryWait    = 2 * time.Second
 )
 
 // OpenCodeConfig holds all configuration for the OpenCodeProvider.
-// ProviderID and ModelID are typically obtained by splitting AGENT_OPENCODE_MODEL
-// on the first "/" (e.g. "github/gpt-4o" → {ProviderID:"github", ModelID:"gpt-4o"}).
+// ProviderID and ModelID are typically obtained by splitting the configured
+// model string on the first "/" (e.g. "github-copilot/claude-sonnet-4.6" →
+// {ProviderID:"github-copilot", ModelID:"claude-sonnet-4.6"}).
 type OpenCodeConfig struct {
-	BaseURL     string // OpenCode server base URL, e.g. "http://localhost:4096"
-	ProviderID  string // LLM provider, e.g. "github", "anthropic", "openai"
-	ModelID     string // Model name, e.g. "gpt-4o", "claude-opus-4-5"
+	BaseURL     string // OpenCode server base URL, e.g. "http://opencode:4096"
+	ProviderID  string // LLM provider, e.g. "github-copilot", "anthropic"
+	ModelID     string // Model name, e.g. "claude-sonnet-4.6", "gpt-4.1"
 	UsernameRef string // env var NAME holding the Basic-Auth username
 	PasswordRef string // env var NAME holding the Basic-Auth password
 }
 
 // OpenCodeProvider implements LLMProvider using the OpenCode HTTP server API.
-// A new OpenCode session is created on each Generate call so that conversation
-// history never accumulates across iterations (prevents context-window overflow).
+// It maintains a single chat session per process lifetime (lazy initialisation).
 type OpenCodeProvider struct {
 	cfg        OpenCodeConfig
 	client     *http.Client
 	resolveKey func(ref string) (string, error)
 }
 
-// permanentError wraps failures that must not be retried (4xx HTTP responses,
+// openCodePermanentError wraps failures that must not be retried (4xx responses,
 // credential resolution failures, and marshal/request-build errors).
-// sendMessage checks for this type to skip the retry for non-transient failures.
-type permanentError struct{ err error }
+type openCodePermanentError struct{ err error }
 
-func (e permanentError) Error() string { return e.err.Error() }
-func (e permanentError) Unwrap() error { return e.err }
+func (e openCodePermanentError) Error() string { return e.err.Error() }
+func (e openCodePermanentError) Unwrap() error { return e.err }
 
 // NewOpenCodeProvider constructs an OpenCodeProvider.
 //
@@ -80,8 +86,9 @@ func NewOpenCodeProvider(
 }
 
 // Generate sends LLMRequest to the OpenCode server and returns the response.
-// A fresh OpenCode session is created for each call to avoid context-window
-// overflow from accumulated conversation history across iterations.
+// A fresh OpenCode session is created for each call so that concurrent
+// callers (e.g. parallel document generators) do not share a session and
+// therefore do not serialise on the OpenCode server side.
 func (p *OpenCodeProvider) Generate(ctx context.Context, req LLMRequest) (LLMResponse, error) {
 	sessionID, err := p.createSession(ctx)
 	if err != nil {
@@ -91,14 +98,13 @@ func (p *OpenCodeProvider) Generate(ctx context.Context, req LLMRequest) (LLMRes
 }
 
 // createSession calls POST {BaseURL}/session and returns the new session ID.
-// Credentials are resolved at call time and never stored.
 func (p *OpenCodeProvider) createSession(ctx context.Context) (string, error) {
 	username, password, err := p.resolveCredentials()
 	if err != nil {
 		return "", err
 	}
 
-	bodyBytes, err := json.Marshal(map[string]string{"title": "brainstorm"})
+	bodyBytes, err := json.Marshal(map[string]string{"title": "brainstorm-markdown"})
 	if err != nil {
 		return "", fmt.Errorf("marshal session request: %w", err)
 	}
@@ -109,7 +115,7 @@ func (p *OpenCodeProvider) createSession(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("build session request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.SetBasicAuth(username, password) // credentials used inline; not persisted
+	httpReq.SetBasicAuth(username, password)
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
@@ -123,8 +129,6 @@ func (p *OpenCodeProvider) createSession(ctx context.Context) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		// 4xx: return immediately — no retry.
-		// 5xx: also return; retrying at session-creation is unsafe (could create duplicate sessions).
 		return "", fmt.Errorf("POST /session returned HTTP %d", resp.StatusCode)
 	}
 
@@ -147,9 +151,8 @@ func (p *OpenCodeProvider) sendMessage(ctx context.Context, sessionID string, re
 		return resp, nil
 	}
 
-	// Retry once after a brief pause for transient server-side errors.
-	// 4xx and credential errors (permanentError) are never retried.
-	var pe permanentError
+	// 4xx and credential errors are permanent — do not retry.
+	var pe openCodePermanentError
 	if errors.As(err, &pe) {
 		return LLMResponse{}, err
 	}
@@ -158,7 +161,6 @@ func (p *OpenCodeProvider) sendMessage(ctx context.Context, sessionID string, re
 		return LLMResponse{}, ctx.Err()
 	case <-time.After(openCodeRetryWait):
 	}
-
 	return p.doSendMessage(ctx, sessionID, req)
 }
 
@@ -166,7 +168,7 @@ func (p *OpenCodeProvider) sendMessage(ctx context.Context, sessionID string, re
 func (p *OpenCodeProvider) doSendMessage(ctx context.Context, sessionID string, req LLMRequest) (LLMResponse, error) {
 	username, password, err := p.resolveCredentials()
 	if err != nil {
-		return LLMResponse{}, permanentError{err}
+		return LLMResponse{}, openCodePermanentError{err}
 	}
 
 	type messagePart struct {
@@ -191,16 +193,16 @@ func (p *OpenCodeProvider) doSendMessage(ctx context.Context, sessionID string, 
 
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
-		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: marshal: %w", err)
+		return LLMResponse{}, openCodePermanentError{fmt.Errorf("opencode.sendMessage: marshal: %w", err)}
 	}
 
 	url := fmt.Sprintf("%s/session/%s/message", p.cfg.BaseURL, sessionID)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: build request: %w", err)
+		return LLMResponse{}, openCodePermanentError{fmt.Errorf("opencode.sendMessage: build request: %w", err)}
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.SetBasicAuth(username, password) // credentials used inline; not persisted
+	httpReq.SetBasicAuth(username, password)
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
@@ -213,16 +215,13 @@ func (p *OpenCodeProvider) doSendMessage(ctx context.Context, sessionID string, 
 		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: read response: %w", err)
 	}
 
-	// 4xx: permanent failure — return immediately, do not retry.
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return LLMResponse{}, permanentError{fmt.Errorf("opencode.sendMessage: HTTP %d: %s", resp.StatusCode, respBody)}
+		return LLMResponse{}, openCodePermanentError{fmt.Errorf("opencode.sendMessage: HTTP %d: %s", resp.StatusCode, respBody)}
 	}
-	// 5xx: transient — caller (sendMessage) will retry once.
 	if resp.StatusCode >= 500 {
 		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: HTTP %d: %s", resp.StatusCode, respBody)
 	}
 
-	// Parse the message response.
 	type responsePart struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -236,7 +235,6 @@ func (p *OpenCodeProvider) doSendMessage(ctx context.Context, sessionID string, 
 		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: parse response: %w", err)
 	}
 
-	// Concatenate all text parts into Content (ignore non-text parts).
 	var content string
 	for _, part := range result.Parts {
 		if part.Type == "text" {
@@ -251,7 +249,6 @@ func (p *OpenCodeProvider) doSendMessage(ctx context.Context, sessionID string, 
 }
 
 // resolveCredentials resolves username and password from their env var refs.
-// Returns an error if either is absent (no silent fallback).
 // The resolved values must never be logged or persisted.
 func (p *OpenCodeProvider) resolveCredentials() (username, password string, err error) {
 	username, err = p.resolveKey(p.cfg.UsernameRef)

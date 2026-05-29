@@ -75,9 +75,13 @@ func (o *Orchestrator) GenerateAll(ctx context.Context, s state.CanonicalState, 
 	}
 	enhanced, err := o.ai.Enhance(ctx, s, scaffolds)
 	if err != nil {
-		// ModeAI surfaces this; ModeHybrid never reaches here because Enhance
-		// returns nil-error in hybrid mode and individual fallbacks happen
-		// inside Enhance.
+		if o.mode == FinalizeModeHybrid {
+			// Safety net: Enhance handles per-key errors internally in hybrid
+			// mode, but if an unhandled error escapes (e.g. context already
+			// cancelled before the loop, or a future code path), fall back to
+			// the deterministic scaffold instead of failing the whole request.
+			return scaffolds, nil
+		}
 		return nil, fmt.Errorf("orchestrator: ai enhance: %w", err)
 	}
 	return enhanced, nil

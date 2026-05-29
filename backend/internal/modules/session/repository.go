@@ -184,6 +184,22 @@ func (r *Repository) UpdateStatus(ctx context.Context, id, status string) error 
 	return nil
 }
 
+// GetStatus returns only the status column for the given session.
+// This is a lightweight query used by the iteration engine to detect mid-loop
+// state changes (e.g. session finalized while iteration is still running).
+// Returns ErrNotFound when no session with that ID exists.
+func (r *Repository) GetStatus(ctx context.Context, id string) (string, error) {
+	const q = `SELECT status FROM sessions WHERE id = $1`
+	var status string
+	if err := r.pool.QueryRow(ctx, q, id).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("get session status: %w", err)
+	}
+	return status, nil
+}
+
 // UpdateOutputDocs replaces the output_docs column for the given session.
 // The caller must validate docs before invoking this method.
 // Returns ErrNotFound when no session with that ID exists.

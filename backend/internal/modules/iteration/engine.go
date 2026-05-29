@@ -51,6 +51,7 @@ type agentProvider interface {
 // Satisfied by *session.Repository in production; the interface is kept
 // minimal so tests can use a trivial in-memory stub.
 type sessionStore interface {
+	GetStatus(ctx context.Context, id string) (string, error)
 	UpdateState(ctx context.Context, id string, cs *state.CanonicalState) error
 	UpdateStatus(ctx context.Context, id string, status string) error
 }
@@ -126,6 +127,20 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 	stalledIter := 0
 
 	for i := 1; i <= maxIter; i++ {
+		// Check if the session was finalized (approved) from another request
+		// (e.g. the user clicked Finalize while this iteration was in-flight).
+		// If so, stop immediately — continuing would waste LLM quota and write
+		// stale state on top of a session the user already approved.
+		if liveStatus, statusErr := e.store.GetStatus(ctx, sess.ID); statusErr == nil {
+			if liveStatus == session.StatusApproved {
+				e.logger.InfoContext(ctx, "iteration aborted: session approved mid-run",
+					slog.String("session_id", sess.ID),
+					slog.Int("aborted_at_iteration", i),
+				)
+				return current, nil
+			}
+		}
+
 		// Build the agents list for the iteration.start event.
 		agentMetas := make([]map[string]any, len(sess.Agents))
 		for j, sa := range sess.Agents {

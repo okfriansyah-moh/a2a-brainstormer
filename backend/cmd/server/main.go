@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -99,8 +100,11 @@ func run(ctx context.Context, log *logger.Logger) error {
 		Addr:              ":" + port,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      300 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// WriteTimeout must exceed FINALIZE_TIMEOUT_SECONDS (default 600s) plus
+		// headroom for parallel doc generation (~600s) + response marshalling.
+		// 1500s (25 min) covers worst-case: 4 docs × one slow LLM turn each.
+		WriteTimeout: 1500 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -138,19 +142,38 @@ func run(ctx context.Context, log *logger.Logger) error {
 // returns the historical *markdown.Writer. Otherwise it returns an Orchestrator
 // wired to an AI generator backed by the global LLMProvider and the configured
 // skill bundle.
+//
+// Supported GLOBAL_LLM_PROVIDER values:
+//   - "copilot"  — GitHub Copilot API (requires a valid PAT with copilot scope)
+//   - "opencode" — OpenCode HTTP proxy (uses OPENCODE_SERVER_USERNAME / _PASSWORD)
 func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.MarkdownWriter {
 	mode := markdown.ParseFinalizeMode(config.GetFinalizeMode())
 	if mode == markdown.FinalizeModeDeterministic {
 		return &markdown.Writer{}
 	}
 
-	credRef := config.GetGlobalLLMCredentialRef()
-	if credRef == "" {
-		log.Warn("aigen_fallback",
-			slog.String("reason", "no global LLM credential configured"),
-			slog.String("mode", string(mode)),
-		)
-		return &markdown.Writer{}
+	llmProviderName := config.GetGlobalLLMProvider()
+
+	// For the Copilot provider, validate the API key is present at startup so
+	// we fail fast rather than waiting up to GetFinalizeTimeout() on an empty
+	// or invalid key. For OpenCode the server itself owns authentication.
+	if llmProviderName != "opencode" {
+		credRef := config.GetGlobalLLMCredentialRef()
+		if credRef == "" {
+			log.Warn("aigen_fallback",
+				slog.String("reason", "no global LLM credential configured"),
+				slog.String("mode", string(mode)),
+			)
+			return &markdown.Writer{}
+		}
+		if _, err := config.GetLLMAPIKey(credRef); err != nil {
+			log.Warn("aigen_fallback",
+				slog.String("reason", "LLM credential env var not set — hybrid/ai mode requires a live key; falling back to deterministic"),
+				slog.String("credential_ref", credRef),
+				slog.String("mode", string(mode)),
+			)
+			return &markdown.Writer{}
+		}
 	}
 
 	bundle, err := aigen.LoadBundle(os.DirFS("."), config.GetSkillBundlePaths())
@@ -174,12 +197,31 @@ func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.Markdown
 		}
 	}
 
-	llmCfg := llm.LLMConfig{
-		Provider:      config.GetGlobalLLMProvider(),
-		Model:         config.GetGlobalLLMModel(),
-		CredentialRef: credRef,
+	// Build the LLM provider based on GLOBAL_LLM_PROVIDER.
+	var provider llm.LLMProvider
+	switch llmProviderName {
+	case "opencode":
+		rawModel := config.GetGlobalOpenCodeModel()
+		providerID, modelID := splitOpenCodeModel(rawModel)
+		provider = llm.NewOpenCodeProvider(
+			llm.OpenCodeConfig{
+				BaseURL:     config.GetGlobalOpenCodeBaseURL(),
+				ProviderID:  providerID,
+				ModelID:     modelID,
+				UsernameRef: config.GetOpenCodeServerUsernameRef(),
+				PasswordRef: config.GetOpenCodeServerPasswordRef(),
+			},
+			nil,
+			config.GetLLMAPIKey,
+		)
+	default: // "copilot" and any unrecognised value
+		llmCfg := llm.LLMConfig{
+			Provider:      llmProviderName,
+			Model:         config.GetGlobalLLMModel(),
+			CredentialRef: config.GetGlobalLLMCredentialRef(),
+		}
+		provider = llm.NewCopilotProvider(llmCfg, "", nil)
 	}
-	provider := llm.NewCopilotProvider(llmCfg, "", nil)
 
 	aiMode := aigen.ModeHybrid
 	if mode == markdown.FinalizeModeAI {
@@ -196,4 +238,14 @@ func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.Markdown
 	)
 	_ = ctx // reserved for future cancellation wiring
 	return markdown.NewOrchestrator(mode, gen)
+}
+
+// splitOpenCodeModel splits a "providerID/modelID" string into its two parts.
+// If there is no "/", the whole string is treated as the model ID with an
+// empty provider ID (OpenCode will use its configured default provider).
+func splitOpenCodeModel(raw string) (providerID, modelID string) {
+	if idx := strings.IndexByte(raw, '/'); idx >= 0 {
+		return raw[:idx], raw[idx+1:]
+	}
+	return "", raw
 }

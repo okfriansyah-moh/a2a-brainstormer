@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
 	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/llm"
@@ -74,10 +75,14 @@ func New(provider llm.LLMProvider, bundle SkillBundle, maxRepairs int, temperatu
 	}
 }
 
-// Enhance walks scaffolds in deterministic key order, attempts an AI rewrite
-// for each, and returns a map of enhanced documents. Keys without an AI
-// improvement are returned as the original scaffold (hybrid mode) or omitted
-// with an error (ModeAI).
+// Enhance walks scaffolds and attempts an AI rewrite for each in parallel
+// (one goroutine per doc). Keys without an AI improvement are returned as the
+// original scaffold (hybrid mode) or omitted with an error (ModeAI).
+//
+// Parallel dispatch is critical for the finalize endpoint: a single Claude
+// Sonnet 4.6 turn through OpenCode can take ~5 min, so 4 sequential docs
+// would exceed the operator's finalize timeout. Each LLM provider used here
+// must be safe for concurrent calls (OpenCodeProvider and CopilotProvider are).
 //
 // The returned map always covers every key in scaffolds.
 func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffolds map[string]shared.GeneratedDocument) (map[string]shared.GeneratedDocument, error) {
@@ -94,25 +99,46 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 		return scaffolds, nil
 	}
 
-	out := make(map[string]shared.GeneratedDocument, len(scaffolds))
 	keys := sortedKeys(scaffolds)
+
+	type result struct {
+		doc shared.GeneratedDocument
+		err error
+	}
+	results := make(map[string]result, len(keys))
+	var (
+		mu sync.Mutex
+		wg sync.WaitGroup
+	)
 	for _, key := range keys {
-		scaffold := scaffolds[key]
-		enhanced, err := g.enhanceOne(ctx, key, scaffold, s)
-		if err != nil {
+		wg.Add(1)
+		go func(k string, scaffold shared.GeneratedDocument) {
+			defer wg.Done()
+			enhanced, err := g.enhanceOne(ctx, k, scaffold, s)
+			mu.Lock()
+			results[k] = result{doc: enhanced, err: err}
+			mu.Unlock()
+		}(key, scaffolds[key])
+	}
+	wg.Wait()
+
+	out := make(map[string]shared.GeneratedDocument, len(keys))
+	for _, key := range keys {
+		r := results[key]
+		if r.err != nil {
 			if g.mode == ModeAI {
-				return nil, fmt.Errorf("aigen: %s: %w", key, err)
+				return nil, fmt.Errorf("aigen: %s: %w", key, r.err)
 			}
 			g.logger.WarnContext(ctx, "aigen_fallback",
 				slog.String("doc_key", key),
-				slog.String("reason", err.Error()),
+				slog.String("reason", r.err.Error()),
 			)
-			fallback := scaffold
+			fallback := scaffolds[key]
 			fallback.Source = "ai_fallback"
 			out[key] = fallback
 			continue
 		}
-		out[key] = enhanced
+		out[key] = r.doc
 	}
 	return out, nil
 }

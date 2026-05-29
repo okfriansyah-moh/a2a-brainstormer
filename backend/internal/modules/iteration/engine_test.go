@@ -43,6 +43,16 @@ func (s *stubAgentProvider) ResolveActiveSkills(_ context.Context, _ string, _ *
 type stubSessionStore struct {
 	states   []state.CanonicalState
 	statuses []string
+	// statusOverride, if non-empty, is returned by GetStatus on every call.
+	// Used in tests that simulate mid-run session approval.
+	statusOverride string
+}
+
+func (s *stubSessionStore) GetStatus(_ context.Context, _ string) (string, error) {
+	if s.statusOverride != "" {
+		return s.statusOverride, nil
+	}
+	return session.StatusActive, nil
 }
 
 func (s *stubSessionStore) UpdateState(_ context.Context, _ string, cs *state.CanonicalState) error {
