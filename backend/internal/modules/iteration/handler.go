@@ -103,6 +103,10 @@ func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 		slog.String("session_id", sessionID),
 	)
 
+	// Clear the server-level WriteTimeout so this long-running handler can
+	// write the response after the pipeline finishes (which can take minutes).
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
 	// Detach the pipeline context from the HTTP request context. A client
 	// disconnect or the server's WriteTimeout would otherwise cancel r.Context()
 	// mid-pipeline, aborting the in-flight LLM calls. context.WithoutCancel
@@ -157,6 +161,10 @@ func (h *Handler) handlePreview(w http.ResponseWriter, r *http.Request) {
 		slog.String("session_id", sessionID),
 		slog.String("agent_id", agentID),
 	)
+
+	// Clear the server-level WriteTimeout — preview dispatches one full agent
+	// call which can take minutes to complete.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	previewCtx, cancel := context.WithTimeout(
 		context.WithoutCancel(r.Context()),
@@ -338,6 +346,10 @@ func (h *Handler) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer unsubscribe()
+
+	// Clear the server-level WriteTimeout for the SSE stream. It must stay
+	// open until the client disconnects, which can be minutes or longer.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	// Set SSE response headers. Must be done before the first Write.
 	w.Header().Set("Content-Type", "text/event-stream")

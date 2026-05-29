@@ -9,6 +9,7 @@
 package markdown
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,7 +79,9 @@ func WriteArtifacts(s state.CanonicalState, outputDir string) error {
 type Writer struct{}
 
 // GenerateAll satisfies the markdownWriter interface used by session.Handler.
-func (w *Writer) GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error) {
+// The context is accepted to match the interface but is not used — the
+// deterministic generators make no LLM calls.
+func (w *Writer) GenerateAll(_ context.Context, s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error) {
 	return GenerateAll(s, keys)
 }
 

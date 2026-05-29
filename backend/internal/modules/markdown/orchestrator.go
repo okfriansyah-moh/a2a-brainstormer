@@ -62,7 +62,10 @@ func NewOrchestrator(mode FinalizeMode, ai *aigen.Generator) *Orchestrator {
 
 // GenerateAll runs the deterministic pipeline, then (when configured) the AI
 // enhancement pass. The returned map always contains every requested key.
-func (o *Orchestrator) GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error) {
+// The caller-provided ctx is forwarded to the AI enhance pass so that the
+// handler's finalize timeout (GetFinalizeTimeout) can cancel an overrunning
+// LLM call instead of letting it run unchecked.
+func (o *Orchestrator) GenerateAll(ctx context.Context, s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error) {
 	scaffolds, err := GenerateAll(s, keys)
 	if err != nil {
 		return nil, err
@@ -70,10 +73,7 @@ func (o *Orchestrator) GenerateAll(s state.CanonicalState, keys []string) (map[s
 	if o == nil || o.ai == nil || o.mode == FinalizeModeDeterministic {
 		return scaffolds, nil
 	}
-	// The handler does not yet plumb a request context into GenerateAll. Using
-	// context.Background here keeps the signature stable; cancellation can be
-	// added in a follow-up if the LLM call latency proves problematic.
-	enhanced, err := o.ai.Enhance(context.Background(), s, scaffolds)
+	enhanced, err := o.ai.Enhance(ctx, s, scaffolds)
 	if err != nil {
 		// ModeAI surfaces this; ModeHybrid never reaches here because Enhance
 		// returns nil-error in hybrid mode and individual fallbacks happen
@@ -88,7 +88,7 @@ func (o *Orchestrator) GenerateAll(s state.CanonicalState, keys []string) (map[s
 // each atomically into outputDir. This mirrors the package-level WriteArtifacts
 // contract for compatibility with the session handler.
 func (o *Orchestrator) WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	docs, err := o.GenerateAll(s, []string{"architecture", "roadmap"})
+	docs, err := o.GenerateAll(context.Background(), s, []string{"architecture", "roadmap"})
 	if err != nil {
 		return fmt.Errorf("write artifacts: %w", err)
 	}

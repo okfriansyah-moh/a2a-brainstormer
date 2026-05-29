@@ -123,6 +123,14 @@ func GetAgentCallTimeout() time.Duration {
 	return time.Duration(envInt("AGENT_CALL_TIMEOUT_SECONDS", 600)) * time.Second
 }
 
+// GetFinalizeTimeout returns the maximum duration allowed for one finalize
+// document-generation call (deterministic scaffold + optional AI enhance pass).
+// This timeout is applied per-request, independently of the server WriteTimeout.
+// Defaults to 10 minutes. Set FINALIZE_TIMEOUT_SECONDS to override.
+func GetFinalizeTimeout() time.Duration {
+	return time.Duration(envInt("FINALIZE_TIMEOUT_SECONDS", 600)) * time.Second
+}
+
 // GetFinalizeMode returns the document-generation strategy for session
 // finalize. Valid values: "deterministic", "hybrid", "ai". Defaults to
 // "hybrid". Unknown values fall back to "deterministic" downstream.

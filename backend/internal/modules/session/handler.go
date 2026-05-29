@@ -30,8 +30,10 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"a2a-brainstorm/backend/internal/modules/state"
+	"a2a-brainstorm/backend/internal/platform/config"
 	"a2a-brainstorm/backend/internal/shared"
 )
 
@@ -52,7 +54,7 @@ type sessionService interface {
 // Injecting an interface keeps the markdown package out of the import graph
 // for unit tests that do not need file I/O.
 type markdownWriter interface {
-	GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error)
+	GenerateAll(ctx context.Context, s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error)
 	WriteArtifacts(s state.CanonicalState, outputDir string) error
 }
 
@@ -182,7 +184,16 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 		if len(keys) == 0 {
 			keys = DefaultOutputDocs
 		}
-		docs, merr := h.markdown.GenerateAll(*sess.CurrentState, keys)
+
+		// Clear the server-level WriteTimeout — AI markdown generation can
+		// exceed the default 300 s limit. The generation is bounded instead
+		// by GetFinalizeTimeout(), which defaults to 10 minutes.
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+		genCtx, genCancel := context.WithTimeout(r.Context(), config.GetFinalizeTimeout())
+		defer genCancel()
+
+		docs, merr := h.markdown.GenerateAll(genCtx, *sess.CurrentState, keys)
 		if merr != nil {
 			if h.logger != nil {
 				h.logger.ErrorContext(r.Context(), "markdown generation failed",
