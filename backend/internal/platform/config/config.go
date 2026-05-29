@@ -123,6 +123,70 @@ func GetAgentCallTimeout() time.Duration {
 	return time.Duration(envInt("AGENT_CALL_TIMEOUT_SECONDS", 600)) * time.Second
 }
 
+// GetFinalizeMode returns the document-generation strategy for session
+// finalize. Valid values: "deterministic", "hybrid", "ai". Defaults to
+// "hybrid". Unknown values fall back to "deterministic" downstream.
+// Set FINALIZE_MODE to override.
+func GetFinalizeMode() string {
+	return envString("FINALIZE_MODE", "hybrid")
+}
+
+// GetSkillBundlePaths returns the comma-separated list of skill file paths
+// (relative to the repository root) loaded into the AI doc-generator system
+// prompt. The default set covers the five canonical skills used for output
+// documents. Set SKILL_BUNDLE_PATHS to override (comma-separated).
+func GetSkillBundlePaths() []string {
+	raw := envString("SKILL_BUNDLE_PATHS", strings.Join(defaultSkillBundlePaths, ","))
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// defaultSkillBundlePaths is the canonical ordered list of skills injected as
+// system-prompt context for AI document generation. See docs/PLAN.md §8.27.
+var defaultSkillBundlePaths = []string{
+	".github/skills/modularity/SKILL.md",
+	".github/skills/vertical-slice/SKILL.md",
+	".github/skills/api-design/SKILL.md",
+	".github/skills/roadmap-spec/SKILL.md",
+	".github/skills/plan-management/SKILL.md",
+}
+
+// GetAIDocMaxRepairs returns the maximum number of rubric-driven repair
+// attempts the AI doc generator may issue per document. Clamped to [0, 5].
+// Defaults to 3 — long-form (≥1000 line) documents typically require at
+// least one expansion pass after the initial draft. Set AIGEN_MAX_REPAIRS to
+// override.
+func GetAIDocMaxRepairs() int {
+	v := envInt("AIGEN_MAX_REPAIRS", 3)
+	if v < 0 {
+		return 0
+	}
+	if v > 5 {
+		return 5
+	}
+	return v
+}
+
+// GetAIDocTemperature returns the LLM temperature used for AI document
+// rewriting. Clamped to [0.0, 1.0]. Defaults to 0.2. Set AIGEN_TEMPERATURE
+// to override.
+func GetAIDocTemperature() float64 {
+	v := envFloat("AIGEN_TEMPERATURE", 0.2)
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // envString reads an env var and returns defVal when absent or empty.

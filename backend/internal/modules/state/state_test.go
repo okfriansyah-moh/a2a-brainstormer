@@ -114,7 +114,44 @@ func TestUnmarshalJSON_OpenQuestionsAsObject(t *testing.T) {
 	}
 }
 
-// TestUnmarshalJSON_AssumptionsAsString verifies a bare string is wrapped into a slice.
+// TestUnmarshalJSON_OpenQuestionsAsObjectArray verifies that LLM open_questions
+// emitted as an array of objects with {id, impact, question, resolution, status}
+// is humanised into readable strings rather than raw `map[…]` Go syntax.
+func TestUnmarshalJSON_OpenQuestionsAsObjectArray(t *testing.T) {
+	payload := `{
+		"idea": {},
+		"architecture": {},
+		"execution_plan": [],
+		"risks": [],
+		"assumptions": [],
+		"open_questions": [
+			{"id":"oq1","impact":"high","question":"Should Mabar points use a flat per-win system?","resolution":"Flat system for v1 MVP.","status":"resolved"},
+			{"id":"oq2","impact":"medium","question":"What is the submission timing window?","resolution":"Server-side enforcement only.","status":"resolved"}
+		],
+		"metrics": {"confidence": 0},
+		"meta": {"iteration": 1, "agents": []}
+	}`
+
+	var cs state.CanonicalState
+	if err := json.Unmarshal([]byte(payload), &cs); err != nil {
+		t.Fatalf("Unmarshal with object-array open_questions: %v", err)
+	}
+	if len(cs.OpenQuestions) != 2 {
+		t.Fatalf("expected 2 open_questions, got %d: %v", len(cs.OpenQuestions), cs.OpenQuestions)
+	}
+	for _, q := range cs.OpenQuestions {
+		if strings.HasPrefix(q, "map[") {
+			t.Errorf("open_question not humanised: %q", q)
+		}
+		if !strings.Contains(q, "Mabar") && !strings.Contains(q, "submission") {
+			continue
+		}
+		if !strings.Contains(q, "resolution:") {
+			t.Errorf("expected resolution metadata appended; got %q", q)
+		}
+	}
+}
+
 func TestUnmarshalJSON_AssumptionsAsString(t *testing.T) {
 	payload := `{
 		"idea": {},

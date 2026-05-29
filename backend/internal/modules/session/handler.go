@@ -29,6 +29,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/shared"
@@ -54,6 +55,12 @@ type markdownWriter interface {
 	GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error)
 	WriteArtifacts(s state.CanonicalState, outputDir string) error
 }
+
+// MarkdownWriter is the exported alias of the handler's markdown dependency.
+// It exists so the cmd/server wiring can hold the same interface type without
+// duplicating the contract. The unexported markdownWriter remains the canonical
+// name used internally.
+type MarkdownWriter = markdownWriter
 
 // Handler implements the HTTP layer for the session API.
 type Handler struct {
@@ -239,6 +246,16 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, r *http.Request, err
 	}
 	if errors.Is(err, ErrConflict) {
 		writeError(w, http.StatusConflict, "operation not permitted in current session state")
+		return
+	}
+	if errors.Is(err, ErrStateNotReady) {
+		reason := strings.TrimPrefix(err.Error(), "finalize session: load: ")
+		reason = strings.TrimPrefix(reason, "finalize session: ")
+		reason = strings.TrimPrefix(reason, "state not ready for finalize: ")
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+			"error":  "state_not_ready",
+			"reason": reason,
+		})
 		return
 	}
 	// Surface validation errors (produced by service layer) as 400.

@@ -120,6 +120,11 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 
 	current := initialState
 
+	// stalledIter counts consecutive passes where every agent failed (confidence
+	// stays 0 and execution_plan remains empty). Two consecutive stalled passes
+	// mean no LLM is reachable — abort early rather than wasting all maxIter.
+	stalledIter := 0
+
 	for i := 1; i <= maxIter; i++ {
 		// Build the agents list for the iteration.start event.
 		agentMetas := make([]map[string]any, len(sess.Agents))
@@ -135,7 +140,7 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 			"agents":    agentMetas,
 		})
 
-		pipelineOut, err := e.runPipelinePass(ctx, sess, current, i)
+		pipelineOut, successCount, err := e.runPipelinePass(ctx, sess, current, i)
 		if err != nil {
 			return current, fmt.Errorf("iteration %d: pipeline pass: %w", i, err)
 		}
@@ -182,6 +187,23 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 			return merged, nil
 		}
 
+		// Stall detection: if no agents succeeded in this pass (all LLM calls
+		// failed), there is no point running further iterations. After 2
+		// consecutive stalled passes abort early — no amount of retrying will
+		// produce useful output until the LLM provider is reachable again.
+		if successCount == 0 {
+			stalledIter++
+			if stalledIter >= 2 {
+				e.logger.WarnContext(ctx, "pipeline stalled: no agents succeeded for 2 consecutive iterations; aborting early",
+					slog.String("session_id", sess.ID),
+					slog.Int("stalled_iterations", stalledIter),
+				)
+				break
+			}
+		} else {
+			stalledIter = 0
+		}
+
 		current = merged
 	}
 
@@ -208,13 +230,20 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 // The roster is built from live agent data as we iterate and is force-applied
 // to the state both before each dispatch (so the LLM sees correct data) and
 // after each dispatch (to prevent LLM drift).
+//
+// Agent dispatch errors (e.g. LLM unreachable) are non-fatal: the engine logs
+// a warning, emits an EventAgentError, keeps the accumulated state unchanged
+// for that agent's slot, and continues with the next agent. Fatal errors
+// (agent not found, session misconfiguration) are still returned as errors.
+// The returned int is the number of agents that dispatched successfully.
 func (e *Engine) runPipelinePass(
 	ctx context.Context,
 	sess session.Session,
 	initial state.CanonicalState,
 	iterNum int,
-) (state.CanonicalState, error) {
+) (state.CanonicalState, int, error) {
 	current := initial
+	successCount := 0
 
 	// roster accumulates authoritative AgentMeta entries as we fetch each agent.
 	roster := make([]state.AgentMeta, 0, len(sess.Agents))
@@ -222,12 +251,12 @@ func (e *Engine) runPipelinePass(
 	for _, sa := range sess.Agents {
 		ag, err := e.agents.GetAgent(ctx, sa.AgentID)
 		if err != nil {
-			return current, fmt.Errorf("get agent %s: %w", sa.AgentID, err)
+			return current, successCount, fmt.Errorf("get agent %s: %w", sa.AgentID, err)
 		}
 
 		activeSkills, err := e.agents.ResolveActiveSkills(ctx, sa.AgentID, sa.SkillOverrides)
 		if err != nil {
-			return current, fmt.Errorf("resolve skills for agent %s: %w", sa.AgentID, err)
+			return current, successCount, fmt.Errorf("resolve skills for agent %s: %w", sa.AgentID, err)
 		}
 
 		// Resolve effective provider/model for observability, mirroring the
@@ -273,13 +302,25 @@ func (e *Engine) runPipelinePass(
 		dispatchStart := time.Now()
 		out, err := e.dispatch(ctx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current)
 		if err != nil {
+			// Agent dispatch failure is non-fatal. Log the error, emit an error
+			// event, leave current state unchanged for this agent's slot, and
+			// continue with the next agent. Fatal session misconfiguration errors
+			// (missing agent record, etc.) are already returned above.
+			e.logger.WarnContext(ctx, "agent dispatch error; skipping agent for this pass",
+				slog.String("session_id", sess.ID),
+				slog.String("agent_id", sa.AgentID),
+				slog.String("role", sa.Role),
+				slog.Int("iteration", iterNum),
+				slog.String("error", err.Error()),
+			)
 			e.emitter.Emit(sess.ID, EventAgentError, map[string]any{
 				"iteration": iterNum,
 				"agent_id":  sa.AgentID,
 				"error":     err.Error(),
 			})
-			return current, fmt.Errorf("dispatch agent %s (iter %d): %w", sa.AgentID, iterNum, err)
+			continue
 		}
+		successCount++
 
 		// Force-overwrite meta.agents in the returned state — the LLM must
 		// not be the source of truth for agent observability data.
@@ -311,7 +352,7 @@ func (e *Engine) runPipelinePass(
 		current = out
 	}
 
-	return current, nil
+	return current, successCount, nil
 }
 
 // resolveProviderModel returns the effective provider and model for a dispatch,

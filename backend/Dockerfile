@@ -10,6 +10,8 @@ RUN cd backend && go mod download
 # Copy source and migrations.
 COPY backend    ./backend
 COPY migrations ./migrations
+# Copy skill bundles so the AI doc generator can load them at runtime.
+COPY .github/skills ./.github/skills
 
 # Fully-static binary: no cgo, trimpath removes build paths, -s -w strips debug info.
 RUN cd backend && \
@@ -30,6 +32,8 @@ COPY --from=busybox /bin/busybox /usr/local/bin/busybox
 
 COPY --from=builder /out/backend    /app/backend
 COPY --from=builder /src/migrations /app/migrations
+# Skills are read at startup by the AI doc generator (aigen.LoadBundle).
+COPY --from=builder /src/.github/skills /app/.github/skills
 
 # Set working directory so the binary resolves the relative "migrations" path correctly.
 WORKDIR /app

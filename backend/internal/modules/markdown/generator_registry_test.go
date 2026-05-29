@@ -22,11 +22,15 @@ func TestGenerateAll_AllFourKeys(t *testing.T) {
 		if doc.Content == "" {
 			t.Errorf("key %q: empty content", key)
 		}
-		if doc.LineCount < 1000 {
-			t.Errorf("key %q: expected ≥ 1000 lines, got %d", key, doc.LineCount)
+		if doc.LineCount <= 0 {
+			t.Errorf("key %q: expected positive LineCount, got %d", key, doc.LineCount)
 		}
-		if doc.Filename == "" {
-			t.Errorf("key %q: empty filename", key)
+		wantSuffix := "_" + key + ".md"
+		if !strings.HasSuffix(doc.Filename, wantSuffix) {
+			t.Errorf("key %q: filename %q must end with %q", key, doc.Filename, wantSuffix)
+		}
+		if !strings.HasPrefix(doc.Filename, expectedSlug()) {
+			t.Errorf("key %q: filename %q must start with slug %q", key, doc.Filename, expectedSlug())
 		}
 	}
 }

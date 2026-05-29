@@ -6,15 +6,17 @@ import (
 	"testing"
 )
 
-func TestGeneratePlan_MinLines(t *testing.T) {
+func TestGeneratePlan_NonEmpty(t *testing.T) {
 	s := sampleState()
 	got, err := GeneratePlan(s)
 	if err != nil {
 		t.Fatalf("GeneratePlan returned error: %v", err)
 	}
-	lines := strings.Count(got, "\n") + 1
-	if lines < 1000 {
-		t.Errorf("expected ≥ 1000 lines, got %d", lines)
+	if got == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !strings.Contains(got, " — Implementation Plan") {
+		t.Errorf("expected '— Implementation Plan' in title")
 	}
 }
 
@@ -41,8 +43,10 @@ func TestGeneratePlan_StructuralSections(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## 1. Goal",
+		"## 2. Architecture Overview",
+		"## 3. Tech Stack",
+		"## 4. Project Structure",
 		"## 5. Implementation Tasks",
-		"## 8. Deep Knowledge Reference",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected output to contain %q", want)

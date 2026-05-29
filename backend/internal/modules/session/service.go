@@ -15,8 +15,36 @@ import (
 	"log/slog"
 
 	"a2a-brainstorm/backend/internal/modules/agent"
+	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/sse"
 )
+
+// ErrStateNotReady is returned by FinalizeSession when the canonical state
+// does not yet satisfy the readiness gate: either CurrentState is nil (no
+// iteration has completed) or the Idea field is empty.
+// The wrapped error message contains the specific reason.
+var ErrStateNotReady = errors.New("state not ready for finalize")
+
+// isStateReadyForFinalize returns whether s satisfies the §8.23 readiness
+// gate, plus a human-readable reason describing the first failing check.
+// Confidence threshold is intentionally low (0.1) so that a converged session
+// with partial agreement can still be finalized — the user has already seen
+// the canonical state and opted in by clicking Finalize.
+//
+// Architecture and execution_plan are NOT required: the markdown generator can
+// produce useful output from a partial state; blocking finalization on those
+// fields prevents document generation when agents ran but produced incomplete
+// output (e.g. after provider failures).
+//
+// Confidence is NOT checked here: if CurrentState is non-nil (enforced by the
+// caller) then at least one iteration completed. A failed-agent session may
+// have confidence=0 but the user should still be able to generate documents.
+func isStateReadyForFinalize(s state.CanonicalState) (bool, string) {
+	if len(s.Idea) == 0 {
+		return false, "idea is empty; run at least one iteration before finalizing"
+	}
+	return true, ""
+}
 
 // agentProvider is the session module's dependency on the agent domain.
 // It is satisfied by *agent.Service in production and by a stub in tests.
@@ -229,7 +257,32 @@ func toSessionListItem(sess Session) SessionListItem {
 // the markdown generation is triggered by the handler after this returns.
 // If input.OutputDocs is non-nil, it overrides the session's stored document
 // selection before the status transition (the override is persisted).
+//
+// Readiness gate: the session's current canonical state must contain a
+// non-empty idea. Architecture and execution_plan are not required —
+// documents can be generated from partial state. Returns ErrStateNotReady
+// wrapped with the human-readable reason.
 func (s *Service) FinalizeSession(ctx context.Context, id string, input FinalizeInput) (Session, error) {
+	// Load the current session first so we can run the readiness gate before
+	// mutating any state.
+	current, err := s.repo.GetSession(ctx, id)
+	if err != nil {
+		return Session{}, fmt.Errorf("finalize session: load: %w", err)
+	}
+	if current.CurrentState == nil {
+		return Session{}, fmt.Errorf("%w: canonical state has not been produced yet", ErrStateNotReady)
+	}
+
+	// For already-approved sessions (regeneration path), skip the readiness
+	// gate and status transition — the state was validated at first-finalize and
+	// the user is simply re-running document generation with a different doc
+	// selection. For all other statuses, run the gate as normal.
+	if current.Status != StatusApproved {
+		if ready, reason := isStateReadyForFinalize(*current.CurrentState); !ready {
+			return Session{}, fmt.Errorf("%w: %s", ErrStateNotReady, reason)
+		}
+	}
+
 	if len(input.OutputDocs) > 0 {
 		if err := validateOutputDocs(input.OutputDocs); err != nil {
 			return Session{}, fmt.Errorf("finalize session: %w", err)
@@ -239,9 +292,12 @@ func (s *Service) FinalizeSession(ctx context.Context, id string, input Finalize
 		}
 	}
 
-	if err := s.repo.UpdateStatus(ctx, id, StatusApproved); err != nil {
-		return Session{}, fmt.Errorf("finalize session: %w", err)
+	if current.Status != StatusApproved {
+		if err := s.repo.UpdateStatus(ctx, id, StatusApproved); err != nil {
+			return Session{}, fmt.Errorf("finalize session: %w", err)
+		}
 	}
+
 	sess, err := s.repo.GetSession(ctx, id)
 	if err != nil {
 		return Session{}, fmt.Errorf("finalize session: reload: %w", err)

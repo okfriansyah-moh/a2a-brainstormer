@@ -1,6 +1,5 @@
 // Package markdown generates the output artifacts produced when a brainstorm
-// session is finalized: architecture.md, roadmap.md, and (in Task 29) plan and
-// readme documents.
+// session is finalized: architecture, roadmap, plan, and readme.
 //
 // All files are written atomically (write to a .tmp file, then rename) so a
 // partial write never leaves a corrupt artifact on disk.
@@ -19,14 +18,6 @@ import (
 	"a2a-brainstorm/backend/internal/shared"
 )
 
-// filenameForKey maps a document key to its canonical filename.
-var filenameForKey = map[string]string{
-	"architecture": "architecture.md",
-	"roadmap":      "roadmap.md",
-	"plan":         "PLAN.md",
-	"readme":       "README.md",
-}
-
 // Generators is the registry of per-key generator functions.
 // Add new document types by inserting entries here — never hardcode keys in
 // service or handler layers.
@@ -38,9 +29,10 @@ var Generators = map[string]func(state.CanonicalState) (string, error){
 }
 
 // GenerateAll generates documents for each key in keys, using the Generators
-// registry. Unknown keys are returned as an error.
-// The returned map is keyed by the same keys that were requested.
+// registry. Unknown keys are returned as an error. Filenames are derived from
+// the canonical state's short title using buildFilename(title, key).
 func GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error) {
+	title := shortTitle(s)
 	result := make(map[string]shared.GeneratedDocument, len(keys))
 	for _, key := range keys {
 		gen, ok := Generators[key]
@@ -51,49 +43,33 @@ func GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.Gener
 		if err != nil {
 			return nil, fmt.Errorf("generate all: key %q: %w", key, err)
 		}
-		filename := filenameForKey[key]
 		result[key] = shared.GeneratedDocument{
-			Filename:  filename,
+			Filename:  buildFilename(title, key),
 			Content:   content,
 			LineCount: strings.Count(content, "\n") + 1,
+			Source:    "deterministic",
 		}
 	}
 	return result, nil
 }
 
-// GenerateContent produces both the architecture and roadmap markdown strings
-// for a finalized session. Kept for use by WriteArtifacts.
-func GenerateContent(s state.CanonicalState) (arch string, roadmap string, err error) {
-	arch, err = GenerateArchitecture(s)
-	if err != nil {
-		return "", "", fmt.Errorf("generate content: architecture: %w", err)
-	}
-	roadmap, err = GenerateRoadmap(s)
-	if err != nil {
-		return "", "", fmt.Errorf("generate content: roadmap: %w", err)
-	}
-	return arch, roadmap, nil
-}
-
-// WriteArtifacts writes architecture.md and roadmap.md to outputDir.
-// Each file is written atomically: content is first written to a .tmp file,
-// then renamed to the final path. If either write fails, the error is returned
-// and the other file may or may not have been written.
+// WriteArtifacts writes the architecture and roadmap markdown documents to
+// outputDir. Each file is written atomically: content is first written to a
+// .tmp file then renamed to the final path. Filenames are derived from the
+// canonical state's short title via buildFilename(title, key).
 func WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	arch, roadmap, err := GenerateContent(s)
+	docs, err := GenerateAll(s, []string{"architecture", "roadmap"})
 	if err != nil {
 		return fmt.Errorf("write artifacts: %w", err)
 	}
-	if err := writeAtomic(filepath.Join(outputDir, "architecture.md"), arch); err != nil {
-		return fmt.Errorf("write artifacts: architecture.md: %w", err)
-	}
-	if err := writeAtomic(filepath.Join(outputDir, "roadmap.md"), roadmap); err != nil {
-		return fmt.Errorf("write artifacts: roadmap.md: %w", err)
+	for _, key := range []string{"architecture", "roadmap"} {
+		doc := docs[key]
+		if err := writeAtomic(filepath.Join(outputDir, doc.Filename), doc.Content); err != nil {
+			return fmt.Errorf("write artifacts: %s: %w", doc.Filename, err)
+		}
 	}
 	return nil
 }
-
-// ── internal helpers ──────────────────────────────────────────────────────────
 
 // Writer is a zero-value struct that implements the markdownWriter interface
 // required by session.Handler. It delegates all work to the package-level
@@ -125,7 +101,6 @@ func writeAtomic(destPath, content string) error {
 	}
 	tmpName := tmp.Name()
 
-	// Ensure tmp is cleaned up on any failure path.
 	ok := false
 	defer func() {
 		if !ok {

@@ -17,6 +17,13 @@
   export let summary: string = "";
 
   /**
+   * Optional structured bullet list rendered under the summary headline.
+   * Each item is shown as a real <li> for readability — avoids dumping a
+   * newline-joined bullet string that looks system-generated.
+   */
+  export let summaryBullets: string[] = [];
+
+  /**
    * Whether the global pipeline is currently running (disables per-agent buttons
    * while a full iterate pass or another preview is in flight).
    */
@@ -122,8 +129,17 @@
       {/if}
       {#if status === "done" && summary}
         <div class="stage-summary">
-          <strong>Contribution:</strong>
-          {summary}
+          <div class="stage-summary-head">
+            <strong>Contribution</strong>
+            <span class="stage-summary-text">{summary}</span>
+          </div>
+          {#if summaryBullets.length > 0}
+            <ul class="stage-summary-list">
+              {#each summaryBullets as item}
+                <li>{item}</li>
+              {/each}
+            </ul>
+          {/if}
         </div>
       {:else if status === "running" && !displayOutput}
         <div class="stage-log">
@@ -361,12 +377,43 @@
     background: #f0f9f4;
     border: 1px solid #b8e8d0;
     border-radius: 9px;
-    padding: 9px 12px;
+    padding: 10px 14px;
     font-size: 0.8125rem;
     color: #1a7a50;
-    white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.55;
+  }
+
+  .stage-summary-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: baseline;
+  }
+
+  .stage-summary-head strong {
+    color: #146b44;
+    font-weight: 600;
+  }
+
+  .stage-summary-head strong::after {
+    content: ":";
+  }
+
+  .stage-summary-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .stage-summary-list {
+    margin: 6px 0 0;
+    padding-left: 20px;
+    list-style: disc;
+  }
+
+  .stage-summary-list li {
+    margin: 2px 0;
+    line-height: 1.5;
   }
 
   .stage-waiting {

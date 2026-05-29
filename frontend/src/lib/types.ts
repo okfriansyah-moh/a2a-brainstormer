@@ -233,6 +233,13 @@ export interface GeneratedDocument {
   filename: string;
   content: string;
   line_count: number;
+  /**
+   * How the document was produced:
+   *   - "ai"           — AI rewrite pass succeeded.
+   *   - "ai_fallback"  — AI pass attempted but failed; deterministic scaffold returned.
+   *   - "deterministic"— template-based scaffold only (no AI pass).
+   */
+  source?: "ai" | "ai_fallback" | "deterministic";
 }
 
 /** Optional body for POST /sessions/{id}/finalize. */

@@ -6,15 +6,17 @@ import (
 	"testing"
 )
 
-func TestGenerateReadme_MinLines(t *testing.T) {
+func TestGenerateReadme_NonEmpty(t *testing.T) {
 	s := sampleState()
 	got, err := GenerateReadme(s)
 	if err != nil {
 		t.Fatalf("GenerateReadme returned error: %v", err)
 	}
-	lines := strings.Count(got, "\n") + 1
-	if lines < 1000 {
-		t.Errorf("expected ≥ 1000 lines, got %d", lines)
+	if got == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !strings.Contains(got, " — README") {
+		t.Errorf("expected '— README' in title")
 	}
 }
 
@@ -43,7 +45,7 @@ func TestGenerateReadme_StructuralSections(t *testing.T) {
 		"## Overview",
 		"## Quick Start",
 		"## Configuration",
-		"## License",
+		"## Roadmap",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected output to contain %q", want)

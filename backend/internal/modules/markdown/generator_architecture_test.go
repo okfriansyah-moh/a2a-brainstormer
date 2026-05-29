@@ -8,15 +8,17 @@ import (
 	"a2a-brainstorm/backend/internal/modules/state"
 )
 
-func TestGenerateArchitecture_MinLines(t *testing.T) {
+func TestGenerateArchitecture_NonEmpty(t *testing.T) {
 	s := sampleState()
 	got, err := GenerateArchitecture(s)
 	if err != nil {
 		t.Fatalf("GenerateArchitecture returned error: %v", err)
 	}
-	lines := strings.Count(got, "\n") + 1
-	if lines < 1000 {
-		t.Errorf("expected ≥ 1000 lines, got %d", lines)
+	if got == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !strings.Contains(got, " — Architecture") {
+		t.Errorf("expected '— Architecture' in output")
 	}
 }
 

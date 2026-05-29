@@ -131,57 +131,125 @@
   }
 
   /**
-   * Human-readable contribution summary shown in the "Contribution:" block.
-   *
-   * Priority:
-   *   1. execution_plan phases as bullet points (most informative for users)
-   *   2. risks as bullet points (if no plan)
-   *   3. architecture.overview — only when it looks like readable prose
-   *      (skip raw Go map-serialized strings that start with "[map[" or "map[")
+   * Pick the first non-empty string from a list of candidates. Handles raw
+   * LLM payloads where the same field may appear under different keys
+   * (title, name, phase_name, step, action, etc.).
    */
-  function stageSummaryText(agent: SessionAgent): string {
-    if (!agent.output) return "";
+  function firstString(...candidates: unknown[]): string {
+    for (const c of candidates) {
+      if (typeof c === "string") {
+        const t = c.trim();
+        if (t.length > 0) return t;
+      }
+    }
+    return "";
+  }
+
+  /** Join a list of strings with commas and a final "and". */
+  function joinHuman(parts: string[]): string {
+    if (parts.length === 0) return "";
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+    return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  }
+
+  /** Truncate a label to keep bullet lines readable. */
+  function clip(s: string, max: number): string {
+    return s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
+  }
+
+  /**
+   * Build a human-readable contribution summary for the "Contribution:" block.
+   * Returns a prose headline (always populated when the agent ran) plus an
+   * optional list of bullets. The headline reads like a docs changelog entry.
+   */
+  function stageSummary(agent: SessionAgent): {
+    headline: string;
+    bullets: string[];
+  } {
+    if (!agent.output) return { headline: "", bullets: [] };
     const s = agent.output;
 
-    if (s.execution_plan?.length) {
-      const items = s.execution_plan.slice(0, 6).map((step) => {
-        // LLM agents sometimes use 'name' or 'phase_name' instead of 'title'.
-        const raw = step as unknown as Record<string, string>;
-        const label =
-          step.title ||
-          raw["name"] ||
-          raw["phase_name"] ||
-          step.description?.slice(0, 80) ||
-          "";
-        return `\u2022 ${label}`;
+    const planCount = s.execution_plan?.length ?? 0;
+    const riskCount = s.risks?.length ?? 0;
+    const assumptionCount = s.assumptions?.length ?? 0;
+    const questionCount = s.open_questions?.length ?? 0;
+    const hasArchitecture = !!(
+      s.architecture?.overview ||
+      s.architecture?.components?.length ||
+      s.architecture?.decisions?.length
+    );
+
+    // Build prose phrases describing what changed in this pass.
+    const parts: string[] = [];
+    if (planCount > 0) {
+      parts.push(`a ${planCount}-step execution plan`);
+    }
+    if (hasArchitecture) parts.push("architecture notes");
+    if (riskCount > 0) {
+      parts.push(`${riskCount} risk${riskCount === 1 ? "" : "s"}`);
+    }
+    if (assumptionCount > 0) {
+      parts.push(
+        `${assumptionCount} assumption${assumptionCount === 1 ? "" : "s"}`,
+      );
+    }
+    if (questionCount > 0) {
+      parts.push(
+        `${questionCount} open question${questionCount === 1 ? "" : "s"}`,
+      );
+    }
+
+    const role = agent.role.toLowerCase();
+    let verb = "Contributed";
+    if (role.includes("review") || role.includes("critic")) {
+      verb = "Reviewed the canonical state and added";
+    } else if (role.includes("synth") || role.includes("merge")) {
+      verb = "Synthesised the pass with";
+    } else if (role.includes("build") || role.includes("architect")) {
+      verb = "Drafted";
+    }
+
+    const headline =
+      parts.length === 0
+        ? `${agent.name} ran but produced no new structured findings this pass.`
+        : `${verb} ${joinHuman(parts)} to the canonical state.`;
+
+    // Pick the most informative bullet list: plan steps first, then risks.
+    const bullets: string[] = [];
+    if (planCount > 0) {
+      s.execution_plan.slice(0, 5).forEach((step, idx) => {
+        const raw = step as unknown as Record<string, unknown>;
+        const label = firstString(
+          step.title,
+          raw["name"],
+          raw["phase_name"],
+          raw["step"],
+          raw["action"],
+          raw["task"],
+          step.description,
+        );
+        bullets.push(clip(label || `Step ${idx + 1}`, 110));
       });
-      if (s.execution_plan.length > 6) {
-        items.push(`  +${s.execution_plan.length - 6} more phases`);
+      if (planCount > 5) bullets.push(`+${planCount - 5} more phases`);
+    } else if (riskCount > 0) {
+      s.risks.slice(0, 5).forEach((r) => {
+        const raw = r as unknown as Record<string, unknown>;
+        const label = firstString(r.title, raw["text"], r.description);
+        bullets.push(
+          `[${r.severity}] ${clip(label || "(unlabelled risk)", 90)}`,
+        );
+      });
+      if (riskCount > 5) bullets.push(`+${riskCount - 5} more`);
+    } else if (hasArchitecture) {
+      const ov = s.architecture.overview?.trim() ?? "";
+      // Skip raw Go map-serialized strings (LLM formatting artefacts).
+      if (ov && !ov.startsWith("[map[") && !ov.startsWith("map[")) {
+        bullets.push(clip(ov, 240));
       }
-      return items.join("\n");
     }
 
-    if (s.risks?.length) {
-      const items = s.risks.slice(0, 5).map((r) => {
-        // Backend Risk struct uses 'text' field; frontend type uses 'title'.
-        const raw = r as unknown as Record<string, string>;
-        const label =
-          r.title || raw["text"] || r.description?.slice(0, 60) || "";
-        return `\u2022 [${r.severity}] ${label}`;
-      });
-      if (s.risks.length > 5) items.push(`  +${s.risks.length - 5} more`);
-      return items.join("\n");
-    }
-
-    const ov = s.architecture?.overview;
-    if (ov) {
-      const trimmed = ov.trimStart();
-      // Skip Go map-serialized strings (raw LLM formatting artefacts).
-      if (trimmed.startsWith("[map[") || trimmed.startsWith("map[")) return "";
-      return trimmed.slice(0, 280);
-    }
-
-    return "";
+    return { headline, bullets };
   }
 
   onMount(async () => {
@@ -446,7 +514,8 @@
             position={i + 1}
             status={stageStatuses[i] ?? "waiting"}
             output={stageOutputText(agent)}
-            summary={stageSummaryText(agent)}
+            summary={stageSummary(agent).headline}
+            summaryBullets={stageSummary(agent).bullets}
             pipelineRunning={$sessionStore.loading}
             previewRunning={previewRunningMap[agent.id] ?? false}
             preview={previewMap[agent.id]}

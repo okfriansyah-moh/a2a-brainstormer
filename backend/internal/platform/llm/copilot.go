@@ -16,11 +16,16 @@ import (
 const DefaultCopilotEndpoint = "https://api.githubcopilot.com/chat/completions"
 
 // defaultHTTPTimeout guards against hanging LLM calls.
-const defaultHTTPTimeout = 90 * time.Second
+// Long-form document generation (≥1000 lines of Markdown) routinely
+// takes 3–8 minutes on `gpt-4.1`, so the timeout is set well above the
+// agent-side default. Override per-call via context if a tighter bound
+// is needed.
+const defaultHTTPTimeout = 10 * time.Minute
 
 // maxResponseBytes limits how many bytes we read from the LLM API response
-// body to prevent unbounded memory growth.
-const maxResponseBytes = 1 << 20 // 1 MiB
+// body to prevent unbounded memory growth. 8 MiB comfortably covers a
+// ≥1000-line Markdown document (~80 chars/line on average).
+const maxResponseBytes = 8 << 20 // 8 MiB
 
 // CopilotProvider implements LLMProvider using the GitHub Copilot
 // OpenAI-compatible REST API. It never imports the Copilot SDK directly —
@@ -64,7 +69,7 @@ func (p *CopilotProvider) Generate(ctx context.Context, req LLMRequest) (LLMResp
 			{Role: "user", Content: req.UserMessage},
 		},
 		Temperature:    req.Temperature,
-		ResponseFormat: &copilotResponseFormat{Type: "json_object"},
+		ResponseFormat: responseFormatFor(req.ResponseFormat),
 	})
 	if err != nil {
 		return LLMResponse{}, fmt.Errorf("copilot.Generate: marshal request: %w", err)
@@ -125,6 +130,17 @@ type copilotMessage struct {
 // copilotResponseFormat requests structured JSON output from the model.
 type copilotResponseFormat struct {
 	Type string `json:"type"` // "json_object"
+}
+
+// responseFormatFor converts the provider-agnostic LLMRequest.ResponseFormat
+// hint into the Copilot wire field. Empty and "text" produce free-form output
+// (no response_format header sent — required for Markdown / prose tasks).
+// Only "json_object" enables structured JSON mode.
+func responseFormatFor(hint string) *copilotResponseFormat {
+	if hint == "json_object" {
+		return &copilotResponseFormat{Type: "json_object"}
+	}
+	return nil
 }
 
 type copilotResponse struct {

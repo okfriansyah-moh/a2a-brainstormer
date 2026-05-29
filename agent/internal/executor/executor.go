@@ -59,16 +59,40 @@ type LLMConfig struct {
 }
 
 // BrainstormExecutor implements a2asrv.AgentExecutor.
-// It extracts a BrainstormPayload from the incoming A2A message, calls the
-// injected LLMProvider, and emits the updated CanonicalState as a DataPart.
+// It extracts a BrainstormPayload from the incoming A2A message, selects the
+// appropriate LLMProvider based on payload.LLMConfig.Provider, and emits the
+// updated CanonicalState as a DataPart artifact.
+//
+// Provider resolution order:
+//  1. Look up payload.LLMConfig.Provider in the providers map.
+//  2. If not found (or providers is nil), use fallback.
+//
+// This allows each agent in the DB to declare its own provider (e.g. opencode)
+// while the agent binary gracefully falls back to copilot when that provider
+// is unavailable at runtime.
 type BrainstormExecutor struct {
-	llm    llm.LLMProvider
-	logger *slog.Logger
+	providers map[string]llm.LLMProvider // keyed by provider name, e.g. "copilot", "opencode"
+	fallback  llm.LLMProvider            // used when providers is nil or key not found
+	logger    *slog.Logger
 }
 
-// New constructs a BrainstormExecutor. llmProvider must be non-nil.
-func New(llmProvider llm.LLMProvider, logger *slog.Logger) *BrainstormExecutor {
-	return &BrainstormExecutor{llm: llmProvider, logger: logger}
+// New constructs a BrainstormExecutor.
+//
+// providers maps provider names to LLMProvider implementations; may be nil.
+// fallback is used when the payload's provider is not in the map; must be non-nil.
+func New(providers map[string]llm.LLMProvider, fallback llm.LLMProvider, logger *slog.Logger) *BrainstormExecutor {
+	return &BrainstormExecutor{providers: providers, fallback: fallback, logger: logger}
+}
+
+// resolveProvider returns the LLMProvider to use for a given provider name.
+// Falls back to e.fallback when name is empty or not in the providers map.
+func (e *BrainstormExecutor) resolveProvider(name string) llm.LLMProvider {
+	if name != "" && e.providers != nil {
+		if p, ok := e.providers[name]; ok {
+			return p
+		}
+	}
+	return e.fallback
 }
 
 // Compile-time interface assertion.
@@ -143,8 +167,14 @@ func (e *BrainstormExecutor) Execute(
 				slog.String("provider", payload.LLMConfig.Provider),
 			)
 		}
-		resp, err := e.llm.Generate(ctx, llm.LLMRequest{
-			SystemPrompt: payload.SystemPrompt,
+		// Select provider from payload config; fall back to the default when the
+		// requested provider is not available (e.g. opencode not running).
+		activeLLM := e.resolveProvider(payload.LLMConfig.Provider)
+		if activeLLM == nil {
+			activeLLM = e.fallback
+		}
+		resp, err := activeLLM.Generate(ctx, llm.LLMRequest{
+			SystemPrompt: payload.SystemPrompt + requiredOutputStructurePrompt,
 			UserMessage:  userMessage,
 			Temperature:  0.15,
 		})

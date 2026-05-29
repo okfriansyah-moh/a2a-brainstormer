@@ -89,7 +89,7 @@ func TestExecute_SuccessSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	exec := New(&mockLLMProvider{response: string(respJSON)}, nil)
+	exec := New(nil, &mockLLMProvider{response: string(respJSON)}, nil)
 	payload := BrainstormPayload{
 		Role:         "build",
 		SystemPrompt: "You are a brainstorm agent.",
@@ -133,7 +133,7 @@ func TestExecute_SuccessSequence(t *testing.T) {
 
 func TestExecute_NewTask_EmitsSubmittedTask(t *testing.T) {
 	respJSON, _ := json.Marshal(map[string]any{})
-	exec := New(&mockLLMProvider{response: string(respJSON)}, nil)
+	exec := New(nil, &mockLLMProvider{response: string(respJSON)}, nil)
 	payload := BrainstormPayload{Role: "review", SystemPrompt: "Review."}
 
 	execCtx := makeExecCtx(payload)
@@ -150,7 +150,7 @@ func TestExecute_NewTask_EmitsSubmittedTask(t *testing.T) {
 
 func TestExecute_StoredTask_DoesNotEmitSubmittedTask(t *testing.T) {
 	respJSON, _ := json.Marshal(map[string]any{})
-	exec := New(&mockLLMProvider{response: string(respJSON)}, nil)
+	exec := New(nil, &mockLLMProvider{response: string(respJSON)}, nil)
 	payload := BrainstormPayload{Role: "review", SystemPrompt: "Review."}
 
 	execCtx := makeExecCtx(payload)
@@ -166,7 +166,7 @@ func TestExecute_StoredTask_DoesNotEmitSubmittedTask(t *testing.T) {
 }
 
 func TestExecute_LLMError_EmitsFailed(t *testing.T) {
-	exec := New(&mockLLMProvider{err: errors.New("LLM unavailable")}, nil)
+	exec := New(nil, &mockLLMProvider{err: errors.New("LLM unavailable")}, nil)
 	payload := BrainstormPayload{
 		Role:         "review",
 		SystemPrompt: "Review the state.",
@@ -180,7 +180,7 @@ func TestExecute_LLMError_EmitsFailed(t *testing.T) {
 }
 
 func TestExecute_NonJSONLLMResponse_EmitsFailed(t *testing.T) {
-	exec := New(&mockLLMProvider{response: "not valid json {"}, nil)
+	exec := New(nil, &mockLLMProvider{response: "not valid json {"}, nil)
 	payload := BrainstormPayload{
 		Role:         "refine",
 		SystemPrompt: "Refine the state.",
@@ -195,7 +195,7 @@ func TestExecute_NonJSONLLMResponse_EmitsFailed(t *testing.T) {
 }
 
 func TestExecute_EmptyMessage_EmitsFailed(t *testing.T) {
-	exec := New(&mockLLMProvider{}, nil)
+	exec := New(nil, &mockLLMProvider{}, nil)
 	execCtx := &a2asrv.ExecutorContext{
 		TaskID:  a2a.NewTaskID(),
 		Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("no data part here")),
@@ -209,7 +209,7 @@ func TestExecute_EmptyMessage_EmitsFailed(t *testing.T) {
 }
 
 func TestCancel_EmitsCanceled(t *testing.T) {
-	exec := New(&mockLLMProvider{}, nil)
+	exec := New(nil, &mockLLMProvider{}, nil)
 	execCtx := &a2asrv.ExecutorContext{TaskID: a2a.NewTaskID()}
 
 	var events []a2a.Event
@@ -291,7 +291,7 @@ func TestExecute_UserMessageContainsJSON(t *testing.T) {
 	respJSON, _ := json.Marshal(updatedState)
 
 	provider := &capturingLLMProvider{response: string(respJSON)}
-	exec := New(provider, nil)
+	exec := New(nil, provider, nil)
 	payload := BrainstormPayload{
 		Role:         "build",
 		SystemPrompt: "You are an agent.", // intentionally no "json" here
@@ -303,5 +303,47 @@ func TestExecute_UserMessageContainsJSON(t *testing.T) {
 	if !strings.Contains(strings.ToLower(provider.captured.UserMessage), "json") {
 		t.Errorf("user message must contain the word 'json' to satisfy response_format=json_object; got: %q",
 			provider.captured.UserMessage)
+	}
+}
+
+// TestExecute_ProviderSelection verifies that the executor routes to the
+// provider named in payload.LLMConfig.Provider and falls back to the default
+// when the name is not in the map.
+func TestExecute_ProviderSelection(t *testing.T) {
+	copilotResp, _ := json.Marshal(map[string]any{"metrics": map[string]any{"confidence": 0.5}})
+	openCodeResp, _ := json.Marshal(map[string]any{"metrics": map[string]any{"confidence": 0.9}})
+
+	copilotProvider := &capturingLLMProvider{response: string(copilotResp)}
+	openCodeProvider := &capturingLLMProvider{response: string(openCodeResp)}
+
+	providers := map[string]llm.LLMProvider{
+		"copilot":  copilotProvider,
+		"opencode": openCodeProvider,
+	}
+	exec := New(providers, copilotProvider, nil)
+
+	// Request with provider=opencode → opencode provider should be used.
+	payload := BrainstormPayload{
+		Role:      "build",
+		LLMConfig: LLMConfig{Provider: "opencode"},
+		State:     map[string]any{},
+	}
+	_, _ = collectEvents(exec, makeExecCtx(payload))
+	if openCodeProvider.captured.UserMessage == "" {
+		t.Error("opencode provider should have been called for provider=opencode payload")
+	}
+	if copilotProvider.captured.UserMessage != "" {
+		t.Error("copilot provider should NOT have been called when opencode is specified")
+	}
+
+	// Reset captures.
+	copilotProvider.captured = llm.LLMRequest{}
+	openCodeProvider.captured = llm.LLMRequest{}
+
+	// Request with unknown provider → fallback (copilot) should be used.
+	payload.LLMConfig.Provider = "unknown-provider"
+	_, _ = collectEvents(exec, makeExecCtx(payload))
+	if copilotProvider.captured.UserMessage == "" {
+		t.Error("copilot (fallback) should have been called for unknown provider name")
 	}
 }

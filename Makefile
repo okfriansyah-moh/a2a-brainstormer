@@ -4,7 +4,7 @@ SCALE ?= 2
         docker-up docker-down docker-restart docker-ps \
         docker-logs docker-logs-postgres docker-logs-backend docker-logs-agent docker-logs-frontend \
         docker-scale \
-        opencode-up opencode-down opencode-auth opencode-status opencode-logs \
+        opencode-up opencode-down opencode-auth opencode-auth-check opencode-status opencode-logs \
         migrate test frontend frontend-build lint check
 
 ifneq (,$(wildcard .env))
@@ -70,7 +70,7 @@ opencode-up:
 ## opencode-auth: One-time GitHub Copilot OAuth via the running OpenCode server.
 ## Run once after the first `make opencode-up`, then restart the agent.
 opencode-auth:
-	docker compose --profile opencode exec -it opencode opencode providers login
+	docker compose --profile opencode exec -it opencode sh -c "opencode providers login"
 
 ## opencode-down: Stop the OpenCode container (keeps the auth token volume intact)
 opencode-down:
@@ -83,6 +83,10 @@ opencode-logs:
 ## opencode-status: Check whether the OpenCode server is healthy
 opencode-status:
 	curl -sf http://localhost:4096/global/health | jq .
+
+## opencode-auth-check: Show currently stored credentials (0 = not authenticated)
+opencode-auth-check:
+	docker compose --profile opencode exec opencode sh -c "opencode providers list"
 
 # ── Database ─────────────────────────────────────────────────────────────────
 migrate:

@@ -35,6 +35,11 @@ func sampleState() state.CanonicalState {
 	}
 }
 
+// expectedSlug returns the slug-based filename prefix for sampleState.
+func expectedSlug() string {
+	return "a-brainstorm-tool-for-autonomous-agents"
+}
+
 // ── WriteArtifacts ──────────────────────────────────────────────────────────
 
 func TestWriteArtifacts_CreatesFiles(t *testing.T) {
@@ -45,7 +50,8 @@ func TestWriteArtifacts_CreatesFiles(t *testing.T) {
 		t.Fatalf("WriteArtifacts returned error: %v", err)
 	}
 
-	for _, name := range []string{"architecture.md", "roadmap.md"} {
+	for _, suffix := range []string{"architecture.md", "roadmap.md"} {
+		name := expectedSlug() + "_" + suffix
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -80,60 +86,40 @@ func TestWriter_WriteArtifacts(t *testing.T) {
 	if err := w.WriteArtifacts(s, dir); err != nil {
 		t.Fatalf("Writer.WriteArtifacts: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "architecture.md")); err != nil {
-		t.Errorf("architecture.md not found after Writer.WriteArtifacts: %v", err)
+	expected := filepath.Join(dir, expectedSlug()+"_architecture.md")
+	if _, err := os.Stat(expected); err != nil {
+		t.Errorf("expected file not found after Writer.WriteArtifacts: %v", err)
 	}
 }
 
-// ── GenerateContent ──────────────────────────────────────────────────────────
+// ── Title shape (§8.23: idea text must NOT appear in H1 by itself) ───────────
 
-func TestGenerateContent_ReturnsBothStrings(t *testing.T) {
+func TestGenerateArchitecture_TitleShape(t *testing.T) {
 	s := sampleState()
-	arch, roadmap, err := GenerateContent(s)
+	out, err := GenerateArchitecture(s)
 	if err != nil {
-		t.Fatalf("GenerateContent returned error: %v", err)
+		t.Fatalf("GenerateArchitecture: %v", err)
 	}
-	if !strings.Contains(arch, "# Architecture") {
-		t.Errorf("expected arch to contain '# Architecture', got:\n%s", arch)
+	firstLine := strings.SplitN(out, "\n", 2)[0]
+	if !strings.HasPrefix(firstLine, "# ") {
+		t.Fatalf("expected H1 prefix, got %q", firstLine)
 	}
-	if !strings.Contains(roadmap, "Roadmap") {
-		t.Errorf("expected roadmap to contain 'Roadmap', got:\n%s", roadmap)
+	if !strings.HasSuffix(firstLine, " — Architecture") {
+		t.Errorf("expected H1 to end with ' — Architecture', got %q", firstLine)
 	}
 }
 
-func TestGenerateContent_MatchesIndividualFunctions(t *testing.T) {
-	// GenerateArchitecture uses map[string]any whose iteration order is
-	// non-deterministic, so we cannot compare exact strings. Instead verify
-	// that the same key content is present in both outputs.
+func TestGenerateReadme_DescriptionAppearsBoundedTimes(t *testing.T) {
 	s := sampleState()
-
-	arch, _, err := GenerateContent(s)
+	out, err := GenerateReadme(s)
 	if err != nil {
-		t.Fatalf("GenerateContent returned error: %v", err)
+		t.Fatalf("GenerateReadme: %v", err)
 	}
-
-	// Both outputs must contain the same sentinel values from sampleState.
-	for _, want := range []string{
-		"# Architecture",
-		"A brainstorm tool for autonomous agents",
-		"Go modular monolith",
-	} {
-		if !strings.Contains(arch, want) {
-			t.Errorf("GenerateContent arch: expected %q in output, got:\n%s", want, arch)
-		}
+	count := strings.Count(out, "A brainstorm tool for autonomous agents")
+	if count == 0 {
+		t.Errorf("expected idea text to appear at least once, got 0")
 	}
-}
-
-func TestWriter_GenerateContent(t *testing.T) {
-	s := sampleState()
-	arch, roadmap, err := GenerateContent(s)
-	if err != nil {
-		t.Fatalf("GenerateContent returned error: %v", err)
-	}
-	if arch == "" {
-		t.Error("expected non-empty arch from GenerateContent")
-	}
-	if roadmap == "" {
-		t.Error("expected non-empty roadmap from GenerateContent")
+	if count > 3 {
+		t.Errorf("expected idea text to appear ≤ 3 times (no padding loop), got %d", count)
 	}
 }

@@ -25,10 +25,12 @@ import (
 	agentmod "a2a-brainstorm/backend/internal/modules/agent"
 	itermod "a2a-brainstorm/backend/internal/modules/iteration"
 	"a2a-brainstorm/backend/internal/modules/markdown"
+	"a2a-brainstorm/backend/internal/modules/markdown/aigen"
 	sessmod "a2a-brainstorm/backend/internal/modules/session"
 	"a2a-brainstorm/backend/internal/platform/config"
 	"a2a-brainstorm/backend/internal/platform/db"
 	platformHTTP "a2a-brainstorm/backend/internal/platform/http"
+	"a2a-brainstorm/backend/internal/platform/llm"
 	"a2a-brainstorm/backend/internal/platform/logger"
 	"a2a-brainstorm/backend/internal/platform/sse"
 )
@@ -76,7 +78,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 
 	// ── Markdown writer ─────────────────────────────────────────────────────
 	outputDir := config.GetOutputDir()
-	mdWriter := &markdown.Writer{}
+	mdWriter := buildMarkdownWriter(ctx, log.Slog())
 
 	// ── Handlers ────────────────────────────────────────────────────────────
 	agentHandler := agentmod.NewHandler(agentSvc, log.Slog())
@@ -129,4 +131,69 @@ func run(ctx context.Context, log *logger.Logger) error {
 		return err
 	}
 	return <-errCh
+}
+
+// buildMarkdownWriter constructs the session-handler markdownWriter dependency.
+// In deterministic mode (or when prerequisites for the AI path are missing) it
+// returns the historical *markdown.Writer. Otherwise it returns an Orchestrator
+// wired to an AI generator backed by the global LLMProvider and the configured
+// skill bundle.
+func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.MarkdownWriter {
+	mode := markdown.ParseFinalizeMode(config.GetFinalizeMode())
+	if mode == markdown.FinalizeModeDeterministic {
+		return &markdown.Writer{}
+	}
+
+	credRef := config.GetGlobalLLMCredentialRef()
+	if credRef == "" {
+		log.Warn("aigen_fallback",
+			slog.String("reason", "no global LLM credential configured"),
+			slog.String("mode", string(mode)),
+		)
+		return &markdown.Writer{}
+	}
+
+	bundle, err := aigen.LoadBundle(os.DirFS("."), config.GetSkillBundlePaths())
+	if err != nil {
+		if mode == markdown.FinalizeModeAI {
+			// In strict AI mode do NOT fall back to the deterministic writer —
+			// the operator explicitly opted in to AI-only generation. Proceed
+			// with an empty skill bundle so the generator still runs; the AI
+			// will produce output based on canonical-state context alone.
+			log.Warn("aigen_skill_load_partial",
+				slog.String("reason", "skill files unavailable — AI generation continues with empty bundle"),
+				slog.Any("error", err),
+			)
+			bundle = aigen.SkillBundle{}
+		} else {
+			log.Warn("aigen_fallback",
+				slog.String("reason", "failed to load skill bundle"),
+				slog.Any("error", err),
+			)
+			return &markdown.Writer{}
+		}
+	}
+
+	llmCfg := llm.LLMConfig{
+		Provider:      config.GetGlobalLLMProvider(),
+		Model:         config.GetGlobalLLMModel(),
+		CredentialRef: credRef,
+	}
+	provider := llm.NewCopilotProvider(llmCfg, "", nil)
+
+	aiMode := aigen.ModeHybrid
+	if mode == markdown.FinalizeModeAI {
+		aiMode = aigen.ModeAI
+	}
+
+	gen := aigen.New(
+		provider,
+		bundle,
+		config.GetAIDocMaxRepairs(),
+		config.GetAIDocTemperature(),
+		aiMode,
+		log,
+	)
+	_ = ctx // reserved for future cancellation wiring
+	return markdown.NewOrchestrator(mode, gen)
 }

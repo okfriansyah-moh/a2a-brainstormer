@@ -8,15 +8,17 @@ import (
 	"a2a-brainstorm/backend/internal/modules/state"
 )
 
-func TestGenerateRoadmap_MinLines(t *testing.T) {
+func TestGenerateRoadmap_NonEmpty(t *testing.T) {
 	s := sampleState()
 	got, err := GenerateRoadmap(s)
 	if err != nil {
 		t.Fatalf("GenerateRoadmap returned error: %v", err)
 	}
-	lines := strings.Count(got, "\n") + 1
-	if lines < 1000 {
-		t.Errorf("expected ≥ 1000 lines, got %d", lines)
+	if got == "" {
+		t.Fatal("expected non-empty output")
+	}
+	if !strings.Contains(got, " — Roadmap") {
+		t.Errorf("expected '— Roadmap' in title")
 	}
 }
 

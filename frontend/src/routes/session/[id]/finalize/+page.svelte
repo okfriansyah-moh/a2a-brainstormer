@@ -19,7 +19,14 @@
   /** Document key → generated artifact. Populated after generation. */
   let documents: Record<string, GeneratedDocument> = {};
   /** The doc keys the user wants to generate for this finalize call. */
-  let selectedDocs: string[] = ["architecture", "roadmap"];
+  let selectedDocs: string[] = ["architecture", "roadmap", "plan", "readme"];
+  /** All available document types — single source of truth for the picker. */
+  const ALL_DOCS = [
+    { key: "architecture", label: "Architecture" },
+    { key: "roadmap", label: "Roadmap" },
+    { key: "plan", label: "Plan" },
+    { key: "readme", label: "README" },
+  ];
   /** Per-document copied state for clipboard feedback. */
   let copiedDoc: Record<string, boolean> = {};
   /** Overall doc generation status (applied to all docs uniformly). */
@@ -74,10 +81,12 @@
   // ── Generate flow ────────────────────────────────────────────────────────
   async function generate() {
     const sid = $page.params.id;
-    if (!sid || generating || generated) return;
+    if (!sid || generating || selectedDocs.length === 0) return;
     error = "";
     generating = true;
     docStatus = "generating";
+    // Allow re-running on an already-finalized session.
+    generated = false;
 
     try {
       // Run animation and API call in parallel; show content when both finish
@@ -89,6 +98,7 @@
       documents = resp.documents ?? {};
       docStatus = "done";
       generated = true;
+      alreadyFinalized = true;
     } catch (err) {
       error = err instanceof Error ? err.message : "Generation failed.";
       docStatus = "pending";
@@ -170,10 +180,16 @@
     }
 
     if (session?.status === "approved") {
-      // Session was previously finalized — reload the markdown without animation
+      // Session was previously finalized — reload the markdown without animation.
+      // The user can still re-select documents and regenerate from this page.
       alreadyFinalized = true;
       docStatus = "generating";
-      selectedDocs = session.output_docs ?? ["architecture", "roadmap"];
+      // Preserve the previously chosen docs in the picker so the user sees
+      // exactly what's loaded; they can tick more boxes and regenerate.
+      selectedDocs =
+        session.output_docs && session.output_docs.length > 0
+          ? session.output_docs
+          : ALL_DOCS.map((d) => d.key);
       try {
         const resp = await finalizeSession(sid);
         documents = resp.documents ?? {};
@@ -187,12 +203,20 @@
         docStatus = "pending";
       }
     } else if (session?.status === "converged") {
-      // Arrived from the workspace after iterating — auto-trigger generation
-      selectedDocs = session.output_docs ?? ["architecture", "roadmap"];
-      generate();
+      // Arrived from the workspace after iterating — DO NOT auto-trigger.
+      // The user must explicitly select documents and click Generate so they
+      // can choose all four (architecture, roadmap, plan, readme) instead of
+      // being locked into the session's stored default.
+      selectedDocs =
+        session.output_docs && session.output_docs.length > 0
+          ? session.output_docs
+          : ALL_DOCS.map((d) => d.key);
     } else {
       // Active session: seed selectedDocs from stored session value
-      selectedDocs = session?.output_docs ?? ["architecture", "roadmap"];
+      selectedDocs =
+        session?.output_docs && session.output_docs.length > 0
+          ? session.output_docs
+          : ALL_DOCS.map((d) => d.key);
     }
   });
 </script>
@@ -203,18 +227,20 @@
 
 <div class="artboard">
   <!-- ── Page header ───────────────────────────────────────────────────── -->
-  <div class="fin-topbar">
-    <div>
-      <div class="fin-title">
+  <div class="topbar session-topbar">
+    <div class="fin-head">
+      <div class="topbar-title">
         {#if session}
-          {session.idea}
+          {session.idea.length > 80
+            ? session.idea.slice(0, 77) + "…"
+            : session.idea}
         {:else if pageLoading}
           Loading session…
         {:else}
           Finalize Session
         {/if}
       </div>
-      <div class="fin-subtitle">
+      <div class="topbar-subtitle">
         {#if alreadyFinalized}
           Session complete — previously generated documents
         {:else if generated}
@@ -230,7 +256,7 @@
         {/if}
       </div>
     </div>
-    <div class="fin-nav">
+    <div class="fin-topbar-actions">
       {#if alreadyFinalized}
         <span class="chip-ok fin-status-chip">Already finalized</span>
       {/if}
@@ -242,36 +268,51 @@
           goto(`/session/${sessionId}`);
         }}>← Back to Session</a
       >
-      <a
-        href="/history"
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto("/history");
-        }}>Session History</a
-      >
     </div>
   </div>
 
-  {#if error}
-    <div class="feedback-error" role="alert">{error}</div>
-  {/if}
+  <div class="fin-body">
+    {#if error}
+      <div class="feedback-error" role="alert">{error}</div>
+    {/if}
 
-  {#if pageLoading}
-    <p class="loading-msg">Loading session…</p>
-  {:else}
-    <!-- ── Generate button (shown when not yet generated) ─────────────── -->
-    {#if !generated && !alreadyFinalized}
+    {#if pageLoading}
+      <p class="loading-msg">Loading session…</p>
+    {:else}
+      <!-- ── Generate / Regenerate selector (always visible) ──────────── -->
       <div class="fin-cta">
         <!-- Docs selector -->
-        <div style="margin-bottom:14px;">
+        <div style="margin-bottom:14px;width:100%;">
           <div
-            style="font-weight:600;font-size:0.8125rem;margin-bottom:7px;color:var(--ink-900);"
+            style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;"
           >
-            Documents to Generate
+            <div
+              style="font-weight:600;font-size:0.8125rem;color:var(--ink-900);"
+            >
+              {alreadyFinalized
+                ? "Documents — re-select to regenerate with AI"
+                : "Documents to Generate"}
+            </div>
+            <div style="display:flex;gap:10px;">
+              <button
+                type="button"
+                class="btn-soft"
+                style="font-size:0.75rem;padding:3px 10px;"
+                disabled={generating}
+                on:click={() => (selectedDocs = ALL_DOCS.map((d) => d.key))}
+                >Select all</button
+              >
+              <button
+                type="button"
+                class="btn-soft"
+                style="font-size:0.75rem;padding:3px 10px;"
+                disabled={generating}
+                on:click={() => (selectedDocs = [])}>Clear</button
+              >
+            </div>
           </div>
           <div style="display:flex;gap:20px;flex-wrap:wrap;">
-            {#each [{ key: "architecture", label: "Architecture" }, { key: "roadmap", label: "Roadmap" }, { key: "plan", label: "Plan" }, { key: "readme", label: "README" }] as doc (doc.key)}
+            {#each ALL_DOCS as doc (doc.key)}
               <label
                 style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.875rem;"
               >
@@ -279,6 +320,7 @@
                   type="checkbox"
                   value={doc.key}
                   checked={selectedDocs.includes(doc.key)}
+                  disabled={generating}
                   on:change={(e) => {
                     if ((e.target as HTMLInputElement).checked) {
                       selectedDocs = [...selectedDocs, doc.key];
@@ -298,157 +340,178 @@
           on:click={generate}
         >
           {#if generating}
-            Generating…
+            {alreadyFinalized ? "Regenerating…" : "Generating…"}
+          {:else if alreadyFinalized}
+            Regenerate Selected Documents
           {:else}
             Generate Documents
           {/if}
         </button>
         <p class="fin-cta-hint">
-          This will finalize the session and produce the selected documents.
+          {#if alreadyFinalized}
+            Runs the AI agent (with skills) to rewrite each selected document.
+            Existing documents stay until the new run completes.
+          {:else}
+            Finalizes the session and runs the AI agent (with skills) to
+            generate the selected documents.
+          {/if}
         </p>
       </div>
-    {/if}
 
-    <!-- ── Markdown Generator log panel ──────────────────────────────── -->
-    {#if generating || generated || alreadyFinalized}
-      <div class="panel gen-panel">
-        <div class="gen-panel-head">
-          <div class="gen-panel-title">Markdown Generator</div>
-          <span class="gen-badge {logBadgeDone ? 'gen-done' : 'gen-running'}">
-            {logBadgeDone ? "✓ Done" : "⟳ Generating"}
-          </span>
-        </div>
-        <div class="gen-log">
-          {#each logLines as line}
-            <div class="gen-entry gen-done-line">{line}</div>
-          {/each}
-          {#if runningLine}
-            <div class="gen-entry gen-running-line">
-              <span class="dots">{runningLine}</span>
-            </div>
-          {/if}
-          {#if !runningLine && !logDone && !alreadyFinalized && (generating || generated)}
-            <div class="gen-entry gen-running-line">
-              <span class="dots">Initializing…</span>
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
-
-    <!-- ── Output file cards ─────────────────────────────────────────── -->
-    {#if generating || generated || alreadyFinalized}
-      <div class="output-grid">
-        {#each Object.entries(documents) as [key, doc] (key)}
-          <div class="output-card">
-            <div class="output-head">
-              <div class="output-file">{doc.filename}</div>
-              <span class={statusClass(docStatus)}
-                >{statusLabel(docStatus)}</span
-              >
-            </div>
-            <div class="output-desc">{doc.line_count} lines</div>
-            <div class="output-preview">
-              {#if doc.content}
-                {doc.content}
-              {:else}
-                Waiting…
-              {/if}
-            </div>
-            <div class="output-actions">
-              <button
-                class="btn-soft"
-                disabled={!doc.content}
-                on:click={() => copyToClipboard(doc.content, key)}
-              >
-                {copiedDoc[key] ? "Copied!" : "Copy"}
-              </button>
-              <button
-                class="btn-soft"
-                disabled={!doc.content}
-                on:click={() => downloadFile(doc.content, doc.filename)}
-              >
-                Download
-              </button>
-            </div>
+      <!-- ── Markdown Generator log panel ──────────────────────────────── -->
+      {#if generating || generated || alreadyFinalized}
+        <div class="panel gen-panel">
+          <div class="gen-panel-head">
+            <div class="gen-panel-title">Markdown Generator</div>
+            <span class="gen-badge {logBadgeDone ? 'gen-done' : 'gen-running'}">
+              {logBadgeDone ? "✓ Done" : "⟳ Generating"}
+            </span>
           </div>
-        {:else}
-          {#if generating}
-            <div
-              class="output-card"
-              style="grid-column:1/-1;text-align:center;color:var(--ink-500);"
-            >
-              Generating documents…
-            </div>
-          {/if}
-        {/each}
-      </div>
-    {/if}
+          <div class="gen-log">
+            {#each logLines as line}
+              <div class="gen-entry gen-done-line">{line}</div>
+            {/each}
+            {#if runningLine}
+              <div class="gen-entry gen-running-line">
+                <span class="dots">{runningLine}</span>
+              </div>
+            {/if}
+            {#if !runningLine && !logDone && !alreadyFinalized && (generating || generated)}
+              <div class="gen-entry gen-running-line">
+                <span class="dots">Initializing…</span>
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/if}
 
-    <!-- ── Done bar ───────────────────────────────────────────────────── -->
-    {#if generated || alreadyFinalized}
-      <div class="panel run-bar">
-        <div class="run-left">
-          <button class="btn-primary" on:click={downloadAll}>
-            Download All
-          </button>
-          <a
-            href="/"
-            class="btn-ghost"
-            on:click={(e) => {
-              e.preventDefault();
-              goto("/");
-            }}>New Session</a
-          >
+      <!-- ── Output file cards ─────────────────────────────────────────── -->
+      {#if generating || generated || alreadyFinalized}
+        <div class="output-grid">
+          {#each Object.entries(documents) as [key, doc] (key)}
+            <div class="output-card">
+              <div class="output-head">
+                <div class="output-file">{doc.filename}</div>
+                <span class={statusClass(docStatus)}
+                  >{statusLabel(docStatus)}</span
+                >
+              </div>
+              <div class="output-desc">
+                {doc.line_count} lines
+                {#if doc.source === "ai"}
+                  <span class="src-badge src-ai" title="Rewritten by AI"
+                    >✦ AI-generated</span
+                  >
+                {:else if doc.source === "ai_fallback"}
+                  <span
+                    class="src-badge src-fallback"
+                    title="AI pass failed — deterministic scaffold returned"
+                    >⚠ AI fallback (template)</span
+                  >
+                {:else if doc.source === "deterministic"}
+                  <span
+                    class="src-badge src-det"
+                    title="Template-generated (no AI)">⬡ Template</span
+                  >
+                {/if}
+              </div>
+              <div class="output-preview">
+                {#if doc.content}
+                  {doc.content}
+                {:else}
+                  Waiting…
+                {/if}
+              </div>
+              <div class="output-actions">
+                <button
+                  class="btn-soft"
+                  disabled={!doc.content}
+                  on:click={() => copyToClipboard(doc.content, key)}
+                >
+                  {copiedDoc[key] ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  class="btn-soft"
+                  disabled={!doc.content}
+                  on:click={() => downloadFile(doc.content, doc.filename)}
+                >
+                  Download
+                </button>
+              </div>
+            </div>
+          {:else}
+            {#if generating}
+              <div
+                class="output-card"
+                style="grid-column:1/-1;text-align:center;color:var(--ink-500);"
+              >
+                Generating documents…
+              </div>
+            {/if}
+          {/each}
         </div>
-        <div class="run-status">
-          {Object.keys(documents).length} document{Object.keys(documents)
-            .length !== 1
-            ? "s"
-            : ""} generated successfully.
+      {/if}
+
+      <!-- ── Done bar ───────────────────────────────────────────────────── -->
+      {#if generated || alreadyFinalized}
+        <div class="panel run-bar">
+          <div class="run-left">
+            <button class="btn-primary" on:click={downloadAll}>
+              Download All
+            </button>
+            <a
+              href="/"
+              class="btn-ghost"
+              on:click={(e) => {
+                e.preventDefault();
+                goto("/");
+              }}>New Session</a
+            >
+          </div>
+          <div class="run-status">
+            {Object.keys(documents).length} document{Object.keys(documents)
+              .length !== 1
+              ? "s"
+              : ""} generated successfully.
+          </div>
         </div>
-      </div>
+      {/if}
     {/if}
-  {/if}
+  </div>
 </div>
 
 <style>
   /* ─── Page header ──────────────────────────────────────────────────── */
-  .fin-topbar {
+  .session-topbar {
+    border-radius: 18px 18px 0 0;
+    padding: 0 28px;
+  }
+
+  .fin-head {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    padding: 20px 0 16px;
-    gap: 16px;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    flex: 1;
   }
 
-  .fin-title {
-    font-family: "Space Grotesk", sans-serif;
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--ink-900);
-    line-height: 1.3;
-    max-width: 540px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .fin-subtitle {
-    font-size: 13px;
-    color: var(--ink-500);
-    margin-top: 3px;
-  }
-
-  .fin-nav {
+  .fin-topbar-actions {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 14px;
+    margin-left: auto;
     flex-shrink: 0;
   }
 
   .fin-status-chip {
     font-size: 11px;
+  }
+
+  .fin-body {
+    padding: 20px 28px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   /* ─── CTA ─────────────────────────────────────────────────────────── */
@@ -698,5 +761,32 @@
     100% {
       content: "...";
     }
+  }
+
+  /* ─── Source provenance badge ─────────────────────────────────────── */
+  .src-badge {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 99px;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+  }
+
+  .src-ai {
+    background: rgba(132, 78, 222, 0.12);
+    color: #5b3aa8;
+  }
+
+  .src-fallback {
+    background: rgba(220, 154, 24, 0.14);
+    color: #8a5b00;
+  }
+
+  .src-det {
+    background: var(--bg-1);
+    color: var(--ink-500);
   }
 </style>

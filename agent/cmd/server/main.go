@@ -49,9 +49,10 @@ func main() {
 func run(ctx context.Context, logger *slog.Logger) error {
 	port := config.GetPort()
 
-	// Build LLM provider (copilot by default; opencode when AGENT_LLM_PROVIDER=opencode).
-	// Fails fast if required credentials are absent — security invariant: absent credential → agent unavailable.
-	llmProvider, err := buildLLMProvider(logger)
+	// Build all available LLM providers. copilot is always the fallback.
+	// opencode is added to the map when its credentials are available, but its
+	// absence must NOT prevent the agent from starting — it is optional.
+	providers, fallback, err := buildAllProviders(logger)
 	if err != nil {
 		return fmt.Errorf("startup: %w", err)
 	}
@@ -62,7 +63,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	card := agentpkg.NewAgentCard()
 
 	// Build executor.
-	exec := executor.New(llmProvider, logger)
+	exec := executor.New(providers, fallback, logger)
 
 	// Build A2A request handler and REST transport adapter.
 	handler := a2asrv.NewHandler(exec)
@@ -108,56 +109,75 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	return <-errCh
 }
 
-// buildLLMProvider constructs the LLMProvider selected by AGENT_LLM_PROVIDER.
+// buildAllProviders constructs all available LLMProviders and returns:
+//   - providers: map of provider name → LLMProvider (always includes "copilot")
+//   - fallback: the default LLMProvider to use when the requested name is absent
 //
-// Supported values:
-//   - "opencode" — proxies through a running OpenCode HTTP server instance.
-//   - "copilot" (default) — calls the GitHub Copilot chat completions API directly.
+// copilot is always the fallback. opencode is added to the map only when its
+// credentials are present; a missing opencode credential is a warning, not a
+// fatal error — the agent falls back to copilot transparently.
 //
-// Security invariant: os.Getenv is never called here. All configuration is
-// obtained through agent/internal/config; that package is the sole allowed
-// caller of os.Getenv in this binary.
-func buildLLMProvider(logger *slog.Logger) (llm.LLMProvider, error) {
-	provider := config.GetLLMProvider()
-	logger.Info("LLM provider", slog.String("provider", provider))
+// Security invariant: os.Getenv is never called here; all configuration is
+// obtained through agent/internal/config.
+func buildAllProviders(logger *slog.Logger) (providers map[string]llm.LLMProvider, fallback llm.LLMProvider, err error) {
+	providers = make(map[string]llm.LLMProvider)
 
-	switch provider {
-	case "opencode":
-		model := config.GetOpenCodeModel()
-		parts := strings.SplitN(model, "/", 2)
-		providerID, modelID := "github", "gpt-4o" // safe default
-		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			providerID, modelID = parts[0], parts[1]
-		} else {
-			logger.Warn("AGENT_OPENCODE_MODEL must be 'providerID/modelID'; using default github/gpt-4o",
-				slog.String("value", model),
-			)
-		}
-		// Validate OpenCode credentials are resolvable before starting.
-		usernameRef := config.GetOpenCodeUsernameRef()
-		passwordRef := config.GetOpenCodePasswordRef()
-		if _, err := config.GetLLMAPIKey(usernameRef); err != nil {
-			return nil, fmt.Errorf("OpenCode username credential %q is not set: %w", usernameRef, err)
-		}
-		if _, err := config.GetLLMAPIKey(passwordRef); err != nil {
-			return nil, fmt.Errorf("OpenCode password credential %q is not set: %w", passwordRef, err)
-		}
-		return llm.NewOpenCodeProvider(llm.OpenCodeConfig{
-			BaseURL:     config.GetOpenCodeBaseURL(),
-			ProviderID:  providerID,
-			ModelID:     modelID,
-			UsernameRef: usernameRef,
-			PasswordRef: passwordRef,
-		}, &http.Client{Timeout: config.GetOpenCodeHTTPTimeout()}, config.GetLLMAPIKey), nil
-
-	default: // "copilot" and any unrecognised value
-		credentialRef := config.GetLLMCredentialRef()
-		model := config.GetLLMModel()
-
-		// Fail fast if credential is absent — security invariant: absent credential → agent unavailable.
-		if _, err := config.GetLLMAPIKey(credentialRef); err != nil {
-			return nil, fmt.Errorf("LLM credential %q is not set: set the env var before starting the agent", credentialRef)
-		}
-		return llm.NewCopilotProvider(model, credentialRef, "", nil, config.GetLLMAPIKey), nil
+	// ── copilot (required fallback) ───────────────────────────────────────────
+	copilotProvider, err := buildCopilotProvider()
+	if err != nil {
+		return nil, nil, fmt.Errorf("copilot provider: %w", err)
 	}
+	providers["copilot"] = copilotProvider
+	fallback = copilotProvider
+	logger.Info("LLM provider ready", slog.String("provider", "copilot"))
+
+	// ── opencode (optional) ───────────────────────────────────────────────────
+	opencodeProvider, opencodeErr := buildOpenCodeProvider()
+	if opencodeErr == nil {
+		providers["opencode"] = opencodeProvider
+		logger.Info("LLM provider ready", slog.String("provider", "opencode"))
+	} else {
+		logger.Warn("opencode provider unavailable; requests for provider=opencode will fallback to copilot",
+			slog.String("reason", opencodeErr.Error()),
+		)
+	}
+
+	return providers, fallback, nil
+}
+
+// buildCopilotProvider constructs the GitHub Copilot LLMProvider.
+// Returns an error if the credential env var is absent (security invariant).
+func buildCopilotProvider() (llm.LLMProvider, error) {
+	credentialRef := config.GetLLMCredentialRef()
+	model := config.GetLLMModel()
+	if _, err := config.GetLLMAPIKey(credentialRef); err != nil {
+		return nil, fmt.Errorf("LLM credential %q is not set: set the env var before starting the agent", credentialRef)
+	}
+	return llm.NewCopilotProvider(model, credentialRef, "", nil, config.GetLLMAPIKey), nil
+}
+
+// buildOpenCodeProvider constructs the OpenCode LLMProvider.
+// Returns an error (non-fatal) if credentials are absent or configuration is invalid.
+func buildOpenCodeProvider() (llm.LLMProvider, error) {
+	model := config.GetOpenCodeModel()
+	parts := strings.SplitN(model, "/", 2)
+	providerID, modelID := "github", "gpt-4o" // safe default
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		providerID, modelID = parts[0], parts[1]
+	}
+	usernameRef := config.GetOpenCodeUsernameRef()
+	passwordRef := config.GetOpenCodePasswordRef()
+	if _, err := config.GetLLMAPIKey(usernameRef); err != nil {
+		return nil, fmt.Errorf("OpenCode username credential %q not set", usernameRef)
+	}
+	if _, err := config.GetLLMAPIKey(passwordRef); err != nil {
+		return nil, fmt.Errorf("OpenCode password credential %q not set", passwordRef)
+	}
+	return llm.NewOpenCodeProvider(llm.OpenCodeConfig{
+		BaseURL:     config.GetOpenCodeBaseURL(),
+		ProviderID:  providerID,
+		ModelID:     modelID,
+		UsernameRef: usernameRef,
+		PasswordRef: passwordRef,
+	}, &http.Client{Timeout: config.GetOpenCodeHTTPTimeout()}, config.GetLLMAPIKey), nil
 }
