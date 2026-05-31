@@ -122,24 +122,6 @@
         Manage agents, skills, and roles for the brainstorm pipeline
       </div>
     </div>
-    <nav class="topbar-nav">
-      <a
-        href="/"
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto("/");
-        }}>New Session</a
-      >
-      <a
-        href="/history"
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto("/history");
-        }}>Sessions</a
-      >
-    </nav>
   </div>
 
   <!-- ── Content panel ────────────────────────────────────────────────── -->

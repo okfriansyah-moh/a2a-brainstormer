@@ -43,6 +43,16 @@ func (s *stubAgentProvider) ResolveActiveSkills(_ context.Context, _ string, _ *
 type stubSessionStore struct {
 	states   []state.CanonicalState
 	statuses []string
+	// statusOverride, if non-empty, is returned by GetStatus on every call.
+	// Used in tests that simulate mid-run session approval.
+	statusOverride string
+}
+
+func (s *stubSessionStore) GetStatus(_ context.Context, _ string) (string, error) {
+	if s.statusOverride != "" {
+		return s.statusOverride, nil
+	}
+	return session.StatusActive, nil
 }
 
 func (s *stubSessionStore) UpdateState(_ context.Context, _ string, cs *state.CanonicalState) error {
@@ -134,7 +144,7 @@ func TestEngineConvergence(t *testing.T) {
 		return out, nil
 	}
 
-	eng := NewEngine(mockDispatch, agentProv, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, 10)
 
 	initial := state.CanonicalState{
@@ -209,7 +219,7 @@ func TestEnginePipelineOrder(t *testing.T) {
 		return out, nil
 	}
 
-	eng := NewEngine(mockDispatch, agentProv, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, 5)
 
 	initial := state.CanonicalState{
@@ -270,7 +280,7 @@ func TestEngineMaxIterations(t *testing.T) {
 	}
 
 	const maxIter = 3
-	eng := NewEngine(mockDispatch, agentProv, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, maxIter)
 
 	result, err := eng.Run(context.Background(), sess, state.CanonicalState{
@@ -357,7 +367,7 @@ func TestEngineMetaAgentsPopulated(t *testing.T) {
 		return out, nil
 	}
 
-	eng := NewEngine(mockDispatch, agentProvWithSkills, store, testLogger())
+	eng := NewEngine(mockDispatch, agentProvWithSkills, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, 5)
 
 	result, err := eng.Run(context.Background(), sess, state.CanonicalState{

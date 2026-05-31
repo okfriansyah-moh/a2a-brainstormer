@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { get } from "svelte/store";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -9,8 +9,18 @@
   import ConfidenceBar from "$lib/components/ConfidenceBar.svelte";
   import CanonicalStatePanel from "$lib/components/CanonicalStatePanel.svelte";
   import RiskBoard from "$lib/components/RiskBoard.svelte";
-  import { getSession, getAgents, iterate } from "$lib/services/api";
-  import type { Agent, SessionAgent } from "$lib/types";
+  import {
+    getSession,
+    getAgents,
+    iterate,
+    previewAgent,
+    applyAgentPreview,
+    ApiError,
+  } from "$lib/services/api";
+  import { createSSEClient } from "$lib/services/sse";
+  import { API_BASE } from "$lib/services/api";
+  import type { Agent, PreviewResult, SessionAgent } from "$lib/types";
+  import type { SSEClient } from "$lib/services/sse";
 
   /** True when the backend signals the session has converged. */
   let converged = false;
@@ -21,54 +31,90 @@
   let loadError = "";
   let actionError = "";
 
+  /** Active SSE client — closed on component destroy. */
+  let sseClient: SSEClient | null = null;
+
   /** Controls visibility of the feedback textarea. */
   let showFeedback = false;
   let feedbackText = "";
 
+  /**
+   * Map of agentId → true while a preview dispatch is in flight for that agent.
+   * Used to disable per-agent buttons during the request.
+   */
+  let previewRunningMap: Record<string, boolean> = {};
+
+  /**
+   * Map of agentId → PreviewResult for previews that have been fetched but
+   * not yet applied. Displayed as the "Preview — not committed" banner.
+   */
+  let previewMap: Record<string, PreviewResult> = {};
+
   $: sessionId = $page.params.id;
 
-  /** Confidence as 0–100 integer for ConfidenceBar. */
-  $: confidencePct = Math.round(
-    ($sessionStore.state?.metrics?.confidence ?? 0) * 100,
-  );
+  /**
+   * Confidence as 0–100 integer for ConfidenceBar.
+   * Guard against LLM agents that return confidence already on a 0-100 scale
+   * (e.g. 95) instead of the canonical 0-1 scale — multiply would give 9500%.
+   */
+  $: confidencePct = (() => {
+    const raw = $sessionStore.state?.metrics?.confidence ?? 0;
+    return Math.min(100, Math.round(raw > 1 ? raw : raw * 100));
+  })();
 
   /** Current iteration number (0 before first iteration). */
   $: currentIteration = $sessionStore.state?.meta?.iteration ?? 0;
 
-  /** Derive per-stage status from agents + loading state. */
-  $: stageStatuses = computeStageStatuses(
-    $sessionStore.agents,
-    $sessionStore.loading,
-    currentIteration,
-  );
+  /**
+   * Per-stage status array driven by SSE agentStatuses.
+   *
+   * Primary path: use the live SSE status if present ("running" or "done").
+   *
+   * Inference path (when loading=true and SSE data is available but the
+   * "agent.started" event for the current agent has not arrived yet — e.g.
+   * due to a brief reconnect during a long LLM call):
+   *   - "running" is inferred for the first agent in the ordered list whose
+   *     every preceding agent is already "done".  This correctly advances the
+   *     highlighted stage as agents complete without requiring a perfectly
+   *     gapless SSE stream.
+   *
+   * Fallback path (no SSE data at all): first agent shown as "running".
+   * Post-iteration fallback: all agents shown as "done" once loading clears.
+   */
+  $: stageStatuses = (() => {
+    const hasSSEData = Object.keys($sessionStore.agentStatuses).length > 0;
+    return $sessionStore.agents.map((agent, i) => {
+      const live = $sessionStore.agentStatuses[agent.id];
+      if (live === "running") return "running" as const;
+      if (live === "done") return "done" as const;
 
-  function computeStageStatuses(
-    agents: SessionAgent[],
-    loading: boolean,
-    iteration: number,
-  ): Array<"done" | "running" | "waiting"> {
-    // The backend does not return per-agent outputs — only a single
-    // CanonicalState after the full pipeline pass. After any completed
-    // iteration all agents have contributed, so they are all "done".
-    // While a pass is in flight the first stage is "running"; the rest wait.
-    if (!loading && iteration > 0) {
-      return agents.map(() => "done" as const);
-    }
-    if (loading) {
-      return agents.map((_, i): "running" | "waiting" =>
-        i === 0 ? "running" : "waiting",
-      );
-    }
-    return agents.map(() => "waiting" as const);
-  }
+      if ($sessionStore.loading) {
+        if (hasSSEData) {
+          // Infer "running" when all previous agents are confirmed "done".
+          const allPrevDone = $sessionStore.agents
+            .slice(0, i)
+            .every((a) => $sessionStore.agentStatuses[a.id] === "done");
+          if (allPrevDone) return "running" as const;
+        } else {
+          // No SSE data yet — best-guess: first agent is running.
+          if (i === 0) return "running" as const;
+        }
+      }
 
+      if (!$sessionStore.loading && currentIteration > 0)
+        return "done" as const;
+      return "waiting" as const;
+    });
+  })();
+
+  /**
+   * Short log text for the stage body (shown while running or done).
+   * Emits a compact summary of counts without any raw LLM string dumps.
+   */
   function stageOutputText(agent: SessionAgent): string {
     if (!agent.output) return "";
     const s = agent.output;
     const lines: string[] = [];
-    if (s.architecture?.overview) {
-      lines.push(`Architecture: ${s.architecture.overview}`);
-    }
     if (s.execution_plan?.length) {
       lines.push(`Plan steps: ${s.execution_plan.length}`);
     }
@@ -78,24 +124,144 @@
     if (s.open_questions?.length) {
       lines.push(`Open questions: ${s.open_questions.length}`);
     }
-    return lines.join("\n") || JSON.stringify(s).slice(0, 300);
+    if (s.assumptions?.length) {
+      lines.push(`Assumptions: ${s.assumptions.length}`);
+    }
+    return lines.join("\n");
   }
 
-  function stageSummaryText(agent: SessionAgent): string {
-    if (!agent.output) return "";
-    const ov = agent.output.architecture?.overview;
-    if (ov) return ov.slice(0, 180);
-    const firstStep = agent.output.execution_plan?.[0];
-    if (firstStep) return firstStep.title;
+  /**
+   * Pick the first non-empty string from a list of candidates. Handles raw
+   * LLM payloads where the same field may appear under different keys
+   * (title, name, phase_name, step, action, etc.).
+   */
+  function firstString(...candidates: unknown[]): string {
+    for (const c of candidates) {
+      if (typeof c === "string") {
+        const t = c.trim();
+        if (t.length > 0) return t;
+      }
+    }
     return "";
+  }
+
+  /** Join a list of strings with commas and a final "and". */
+  function joinHuman(parts: string[]): string {
+    if (parts.length === 0) return "";
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+    return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  }
+
+  /** Truncate a label to keep bullet lines readable. */
+  function clip(s: string, max: number): string {
+    return s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
+  }
+
+  /**
+   * Build a human-readable contribution summary for the "Contribution:" block.
+   * Returns a prose headline (always populated when the agent ran) plus an
+   * optional list of bullets. The headline reads like a docs changelog entry.
+   */
+  function stageSummary(agent: SessionAgent): {
+    headline: string;
+    bullets: string[];
+  } {
+    if (!agent.output) return { headline: "", bullets: [] };
+    const s = agent.output;
+
+    const planCount = s.execution_plan?.length ?? 0;
+    const riskCount = s.risks?.length ?? 0;
+    const assumptionCount = s.assumptions?.length ?? 0;
+    const questionCount = s.open_questions?.length ?? 0;
+    const hasArchitecture = !!(
+      s.architecture?.overview ||
+      s.architecture?.components?.length ||
+      s.architecture?.decisions?.length
+    );
+
+    // Build prose phrases describing what changed in this pass.
+    const parts: string[] = [];
+    if (planCount > 0) {
+      parts.push(`a ${planCount}-step execution plan`);
+    }
+    if (hasArchitecture) parts.push("architecture notes");
+    if (riskCount > 0) {
+      parts.push(`${riskCount} risk${riskCount === 1 ? "" : "s"}`);
+    }
+    if (assumptionCount > 0) {
+      parts.push(
+        `${assumptionCount} assumption${assumptionCount === 1 ? "" : "s"}`,
+      );
+    }
+    if (questionCount > 0) {
+      parts.push(
+        `${questionCount} open question${questionCount === 1 ? "" : "s"}`,
+      );
+    }
+
+    const role = agent.role.toLowerCase();
+    let verb = "Contributed";
+    if (role.includes("review") || role.includes("critic")) {
+      verb = "Reviewed the canonical state and added";
+    } else if (role.includes("synth") || role.includes("merge")) {
+      verb = "Synthesised the pass with";
+    } else if (role.includes("build") || role.includes("architect")) {
+      verb = "Drafted";
+    }
+
+    const headline =
+      parts.length === 0
+        ? `${agent.name} ran but produced no new structured findings this pass.`
+        : `${verb} ${joinHuman(parts)} to the canonical state.`;
+
+    // Pick the most informative bullet list: plan steps first, then risks.
+    const bullets: string[] = [];
+    if (planCount > 0) {
+      s.execution_plan.slice(0, 5).forEach((step, idx) => {
+        const raw = step as unknown as Record<string, unknown>;
+        const label = firstString(
+          step.title,
+          raw["name"],
+          raw["phase_name"],
+          raw["step"],
+          raw["action"],
+          raw["task"],
+          step.description,
+        );
+        bullets.push(clip(label || `Step ${idx + 1}`, 110));
+      });
+      if (planCount > 5) bullets.push(`+${planCount - 5} more phases`);
+    } else if (riskCount > 0) {
+      s.risks.slice(0, 5).forEach((r) => {
+        const raw = r as unknown as Record<string, unknown>;
+        const label = firstString(r.title, raw["text"], r.description);
+        bullets.push(
+          `[${r.severity}] ${clip(label || "(unlabelled risk)", 90)}`,
+        );
+      });
+      if (riskCount > 5) bullets.push(`+${riskCount - 5} more`);
+    } else if (hasArchitecture) {
+      const ov = s.architecture.overview?.trim() ?? "";
+      // Skip raw Go map-serialized strings (LLM formatting artefacts).
+      if (ov && !ov.startsWith("[map[") && !ov.startsWith("map[")) {
+        bullets.push(clip(ov, 240));
+      }
+    }
+
+    return { headline, bullets };
   }
 
   onMount(async () => {
     if (!sessionId) return;
     sessionStore.setLoading(true);
     loadError = "";
+    // Track whether the server reports an iteration is actively running so we
+    // can stay in loading mode and watch SSE instead of re-enabling the button.
+    let iterationInFlight = false;
     try {
       const session = await getSession(sessionId);
+      iterationInFlight = session.status === "running";
       sessionStore.setSession(session.id, session.idea);
       maxIterations = session.max_iterations;
       if (session.current_state) {
@@ -143,22 +309,92 @@
       loadError =
         err instanceof Error ? err.message : "Failed to load session.";
     } finally {
-      sessionStore.setLoading(false);
+      // Keep loading=true when an iteration is in-flight — the SSE
+      // iteration.complete event will clear it once the pass finishes.
+      if (!iterationInFlight) {
+        sessionStore.setLoading(false);
+      }
     }
+
+    // Open SSE stream for real-time agent progress events.
+    sseClient = createSSEClient(
+      `${API_BASE}/sessions/${sessionId}/events`,
+      (evt) => {
+        // Once convergence is confirmed, suppress subsequent iteration.start
+        // events that would reset the pipeline UI back to "waiting" for every
+        // internal pass the engine runs beyond the first.
+        if (evt.type === "iteration.start" && converged) return;
+        sessionStore.applyEvent(evt);
+        // Track convergence from SSE so the page updates without a reload.
+        if (evt.type === "iteration.complete") {
+          const d = evt.data as { converged?: boolean } | null;
+          if (d?.converged) converged = true;
+        }
+        if (evt.type === "session.finalized") {
+          converged = true;
+        }
+      },
+    );
+
+    // Fallback: if the backend completed the iteration BEFORE we connected to
+    // SSE (page reload after a run), the iteration.complete event was already
+    // fired and will not be replayed. In that case loading stays permanently
+    // true. Re-fetch the session after a short delay; if the status is no
+    // longer "running" we know the iteration finished and can sync state.
+    if (iterationInFlight) {
+      setTimeout(async () => {
+        if (!get(sessionStore).loading) return; // SSE already resolved it
+        try {
+          const refreshed = await getSession(sessionId);
+          if (refreshed.status !== "running") {
+            if (refreshed.current_state) {
+              sessionStore.updateState(refreshed.current_state);
+            }
+            sessionStore.setLoading(false);
+            if (
+              refreshed.status === "converged" ||
+              refreshed.status === "approved"
+            ) {
+              converged = true;
+            }
+          }
+        } catch {
+          // Best-effort: clear loading so the UI isn't permanently stuck.
+          sessionStore.setLoading(false);
+        }
+      }, 5000);
+    }
+  });
+
+  onDestroy(() => {
+    sseClient?.close();
   });
 
   async function handleNextIteration() {
     if ($sessionStore.loading || !sessionId || converged) return;
     sessionStore.setLoading(true);
     actionError = "";
+    // Clear any local previews — a full pipeline pass supersedes them.
+    previewMap = {};
+    let iterInFlight = false;
     try {
       const result = await iterate(sessionId);
       sessionStore.updateState(result.state);
       converged = result.converged;
     } catch (err) {
-      actionError = err instanceof Error ? err.message : "Iteration failed.";
+      if (err instanceof ApiError && err.status === 409) {
+        // Another iteration is already running. Stay in loading state and let
+        // the SSE iteration.complete event clear it once the pass finishes.
+        iterInFlight = true;
+      } else {
+        actionError = err instanceof Error ? err.message : "Iteration failed.";
+      }
     } finally {
-      sessionStore.setLoading(false);
+      // Only clear loading if the engine isn’t already in-flight. For the 409
+      // case the SSE stream will fire iteration.complete which clears loading.
+      if (!iterInFlight) {
+        sessionStore.setLoading(false);
+      }
     }
   }
 
@@ -179,6 +415,48 @@
     showFeedback = false;
     feedbackText = "";
   }
+
+  async function handlePreviewAgent(agentId: string) {
+    if (!sessionId || $sessionStore.loading || previewRunningMap[agentId])
+      return;
+    previewRunningMap = { ...previewRunningMap, [agentId]: true };
+    actionError = "";
+    try {
+      const result = await previewAgent(sessionId, agentId);
+      previewMap = { ...previewMap, [agentId]: result };
+    } catch (err) {
+      actionError =
+        err instanceof Error ? err.message : "Preview dispatch failed.";
+    } finally {
+      previewRunningMap = { ...previewRunningMap, [agentId]: false };
+    }
+  }
+
+  async function handleApplyPreview(agentId: string) {
+    if (!sessionId || $sessionStore.loading || previewRunningMap[agentId])
+      return;
+    const existing = previewMap[agentId];
+    if (!existing) return;
+    previewRunningMap = { ...previewRunningMap, [agentId]: true };
+    actionError = "";
+    try {
+      const newState = await applyAgentPreview(
+        sessionId,
+        agentId,
+        existing.preview_id,
+      );
+      sessionStore.updateState(newState);
+      // Clear the applied preview locally.
+      const updated = { ...previewMap };
+      delete updated[agentId];
+      previewMap = updated;
+    } catch (err) {
+      actionError =
+        err instanceof Error ? err.message : "Apply preview failed.";
+    } finally {
+      previewRunningMap = { ...previewRunningMap, [agentId]: false };
+    }
+  }
 </script>
 
 <div class="artboard">
@@ -194,24 +472,6 @@
         </div>
       {/if}
     </div>
-    <nav class="topbar-nav">
-      <a
-        href="/"
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto("/");
-        }}>← New Session</a
-      >
-      <a
-        href="/settings"
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto("/settings");
-        }}>⚙ Settings</a
-      >
-    </nav>
   </div>
 
   <!-- ── Error banners ────────────────────────────────────────────────── -->
@@ -238,14 +498,6 @@
         </div>
       </div>
       <div class="pass-actions">
-        <a
-          href="/history"
-          class="topbar-link"
-          on:click={(e) => {
-            e.preventDefault();
-            goto("/history");
-          }}>← Sessions</a
-        >
         <ConfidenceBar
           value={confidencePct}
           animating={$sessionStore.loading}
@@ -255,21 +507,33 @@
 
     <!-- ── Sequential pipeline ──────────────────────────────────────── -->
     {#if $sessionStore.agents.length > 0}
-      <div class="panel pipeline">
+      <div class="pipeline-list">
         {#each $sessionStore.agents as agent, i (agent.id)}
           <PipelineStage
             {agent}
             position={i + 1}
             status={stageStatuses[i] ?? "waiting"}
             output={stageOutputText(agent)}
-            summary={stageSummaryText(agent)}
+            summary={stageSummary(agent).headline}
+            summaryBullets={stageSummary(agent).bullets}
+            pipelineRunning={$sessionStore.loading}
+            previewRunning={previewRunningMap[agent.id] ?? false}
+            preview={previewMap[agent.id]}
+            onPreview={() => handlePreviewAgent(agent.id)}
+            onApply={() => handleApplyPreview(agent.id)}
           />
           {#if i < $sessionStore.agents.length - 1}
-            <div
-              class="stage-connector"
-              class:stage-connector-dim={stageStatuses[i] === "waiting" ||
-                stageStatuses[i + 1] === "waiting"}
-            ></div>
+            <div class="stage-arrow" aria-hidden="true">
+              <svg width="16" height="20" viewBox="0 0 16 20" fill="none">
+                <path
+                  d="M8 0 L8 14 M3 9 L8 14 L13 9"
+                  stroke="var(--ink-300)"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
           {/if}
         {/each}
       </div>
@@ -427,19 +691,18 @@
   }
 
   /* ── Pipeline ── */
-  .pipeline {
-    padding: 0;
-    overflow: hidden;
+  .pipeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
   }
 
-  .stage-connector {
-    height: 1px;
-    background: var(--line);
-    margin: 0 18px;
-  }
-
-  .stage-connector-dim {
-    background: var(--bg-1);
+  .stage-arrow {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 24px;
+    flex-shrink: 0;
   }
 
   .no-agents {

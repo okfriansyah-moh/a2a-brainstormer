@@ -1,171 +1,84 @@
-// Package markdown generates the two output artifacts produced when a
-// brainstorm session is finalized: architecture.md and roadmap.md.
+// Package markdown generates the output artifacts produced when a brainstorm
+// session is finalized: architecture, roadmap, plan, and readme.
 //
-// Both files are written atomically (write to a .tmp file, then rename)
-// so a partial write never leaves a corrupt artifact on disk.
+// All files are written atomically (write to a .tmp file, then rename) so a
+// partial write never leaves a corrupt artifact on disk.
 //
 // The package has no DB access and no LLM calls — it is a pure text
 // transformation from CanonicalState to Markdown.
 package markdown
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"a2a-brainstorm/backend/internal/modules/state"
+	"a2a-brainstorm/backend/internal/shared"
 )
 
-// GenerateArchitecture renders the architecture.md document from the
-// Architecture map and ExecutionPlan in s.
-// Returns an error only if the state is structurally empty.
-func GenerateArchitecture(s state.CanonicalState) (string, error) {
-	var b strings.Builder
-
-	b.WriteString("# Architecture\n\n")
-
-	// Idea section
-	if len(s.Idea) > 0 {
-		b.WriteString("## Idea\n\n")
-		if text, ok := s.Idea["text"]; ok {
-			b.WriteString(fmt.Sprintf("%v\n\n", text))
-		} else {
-			writeMap(&b, s.Idea)
-		}
-	}
-
-	// Architecture section
-	b.WriteString("## Architecture\n\n")
-	if len(s.Architecture) > 0 {
-		writeMap(&b, s.Architecture)
-	} else {
-		b.WriteString("_No architecture details recorded yet._\n\n")
-	}
-
-	// Execution Plan summary
-	if len(s.ExecutionPlan) > 0 {
-		b.WriteString("## Execution Plan\n\n")
-		for i, step := range s.ExecutionPlan {
-			b.WriteString(fmt.Sprintf("### %d. %s\n\n", i+1, step.Title))
-			if step.Description != "" {
-				b.WriteString(step.Description + "\n\n")
-			}
-		}
-	}
-
-	// Risks
-	if len(s.Risks) > 0 {
-		b.WriteString("## Risks\n\n")
-		for _, r := range s.Risks {
-			if r.Resolved {
-				continue
-			}
-			b.WriteString(fmt.Sprintf("- **[%s]** %s\n", strings.ToUpper(r.Severity), r.Text))
-		}
-		b.WriteString("\n")
-	}
-
-	// Metadata footer
-	b.WriteString(fmt.Sprintf("---\n_Generated at iteration %d._\n", s.Meta.Iteration))
-
-	return b.String(), nil
+// Generators is the registry of per-key generator functions.
+// Add new document types by inserting entries here — never hardcode keys in
+// service or handler layers.
+var Generators = map[string]func(state.CanonicalState) (string, error){
+	"architecture": GenerateArchitecture,
+	"roadmap":      GenerateRoadmap,
+	"plan":         GeneratePlan,
+	"readme":       GenerateReadme,
 }
 
-// GenerateRoadmap renders the roadmap.md document from the ExecutionPlan in s.
-// Each step becomes a checklist item with an estimated relative timeline
-// derived from the step's position in the plan.
-func GenerateRoadmap(s state.CanonicalState) (string, error) {
-	var b strings.Builder
-
-	b.WriteString("# Roadmap\n\n")
-
-	if len(s.Idea) > 0 {
-		if text, ok := s.Idea["text"]; ok {
-			b.WriteString(fmt.Sprintf("> **Idea:** %v\n\n", text))
+// GenerateAll generates documents for each key in keys, using the Generators
+// registry. Unknown keys are returned as an error. Filenames are derived from
+// the canonical state's short title using buildFilename(title, key).
+func GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error) {
+	title := shortTitle(s)
+	result := make(map[string]shared.GeneratedDocument, len(keys))
+	for _, key := range keys {
+		gen, ok := Generators[key]
+		if !ok {
+			return nil, fmt.Errorf("generate all: unknown document key %q", key)
+		}
+		content, err := gen(s)
+		if err != nil {
+			return nil, fmt.Errorf("generate all: key %q: %w", key, err)
+		}
+		result[key] = shared.GeneratedDocument{
+			Filename:  buildFilename(title, key),
+			Content:   content,
+			LineCount: strings.Count(content, "\n") + 1,
+			Source:    "deterministic",
 		}
 	}
-
-	if len(s.ExecutionPlan) == 0 {
-		b.WriteString("_No execution plan steps recorded yet._\n")
-		return b.String(), nil
-	}
-
-	b.WriteString("## Milestones\n\n")
-	b.WriteString("| # | Step | Description | Target |\n")
-	b.WriteString("|---|------|-------------|--------|\n")
-
-	for i, step := range s.ExecutionPlan {
-		// Relative timeline: each step is +1 week from project start.
-		target := fmt.Sprintf("Week %d", i+1)
-		desc := step.Description
-		if len(desc) > 80 {
-			desc = desc[:77] + "..."
-		}
-		b.WriteString(fmt.Sprintf("| %d | %s | %s | %s |\n", i+1, step.Title, desc, target))
-	}
-	b.WriteString("\n")
-
-	// Assumptions
-	if len(s.Assumptions) > 0 {
-		b.WriteString("## Assumptions\n\n")
-		for _, a := range s.Assumptions {
-			b.WriteString(fmt.Sprintf("- %s\n", a))
-		}
-		b.WriteString("\n")
-	}
-
-	// Open Questions
-	if len(s.OpenQuestions) > 0 {
-		b.WriteString("## Open Questions\n\n")
-		for _, q := range s.OpenQuestions {
-			b.WriteString(fmt.Sprintf("- [ ] %s\n", q))
-		}
-		b.WriteString("\n")
-	}
-
-	b.WriteString(fmt.Sprintf("---\n_Generated at iteration %d. Confidence: %.2f_\n",
-		s.Meta.Iteration, s.Metrics.Confidence))
-
-	return b.String(), nil
+	return result, nil
 }
 
-// GenerateContent produces both the architecture and roadmap markdown strings
-// for a finalized session. It is the single entry-point used by callers that
-// need the content in-memory (e.g. the finalize HTTP handler). WriteArtifacts
-// calls this function internally so the generation logic lives in one place.
-func GenerateContent(s state.CanonicalState) (arch string, roadmap string, err error) {
-	arch, err = GenerateArchitecture(s)
-	if err != nil {
-		return "", "", fmt.Errorf("generate content: architecture: %w", err)
+// WriteArtifacts writes the selected markdown documents to outputDir.
+// Each file is written atomically: content is first written to a .tmp file
+// then renamed to the final path. Filenames are derived from the canonical
+// state's short title via buildFilename(title, key). The ctx parameter is
+// accepted to satisfy the session-handler interface; the deterministic
+// generators make no LLM calls and ignore it.
+func WriteArtifacts(_ context.Context, s state.CanonicalState, outputDir string, keys []string) error {
+	if len(keys) == 0 {
+		keys = []string{"architecture", "roadmap"}
 	}
-	roadmap, err = GenerateRoadmap(s)
-	if err != nil {
-		return "", "", fmt.Errorf("generate content: roadmap: %w", err)
-	}
-	return arch, roadmap, nil
-}
-
-// WriteArtifacts writes architecture.md and roadmap.md to outputDir.
-// Each file is written atomically: content is first written to a .tmp file,
-// then renamed to the final path. If either write fails, the error is returned
-// and the other file may or may not have been written.
-func WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	arch, roadmap, err := GenerateContent(s)
+	docs, err := GenerateAll(s, keys)
 	if err != nil {
 		return fmt.Errorf("write artifacts: %w", err)
 	}
-	if err := writeAtomic(filepath.Join(outputDir, "architecture.md"), arch); err != nil {
-		return fmt.Errorf("write artifacts: architecture.md: %w", err)
-	}
-	if err := writeAtomic(filepath.Join(outputDir, "roadmap.md"), roadmap); err != nil {
-		return fmt.Errorf("write artifacts: roadmap.md: %w", err)
+	for _, key := range keys {
+		doc, ok := docs[key]
+		if !ok {
+			continue
+		}
+		if err := writeAtomic(filepath.Join(outputDir, doc.Filename), doc.Content); err != nil {
+			return fmt.Errorf("write artifacts: %s: %w", doc.Filename, err)
+		}
 	}
 	return nil
 }
-
-// ── internal helpers ──────────────────────────────────────────────────────────
 
 // Writer is a zero-value struct that implements the markdownWriter interface
 // required by session.Handler. It delegates all work to the package-level
@@ -173,14 +86,16 @@ func WriteArtifacts(s state.CanonicalState, outputDir string) error {
 // generation logic.
 type Writer struct{}
 
-// GenerateContent satisfies the markdownWriter interface used by session.Handler.
-func (w *Writer) GenerateContent(s state.CanonicalState) (arch string, roadmap string, err error) {
-	return GenerateContent(s)
+// GenerateAll satisfies the markdownWriter interface used by session.Handler.
+// The context is accepted to match the interface but is not used — the
+// deterministic generators make no LLM calls.
+func (w *Writer) GenerateAll(_ context.Context, s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error) {
+	return GenerateAll(s, keys)
 }
 
 // WriteArtifacts satisfies the markdownWriter interface used by session.Handler.
-func (w *Writer) WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	return WriteArtifacts(s, outputDir)
+func (w *Writer) WriteArtifacts(ctx context.Context, s state.CanonicalState, outputDir string, keys []string) error {
+	return WriteArtifacts(ctx, s, outputDir, keys)
 }
 
 // writeAtomic writes content to destPath via a .tmp file and an atomic rename.
@@ -197,7 +112,6 @@ func writeAtomic(destPath, content string) error {
 	}
 	tmpName := tmp.Name()
 
-	// Ensure tmp is cleaned up on any failure path.
 	ok := false
 	defer func() {
 		if !ok {
@@ -218,18 +132,4 @@ func writeAtomic(destPath, content string) error {
 	}
 	ok = true
 	return nil
-}
-
-// writeMap writes the key-value pairs of a map[string]any as Markdown
-// bullet points into the builder. Keys are sorted for deterministic output.
-func writeMap(b *strings.Builder, m map[string]any) {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	for _, k := range keys {
-		b.WriteString(fmt.Sprintf("- **%s**: %v\n", k, m[k]))
-	}
-	b.WriteString("\n")
 }

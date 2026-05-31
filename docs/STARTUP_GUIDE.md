@@ -463,3 +463,21 @@ Then run `make opencode-auth` again.
 - Architecture blueprint: [A2A-agent-Brainstorm.md](A2A-agent-Brainstorm.md)
 - Implementation plan: [PLAN.md](PLAN.md)
 - Main project overview: [../README.md](../README.md)
+
+## 11) AI-Driven Document Generation (Task 33)
+
+Session finalize can optionally rewrite the deterministic markdown scaffolds
+through an LLM with a curated skill bundle injected as the system prompt.
+Configure via the following env vars (all optional):
+
+| Variable             | Default                                                                                                                                                                                     | Purpose                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `FINALIZE_MODE`      | `hybrid`                                                                                                                                                                                    | `deterministic` skips the AI pass; `hybrid` falls back to the scaffold on AI failure; `ai` aborts finalize. |
+| `SKILL_BUNDLE_PATHS` | `.github/skills/modularity/SKILL.md,.github/skills/vertical-slice/SKILL.md,.github/skills/api-design/SKILL.md,.github/skills/roadmap-spec/SKILL.md,.github/skills/plan-management/SKILL.md` | Comma-separated list of skill files injected (in order) as the system prompt prefix for AI generation.      |
+| `AIGEN_MAX_REPAIRS`  | `2`                                                                                                                                                                                         | Max rubric-driven repair attempts per document (clamped to 0–5).                                            |
+| `AIGEN_TEMPERATURE`  | `0.2`                                                                                                                                                                                       | LLM temperature for document rewriting (clamped to 0.0–1.0).                                                |
+
+When `FINALIZE_MODE` ≠ `deterministic` but no global LLM credential is configured
+or the skill bundle fails to load, the system logs `aigen_fallback` and writes
+deterministic scaffolds. Deterministic mode is the only byte-stable mode across
+runs.

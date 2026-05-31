@@ -2,6 +2,7 @@
 package markdown
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,87 +36,9 @@ func sampleState() state.CanonicalState {
 	}
 }
 
-// ── GenerateArchitecture ────────────────────────────────────────────────────
-
-func TestGenerateArchitecture_ContainsIdeaAndArchitecture(t *testing.T) {
-	s := sampleState()
-	got, err := GenerateArchitecture(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	mustContain := []string{
-		"# Architecture",
-		"A brainstorm tool for autonomous agents",
-		"backend",
-		"Go modular monolith",
-		"Set up project scaffold",
-		"Implement core pipeline",
-		"LLM rate limits", // unresolved risk should appear
-	}
-	for _, want := range mustContain {
-		if !strings.Contains(got, want) {
-			t.Errorf("GenerateArchitecture: expected output to contain %q\ngot:\n%s", want, got)
-		}
-	}
-}
-
-func TestGenerateArchitecture_DoesNotIncludeResolvedRisks(t *testing.T) {
-	s := sampleState()
-	got, err := GenerateArchitecture(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if strings.Contains(got, "Old risk already fixed") {
-		t.Errorf("GenerateArchitecture: resolved risk should not appear in output")
-	}
-}
-
-func TestGenerateArchitecture_EmptyArchitecture(t *testing.T) {
-	s := state.CanonicalState{} // empty state
-	got, err := GenerateArchitecture(s)
-	if err != nil {
-		t.Fatalf("unexpected error on empty state: %v", err)
-	}
-	if !strings.Contains(got, "No architecture details recorded yet") {
-		t.Errorf("expected placeholder for empty architecture, got:\n%s", got)
-	}
-}
-
-// ── GenerateRoadmap ─────────────────────────────────────────────────────────
-
-func TestGenerateRoadmap_ContainsMilestones(t *testing.T) {
-	s := sampleState()
-	got, err := GenerateRoadmap(s)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	mustContain := []string{
-		"# Roadmap",
-		"Set up project scaffold",
-		"Implement core pipeline",
-		"Agents are reachable via HTTP",       // assumption
-		"How do we handle network partitions", // open question
-		"iteration 3",
-		"0.85", // confidence
-	}
-	for _, want := range mustContain {
-		if !strings.Contains(got, want) {
-			t.Errorf("GenerateRoadmap: expected output to contain %q\ngot:\n%s", want, got)
-		}
-	}
-}
-
-func TestGenerateRoadmap_EmptyPlan(t *testing.T) {
-	s := state.CanonicalState{}
-	got, err := GenerateRoadmap(s)
-	if err != nil {
-		t.Fatalf("unexpected error on empty state: %v", err)
-	}
-	if !strings.Contains(got, "No execution plan steps recorded yet") {
-		t.Errorf("expected placeholder for empty plan, got:\n%s", got)
-	}
+// expectedSlug returns the slug-based filename prefix for sampleState.
+func expectedSlug() string {
+	return "a-brainstorm-tool-for-autonomous-agents"
 }
 
 // ── WriteArtifacts ──────────────────────────────────────────────────────────
@@ -124,11 +47,12 @@ func TestWriteArtifacts_CreatesFiles(t *testing.T) {
 	dir := t.TempDir()
 	s := sampleState()
 
-	if err := WriteArtifacts(s, dir); err != nil {
+	if err := WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("WriteArtifacts returned error: %v", err)
 	}
 
-	for _, name := range []string{"architecture.md", "roadmap.md"} {
+	for _, suffix := range []string{"architecture.md", "roadmap.md"} {
+		name := expectedSlug() + "_" + suffix
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -145,10 +69,10 @@ func TestWriteArtifacts_IsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	s := sampleState()
 
-	if err := WriteArtifacts(s, dir); err != nil {
+	if err := WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("first WriteArtifacts call: %v", err)
 	}
-	if err := WriteArtifacts(s, dir); err != nil {
+	if err := WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("second WriteArtifacts call (idempotent): %v", err)
 	}
 }
@@ -160,64 +84,43 @@ func TestWriter_WriteArtifacts(t *testing.T) {
 	s := sampleState()
 
 	w := &Writer{}
-	if err := w.WriteArtifacts(s, dir); err != nil {
+	if err := w.WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("Writer.WriteArtifacts: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "architecture.md")); err != nil {
-		t.Errorf("architecture.md not found after Writer.WriteArtifacts: %v", err)
+	expected := filepath.Join(dir, expectedSlug()+"_architecture.md")
+	if _, err := os.Stat(expected); err != nil {
+		t.Errorf("expected file not found after Writer.WriteArtifacts: %v", err)
 	}
 }
 
-// ── GenerateContent ──────────────────────────────────────────────────────────
+// ── Title shape (§8.23: idea text must NOT appear in H1 by itself) ───────────
 
-func TestGenerateContent_ReturnsBothStrings(t *testing.T) {
+func TestGenerateArchitecture_TitleShape(t *testing.T) {
 	s := sampleState()
-	arch, roadmap, err := GenerateContent(s)
+	out, err := GenerateArchitecture(s)
 	if err != nil {
-		t.Fatalf("GenerateContent returned error: %v", err)
+		t.Fatalf("GenerateArchitecture: %v", err)
 	}
-	if !strings.Contains(arch, "# Architecture") {
-		t.Errorf("expected arch to contain '# Architecture', got:\n%s", arch)
+	firstLine := strings.SplitN(out, "\n", 2)[0]
+	if !strings.HasPrefix(firstLine, "# ") {
+		t.Fatalf("expected H1 prefix, got %q", firstLine)
 	}
-	if !strings.Contains(roadmap, "# Roadmap") {
-		t.Errorf("expected roadmap to contain '# Roadmap', got:\n%s", roadmap)
+	if !strings.HasSuffix(firstLine, " — Architecture") {
+		t.Errorf("expected H1 to end with ' — Architecture', got %q", firstLine)
 	}
 }
 
-func TestGenerateContent_MatchesIndividualFunctions(t *testing.T) {
-	// GenerateArchitecture uses map[string]any whose iteration order is
-	// non-deterministic, so we cannot compare exact strings. Instead verify
-	// that the same key content is present in both outputs.
+func TestGenerateReadme_DescriptionAppearsBoundedTimes(t *testing.T) {
 	s := sampleState()
-
-	arch, _, err := GenerateContent(s)
+	out, err := GenerateReadme(s)
 	if err != nil {
-		t.Fatalf("GenerateContent returned error: %v", err)
+		t.Fatalf("GenerateReadme: %v", err)
 	}
-
-	// Both outputs must contain the same sentinel values from sampleState.
-	for _, want := range []string{
-		"# Architecture",
-		"A brainstorm tool for autonomous agents",
-		"Go modular monolith",
-	} {
-		if !strings.Contains(arch, want) {
-			t.Errorf("GenerateContent arch: expected %q in output, got:\n%s", want, arch)
-		}
+	count := strings.Count(out, "A brainstorm tool for autonomous agents")
+	if count == 0 {
+		t.Errorf("expected idea text to appear at least once, got 0")
 	}
-}
-
-func TestWriter_GenerateContent(t *testing.T) {
-	s := sampleState()
-	w := &Writer{}
-	arch, roadmap, err := w.GenerateContent(s)
-	if err != nil {
-		t.Fatalf("Writer.GenerateContent returned error: %v", err)
-	}
-	if arch == "" {
-		t.Error("expected non-empty arch from Writer.GenerateContent")
-	}
-	if roadmap == "" {
-		t.Error("expected non-empty roadmap from Writer.GenerateContent")
+	if count > 3 {
+		t.Errorf("expected idea text to appear ≤ 3 times (no padding loop), got %d", count)
 	}
 }

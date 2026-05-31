@@ -2,9 +2,10 @@
 // OpenCode HTTP server instance.
 //
 // Session lifecycle:
-//   - A single OpenCode chat session is created lazily on the first Generate
-//     call and reused for all subsequent calls within the same process lifetime.
-//   - sync.Once ensures thread-safe single initialisation.
+//   - A fresh OpenCode chat session is created on every Generate call.
+//   - This prevents context-window overflow when the same provider instance is
+//     reused across many iterations: each LLM turn starts with a clean session
+//     containing only the system prompt and the current-state user message.
 //
 // Security invariants:
 //   - os.Getenv is never called here; credentials are resolved via the injected
@@ -21,12 +22,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 )
 
 const (
-	openCodeHTTPTimeout  = 120 * time.Second // LLM calls can be slow
+	openCodeHTTPTimeout  = 600 * time.Second // Claude Sonnet 4.6 can take 5–6 min per turn
 	openCodeMaxRespBytes = 4 << 20           // 4 MiB
 	openCodeRetryWait    = 2 * time.Second
 )
@@ -43,16 +43,12 @@ type OpenCodeConfig struct {
 }
 
 // OpenCodeProvider implements LLMProvider using the OpenCode HTTP server API.
-// It maintains a single chat session per process lifetime (lazy initialisation).
+// A new OpenCode session is created on each Generate call so that conversation
+// history never accumulates across iterations (prevents context-window overflow).
 type OpenCodeProvider struct {
 	cfg        OpenCodeConfig
 	client     *http.Client
 	resolveKey func(ref string) (string, error)
-
-	// session state — protected by once + mu
-	once       sync.Once
-	sessionID  string
-	sessionErr error
 }
 
 // permanentError wraps failures that must not be retried (4xx HTTP responses,
@@ -84,17 +80,14 @@ func NewOpenCodeProvider(
 }
 
 // Generate sends LLMRequest to the OpenCode server and returns the response.
-// It creates the OpenCode session lazily on the first call (sync.Once).
+// A fresh OpenCode session is created for each call to avoid context-window
+// overflow from accumulated conversation history across iterations.
 func (p *OpenCodeProvider) Generate(ctx context.Context, req LLMRequest) (LLMResponse, error) {
-	// Ensure we have a session ID before making the message call.
-	p.once.Do(func() {
-		p.sessionID, p.sessionErr = p.createSession(ctx)
-	})
-	if p.sessionErr != nil {
-		return LLMResponse{}, fmt.Errorf("opencode.Generate: session init: %w", p.sessionErr)
+	sessionID, err := p.createSession(ctx)
+	if err != nil {
+		return LLMResponse{}, fmt.Errorf("opencode.Generate: session init: %w", err)
 	}
-
-	return p.sendMessage(ctx, req)
+	return p.sendMessage(ctx, sessionID, req)
 }
 
 // createSession calls POST {BaseURL}/session and returns the new session ID.
@@ -148,8 +141,8 @@ func (p *OpenCodeProvider) createSession(ctx context.Context) (string, error) {
 }
 
 // sendMessage calls POST {BaseURL}/session/{id}/message with one retry on 5xx/timeout.
-func (p *OpenCodeProvider) sendMessage(ctx context.Context, req LLMRequest) (LLMResponse, error) {
-	resp, err := p.doSendMessage(ctx, req)
+func (p *OpenCodeProvider) sendMessage(ctx context.Context, sessionID string, req LLMRequest) (LLMResponse, error) {
+	resp, err := p.doSendMessage(ctx, sessionID, req)
 	if err == nil {
 		return resp, nil
 	}
@@ -166,11 +159,11 @@ func (p *OpenCodeProvider) sendMessage(ctx context.Context, req LLMRequest) (LLM
 	case <-time.After(openCodeRetryWait):
 	}
 
-	return p.doSendMessage(ctx, req)
+	return p.doSendMessage(ctx, sessionID, req)
 }
 
 // doSendMessage executes a single POST /session/:id/message call.
-func (p *OpenCodeProvider) doSendMessage(ctx context.Context, req LLMRequest) (LLMResponse, error) {
+func (p *OpenCodeProvider) doSendMessage(ctx context.Context, sessionID string, req LLMRequest) (LLMResponse, error) {
 	username, password, err := p.resolveCredentials()
 	if err != nil {
 		return LLMResponse{}, permanentError{err}
@@ -201,7 +194,7 @@ func (p *OpenCodeProvider) doSendMessage(ctx context.Context, req LLMRequest) (L
 		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: marshal: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/session/%s/message", p.cfg.BaseURL, p.sessionID)
+	url := fmt.Sprintf("%s/session/%s/message", p.cfg.BaseURL, sessionID)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return LLMResponse{}, fmt.Errorf("opencode.sendMessage: build request: %w", err)

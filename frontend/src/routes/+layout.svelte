@@ -30,16 +30,22 @@
     >A2A Brainstorm</a
   >
   <nav class="topbar-nav">
-    <a
-      href="/history"
-      class="topbar-link"
-      class:active={$page.url.pathname === "/history"}
-      on:click={(e) => handleNavClick(e, "/history")}>Session History</a
-    >
+    {#if String($page.url.pathname) === "/history"}
+      <a href="/" class="topbar-link" on:click={(e) => handleNavClick(e, "/")}
+        >New Session</a
+      >
+    {:else}
+      <a
+        href="/history"
+        class="topbar-link"
+        class:active={String($page.url.pathname) === "/history"}
+        on:click={(e) => handleNavClick(e, "/history")}>Session History</a
+      >
+    {/if}
     <a
       href="/settings"
       class="topbar-link"
-      class:active={$page.url.pathname.startsWith("/settings")}
+      class:active={String($page.url.pathname).startsWith("/settings")}
       on:click={(e) => handleNavClick(e, "/settings")}>⚙ Settings</a
     >
   </nav>

@@ -1,13 +1,17 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 1.3
-> **Date:** 2026-05-24 (updated with feature enhancements: selectable docs, PLAN/README generators, per-agent preview, SSE)
+> **Version:** 1.7
+> **Date:** 2026-05-29 (updated with hierarchical Attachment Context system)
 > **Author:** Core, Data and AI Team
 > **Status:** Ready for Implementation
 > **Source of Truth:** `docs/A2A-agent-Brainstorm.md`
 > **Change in v1.1:** Added Tasks 16–25 — Polished UI redesign matching `frontend/mockups/future-polished-mockup.html`. New routes: `/settings`, `/history`, `/session/[id]/finalize`. New components: `PipelineStage`, `ConfidenceBar`, `CanonicalStatePanel`, `RiskBoard`, `WarningModal`. Backend addition: `GET /sessions` list endpoint + markdown content return.
 > **Change in v1.2:** Added Tasks 26–27 — OpenCode server integration as an optional LLM provider for the agent binary. New `OpenCodeProvider` implementation, provider selection switch in `agent/cmd/server/main.go`, Docker Compose profile-based service, and full startup documentation.
 > **Change in v1.3:** Added Tasks 28–31 — four feature enhancements per blueprint §22: (28) Selectable Output Documents with edit-at-finalize support; (29) `PLAN.md` and `README.md` generators producing ≥1000 lines each; (30) Per-Agent Run button using Option A preview/apply flow; (31) Real-time SSE agent progress stream replacing simulated progress.
+> **Change in v1.4:** Added Tasks 33–38 — MCP (Model Context Protocol) tool integration: (33) DB schema for MCP server registry; (34) Backend MCP server CRUD module; (35) Agent–MCP server association + `BrainstormPayload` extension; (36) Agent MCP client package (stdio + HTTP transports, JSON-RPC 2.0); (37) LLM `GenerateWithTools` interface + multi-turn tool-use executor loop; (38) Frontend MCP settings tab, smart JSON config import (Claude Desktop / VS Code / Cursor / Zed / Windsurf / canonical), and agent assignment UI.
+> **Change in v1.5:** Inserted Task 32 — Generated Document Quality Overhaul. Fixes title bug (full idea text used as H1), eliminates idea duplication, deletes `enforceMinLines` padding, blocks finalize when state is sparse (HTTP 422), introduces deterministic `{slug}_{kind}.md` filename pattern (e.g. `match-point_architecture.md`), and enriches the canonical state schema + agent role prompts so generators produce depth from real content instead of boilerplate. Original v1.4 MCP tasks renumbered 32–37 → 33–38; deep knowledge sections renumbered §8.23 → §8.24, §8.24 → §8.25, §8.25 → §8.26. New §8.23 documents the doc-quality standard.
+> **Change in v1.6:** Inserted Task 33 — AI-Driven Hybrid Document Generator with skill bundle injection. Adds a new `markdown/aigen/` sub-package that wraps the deterministic generators with per-document AI passes orchestrated by an injectable `LLMProvider` and a `SkillBundle` (modular monolith skill, vertical-slice skill, api-design skill, roadmap-spec skill, plan-management skill — each loaded as a prompt fragment). Introduces a section-level rubric validator with auto-repair loop and a `finalize_mode` config switch (`deterministic` | `hybrid` | `ai`) that defaults to `hybrid`. Deterministic generators retained as fallback. Original v1.5 MCP tasks renumbered 33–38 → 34–39. New §8.27 documents the AI-doc-gen contract.
+> **Change in v1.7:** Inserted Tasks 34–38 — Hierarchical Attachment Context system (ChatGPT-style `+` upload UX). Adds a new `modules/attachment/` vertical slice + `platform/extractor/`, `platform/embeddings/`, and `platform/blobstore/` (MinIO) infrastructure. Supports four input types — file (PDF/DOCX/MD/TXT), image (vision-described), URL (server-fetched), raw text paste. Hybrid scope model (session / iteration / agent) drives lifecycle. RAG-lite retrieval via pgvector cosine similarity injects top-K chunks into each agent dispatch through a new `AttachmentRetriever` interface threaded into the iteration engine. `BrainstormPayload` gains an optional `Attachments []AttachmentChunk` field. Frontend: ChatGPT-style attachment menu mounted on home page, session page, and `PipelineStage`. Original v1.6 MCP tasks renumbered 34–39 → 39–44; their migration numbers shift 006/007 → 008/009. New §8.28 documents the attachment system contract.
 
 ---
 
@@ -244,6 +248,45 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
                                                      │
                                                      ▼
                                           Task 31 (SSE Real-time Progress — Backend + Frontend)
+                                                     │
+                                                     ▼
+                                          Task 32 (Generated Document Quality Overhaul)
+                                                     │
+                                                     ▼
+                                          Task 33 (AI-Driven Hybrid Doc Generator + Skill Bundle)
+                                                     │
+                                                     ▼
+                                          Task 34 (DB: Attachments + Chunks Schema — pgvector)
+                                                     │
+                                                     ▼
+                                          Task 35 (Platform: Extractor + Embeddings + Blobstore)
+                                                     │
+                                                     ▼
+                                          Task 36 (Backend: Attachment Module — CRUD + Upload Pipeline)
+                                                     │
+                                                     ▼
+                                          Task 37 (Backend: AttachmentRetriever + Payload Extension + Engine Wiring)
+                                                     │
+                                                     ▼
+                                          Task 38 (Frontend: Attachment Menu + Upload Modal + Scope UX)
+                                                     │
+                                                     ▼
+                                          Task 39 (DB: MCP Server Registry Schema)
+                                                     │
+                                                     ▼
+                                          Task 40 (Backend: MCP Server Module — CRUD)
+                                                     │
+                              ┌──────────────────────┴──────────────────────┐
+                              ▼                                              ▼
+                  Task 41 (Backend: Agent–MCP                    Task 42 (Agent: MCP
+                  Association + Payload Extension)                Client Package)
+                              │                                              │
+                              └──────────────────────┬──────────────────────┘
+                                                     ▼
+                                          Task 43 (Agent: LLM Tool-Use + Executor Loop)
+                                                     │
+                                                     ▼
+                                          Task 44 (Frontend: MCP Settings + Smart Import)
 ```
 
 ---
@@ -1278,7 +1321,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 28 — Backend + Frontend: Selectable Output Documents
+### Task 28 — Backend + Frontend: Selectable Output Documents <!-- ✅ Task 28 completed -->
 
 **Goal:** Let users choose which artifacts (`architecture`, `roadmap`, `plan`, `readme`) are generated, both at session creation and at finalize time. Selection is editable while the session is `active`. See blueprint §22.1.
 
@@ -1306,7 +1349,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 29 — Backend: Long-form Generators for All Output Documents
+### Task 29 — Backend: Long-form Generators for All Output Documents <!-- ✅ Task 29 completed -->
 
 **Goal:** Bring **every** output document — `architecture.md`, `roadmap.md`, `PLAN.md`, `README.md` — to the same long-form quality bar (≥ 1000 lines per document, individually) via a single generator registry. Refactor the two existing generators (`GenerateArchitecture`, `GenerateRoadmap`) to use the shared template helpers + line-count enforcer, and add the two new generators (`GeneratePlan`, `GenerateReadme`). See blueprint §22.2.
 
@@ -1346,7 +1389,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 30 — Per-Agent Run Button (Preview / Apply)
+### Task 30 — Per-Agent Run Button (Preview / Apply) <!-- ✅ Task 30 completed -->
 
 **Goal:** Add per-agent preview and apply endpoints + frontend buttons on each `PipelineStage`. Coexists with the existing full-iteration run. See blueprint §22.3.
 
@@ -1372,7 +1415,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 31 — SSE Real-time Agent Progress
+### Task 31 — SSE Real-time Agent Progress <!-- ✅ Task 31 completed -->
 
 **Goal:** Replace the simulated progress bar with a live SSE stream of agent lifecycle events. See blueprint §22.4.
 
@@ -1399,41 +1442,719 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
+### Task 32 — Generated Document Quality Overhaul <!-- ✅ Task 32 completed -->
+
+**Goal:** Replace the current broken output generators (idea text used as H1, idea body repeated 3–5× per file, empty roadmap sections, repetitive padding from `enforceMinLines`, single hardcoded filename per kind) with a deterministic quality pipeline: short title extraction, one-line description extraction, sparse-state finalize block (HTTP 422), removal of all line-count padding, per-session `{slug}_{kind}.md` filename pattern, an enriched canonical state schema, and agent role prompts updated to populate the new fields so the four output documents (`architecture`, `roadmap`, `plan`, `readme`) finally reach the depth and structure of the reference docs (`MD-AME-ARCHITECTURE.md`, `MULTI_MARKET_ROADMAP_MERGED.md`, `IMPLEMENTATION_ROADMAP.md`, `README.md`). See §8.23 for the full standard.
+
+**Files to create / modify:**
+
+- `backend/internal/modules/markdown/templates.go` — **modify**:
+  - **Delete** `enforceMinLines`, `padArchitecture`, `padRoadmap`, `padPlan`, `padReadme` and every related constant. Line count is no longer a quality signal.
+  - **Add** `shortTitle(s state.CanonicalState) string` — picks the first non-empty of: `s.Idea["name"]`, the first sentence of `s.Idea["text"]` truncated to 60 chars at a word boundary, or `"Untitled Brainstorm"`. Strips Markdown, newlines, and multi-space runs. See §8.23.
+  - **Add** `oneLineDescription(s state.CanonicalState) string` — single sentence ≤ 200 chars; never emits the full idea body verbatim.
+  - **Add** `slugify(title string) string` — lowercase ASCII, spaces → `-`, drop punctuation, collapse repeats, trim leading/trailing `-`, max 50 chars. Empty result → first 8 chars of session ID (passed via new optional arg in a follow-up if needed; for this task, use `"untitled"` fallback).
+- `backend/internal/modules/markdown/generator.go` — **modify**:
+  - Replace the static `filenameForKey` map with `buildFilename(title string, key string) string` returning `slugify(title) + "_" + suffixForKey[key]` where `suffixForKey = {architecture: "architecture.md", roadmap: "roadmap.md", plan: "plan.md", readme: "readme.md"}` (all lowercase — beginner-friendly, no Windows-case-sensitivity surprises).
+  - `GenerateAll` computes the slug once from `shortTitle(s)` and passes it to every per-key generator via context, so all four files for a session share the same prefix.
+  - `WriteArtifacts` uses the new filenames directly; existing atomic write logic (`.tmp` → rename) unchanged.
+- `backend/internal/modules/markdown/generator_architecture.go` — **modify**:
+  - Header line becomes `# {shortTitle} — Architecture` (never the full idea body).
+  - One-line summary blockquote uses `oneLineDescription`. Drop the existing duplicated `writeMap(&b, s.Idea)` block in §1.
+  - § 2 (System Components) iterates `s.Architecture["layers"]` (new structured field — see §8.23) and renders one sub-section per layer with a Responsibility / Technologies / Dependencies table. Fall back to the old map-iteration only when `layers` is absent.
+  - § 4 (Data Flow) renders a fenced Mermaid block from `s.Architecture["data_flows"]` when present.
+  - Drop the trailing `enforceMinLines` call and its import.
+- `backend/internal/modules/markdown/generator_roadmap.go` — **modify**:
+  - Header becomes `# {shortTitle} — Roadmap`.
+  - § 2 (Milestones) and § 3 (Phase Breakdown) iterate `s.ExecutionPlan` entries; each entry renders the canonical 7-field block (Objective / Blocking Dependencies / Scope / Deliverables / Function Contracts / Failure Handling / Exit Criteria) when those structured fields are present on the entry; otherwise renders a minimal `{name} — {description}` block.
+  - Drop the trailing `enforceMinLines` call.
+- `backend/internal/modules/markdown/generator_plan.go` — **modify**: same header + dedup pattern; iterate `s.ExecutionPlan` for §5 tasks; drop padding.
+- `backend/internal/modules/markdown/generator_readme.go` — **modify**: same header + dedup pattern; Overview prints `oneLineDescription` once (not three times); Roadmap section summarises the first N phases as bullet points; drop padding.
+- `backend/internal/modules/state/model.go` — **modify**: extend `CanonicalState` with optional sub-fields. All additions are JSON-omitempty and backward-compatible with sessions created before this task. See §8.23:
+  - `Architecture` already `map[string]any` — document the standard keys: `layers []Layer`, `data_flows []DataFlow`, `tech_stack map[string]string`, `directory_layout []string`.
+  - `ExecutionPlan` entries now expected (not enforced) to carry: `phase string`, `objective string`, `deliverables []string`, `exit_criteria []string`, `blocking_dependencies []string`.
+  - `Risks` entries: `likelihood string`, `impact string`, `mitigation string`.
+  - `Assumptions` entries: `rationale string`, `validation_method string`.
+  - `Metrics`: `test_coverage_target float64`, `latency_budget_ms int`.
+- `backend/internal/modules/session/service.go` — **modify**: `Finalize(ctx, sessionID)` calls new private helper `isStateReadyForFinalize(s state.CanonicalState) (ready bool, reason string)`. When `ready == false`, handler returns HTTP 422 `{"error":"state_not_ready","reason":"..."}` instead of generating empty documents. Readiness rule: `len(s.Idea) > 0 AND len(s.Architecture) > 0 AND len(s.ExecutionPlan) > 0 AND s.Metrics.Confidence >= 0.5`. See §8.23.
+- `backend/internal/modules/session/handler.go` — **modify**: surface 422 as a typed error; existing 200/4xx paths unchanged.
+- `backend/internal/modules/markdown/generator_*_test.go` — **modify all four**:
+  - Replace any `assert lineCount >= 1000` assertions with `assert title is short (< 80 chars)`, `assert idea body appears at most once`, `assert filename matches slug pattern`, `assert §2 sub-sections present when state.architecture.layers is populated`.
+- `backend/internal/modules/markdown/generator_registry_test.go` — **modify**: assert filenames follow the `{slug}_{kind}.md` pattern.
+- `agent/internal/executor/executor.go` — **modify role-prompt assembly only**: when building the system prompt, include the §8.23 enriched-state schema fragment as a "Required Output Structure" section. This instructs every agent (regardless of role) to populate `architecture.layers`, `execution_plan[].objective`, etc. Existing agent role prompts (Architect / Engineer / Reviewer system prompts injected by backend) updated in the same vein — values stored in `agents.system_prompt` column via a one-line `UPDATE agents SET system_prompt = system_prompt || '\n\n' || $1 WHERE name IN (...)` migration entry recorded in this task's notes, not a new SQL migration file.
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `go test ./backend/internal/modules/markdown/...`: all new assertions pass; padding is gone; titles are short; filenames slug-based
+- `go test ./backend/internal/modules/session/...`: new `isStateReadyForFinalize` test covers all four blocking conditions (empty idea, empty architecture, empty execution_plan, confidence < 0.5)
+- Manual smoke: finalize the Match Point seed session → output files are named `match-point_architecture.md`, `match-point_roadmap.md`, `match-point_plan.md`, `match-point_readme.md`; each file's H1 is the short title; idea text appears at most once per file; no `_No execution plan steps recorded yet._` stubs (HTTP 422 returned instead when state is sparse)
+- Manual smoke: re-run the brainstorm with updated agent prompts → `state.architecture.layers` populated with ≥ 3 entries; output `architecture.md` § 2 contains one sub-section per layer with a real Responsibility / Tech / Dependencies table — depth comparable to `MD-AME-ARCHITECTURE.md` § 2
+
+**Prompt context needed:** §8.23 (Generated Document Quality Standard — title/description extraction, slug rules, sparse-state readiness check, enriched CanonicalState schema, agent prompt fragment), §8.1 (canonical state shape), §8.20 (section skeletons from Task 29 — now superseded by §8.23 for depth source), Task 28 (selectable output docs — `GenerateAll` registry is the surface this task changes), Task 29 (long-form generators — `enforceMinLines` is deleted by this task)
+
+---
+
+### Task 33 — AI-Driven Hybrid Document Generator + Skill Bundle <!-- ✅ Task 33 completed -->
+
+**Goal:** Layer an AI-driven generation pass on top of the deterministic Task-32 generators so finalize output reaches the depth and consistency of the reference docs (`docs/A2A-agent-Brainstorm.md`, `docs/architecture.md`, `docs/implementation_roadmap.md`, `README.md`). Add a `markdown/aigen/` sub-package that (a) loads a curated **SkillBundle** of prompt fragments — `modular-monolith`, `vertical-slice`, `api-design`, `roadmap-spec`, `plan-management` — drawn from `.github/skills/`, (b) drives a per-document multi-section LLM pass that rewrites each section using the deterministic output as a scaffold, (c) runs a section-level **rubric validator** with bounded auto-repair, and (d) is selected at runtime via a `FINALIZE_MODE` config switch (`deterministic` | `hybrid` | `ai`, default `hybrid`). Deterministic generators remain the safe fallback when AI calls fail, exceed budget, or fail rubric after repair attempts. See §8.27 for the full contract.
+
+**Files to create / modify:**
+
+- `backend/internal/modules/markdown/aigen/skills.go` — **new**:
+  - `Skill struct { Name string; Path string; Prompt string }` — `Prompt` is the verbatim contents of the linked `.github/skills/<name>/SKILL.md` minus YAML frontmatter (stripped at load time).
+  - `SkillBundle struct { Skills []Skill }` with method `Compose() string` that concatenates each skill prompt under a `## Skill: <name>` heading, separated by blank lines.
+  - `LoadDefaultBundle(fs fs.FS) (SkillBundle, error)` — loads the five canonical skills listed above from an injected `fs.FS` (production: `os.DirFS(".")` rooted at repo). Missing skill files return error — no silent fallback. See §8.27 for the canonical skill list and load order.
+  - All file paths are config-driven via `GetSkillBundlePaths() []string` (see config change below). No path constants live in this file.
+- `backend/internal/modules/markdown/aigen/rubric.go` — **new**:
+  - `Rubric struct { DocKey string; Sections []SectionRule }`.
+  - `SectionRule struct { Heading string; MinChars int; RequiredKeywords []string; ForbidPlaceholders []string }`. Defaults: `MinChars=400`, `ForbidPlaceholders=["TBD","TODO","Lorem ipsum","placeholder"]`.
+  - `RubricFor(docKey string) Rubric` — returns the canonical rubric per doc key (`architecture`, `roadmap`, `plan`, `readme`), all values config-driven via §8.27 defaults.
+  - `Validate(content string, r Rubric) []RubricFinding` — returns one `RubricFinding{Heading, Reason}` per failing section. Empty slice = pass.
+- `backend/internal/modules/markdown/aigen/generator.go` — **new**:
+  - `Generator struct { llm llm.LLMProvider; bundle SkillBundle; maxRepairs int; logger *slog.Logger }`.
+  - `New(llm llm.LLMProvider, bundle SkillBundle, logger *slog.Logger) *Generator` — `maxRepairs` read from config (§8.27); never hardcoded.
+  - `GenerateAll(ctx context.Context, s state.CanonicalState, keys []string, scaffolds map[string]shared.GeneratedDocument) (map[string]shared.GeneratedDocument, error)`:
+    1. For each key in `keys`, build a `LLMRequest` whose `SystemPrompt = bundle.Compose() + "\n\n" + §8.27 doc-style contract for that key`.
+    2. `UserMessage` = `"## Scaffold (deterministic draft)\n\n" + scaffolds[key].Content + "\n\n## CanonicalState (JSON)\n\n" + jsonDump(s)`.
+    3. Call `llm.Generate(ctx, req)` once → `draft`.
+    4. Run `Validate(draft, RubricFor(key))`; if non-empty, run **auto-repair** up to `maxRepairs` times: new `UserMessage` includes the previous draft + a bullet list of findings; ask the model to emit the full revised document only. After `maxRepairs`, return the deterministic scaffold for that key (do NOT return a half-broken AI draft).
+    5. Build `shared.GeneratedDocument{Filename: scaffolds[key].Filename, Content: draft, LineCount: countLines(draft)}` and copy into the result map. Filename always comes from the scaffold so Task 32 slug rules are preserved.
+  - Deterministic on retry: temperature passed in `LLMRequest` is read from config (default `0.2`), never hardcoded. The skill bundle is composed once per call and reused across keys — no per-key bundle mutation.
+- `backend/internal/modules/markdown/generator.go` — **modify**:
+  - Add `FinalizeMode` enum: `ModeDeterministic`, `ModeHybrid`, `ModeAI`.
+  - Add `Orchestrator struct { det *Writer; ai *aigen.Generator; mode FinalizeMode; logger *slog.Logger }`.
+  - `Orchestrator.GenerateAll(ctx, s, keys) (map[string]shared.GeneratedDocument, error)`:
+    - `ModeDeterministic` → returns `det.GenerateAll(s, keys)` exactly as today.
+    - `ModeHybrid` → calls `det.GenerateAll` first; passes scaffolds + state into `ai.GenerateAll`; on AI error logs `slog.Warn` with reason and returns the deterministic scaffolds unchanged (zero-regression fallback).
+    - `ModeAI` → same as hybrid but on AI error returns the wrapped error (no fallback). Reserved for testing / explicit opt-in.
+  - Existing `Writer.WriteArtifacts` unchanged — Task 32 atomic temp+rename logic preserved.
+- `backend/internal/modules/session/service.go` — **modify**:
+  - `FinalizeSession` now calls the orchestrator obtained from `NewService` instead of `Writer.GenerateAll` directly. No new validation logic — readiness gate from Task 32 still runs first.
+- `backend/internal/platform/config/config.go` — **modify**:
+  - Add `GetFinalizeMode() FinalizeMode` — reads `FINALIZE_MODE` env var; accepts `deterministic` / `hybrid` / `ai` (case-insensitive); default `hybrid`; any other value → error at startup.
+  - Add `GetSkillBundlePaths() []string` — reads `SKILL_BUNDLE_PATHS` env var (comma-separated repo-relative paths); default `.github/skills/modularity/SKILL.md,.github/skills/vertical-slice/SKILL.md,.github/skills/api-design/SKILL.md,.github/skills/roadmap-spec/SKILL.md,.github/skills/plan-management/SKILL.md`.
+  - Add `GetAIDocMaxRepairs() int` — reads `AIGEN_MAX_REPAIRS`; default `2`; clamp `[0, 5]`.
+  - Add `GetAIDocTemperature() float64` — reads `AIGEN_TEMPERATURE`; default `0.2`; clamp `[0.0, 1.0]`.
+- `backend/cmd/server/main.go` — **modify**:
+  - During wiring, construct `Orchestrator` per `GetFinalizeMode()`; when mode is `hybrid` or `ai`, load `SkillBundle` via `aigen.LoadDefaultBundle(os.DirFS(repoRoot))` using `GetSkillBundlePaths()`. Pass the same `LLMProvider` already constructed for backend↔agent dispatch (see §8.27 for why backend reuses the existing provider instead of dialing the agent binary).
+- `backend/internal/modules/markdown/aigen/aigen_test.go` — **new**:
+  - `TestSkillBundle_ComposeOrder` — load bundle from in-memory `fstest.MapFS`; assert composed prompt contains skill headings in declared order with no duplicates.
+  - `TestRubric_FailsOnShortSection` — section content with < `MinChars` flagged.
+  - `TestRubric_FailsOnForbiddenPlaceholder` — content containing `TBD` flagged.
+  - `TestGenerator_Hybrid_FallsBackOnLLMError` — stub `LLMProvider` returns error; `Orchestrator.GenerateAll` returns deterministic scaffolds unchanged and emits a warning log.
+  - `TestGenerator_AutoRepairThenAccept` — stub returns short draft on round 1, full draft on round 2 → final document is the round-2 draft; `maxRepairs` decremented exactly once.
+  - `TestGenerator_RepairExhausted_UsesScaffold` — stub always returns short draft; after `maxRepairs` attempts, returned document equals deterministic scaffold byte-for-byte.
+- `docs/STARTUP_GUIDE.md` — **modify**: append a one-paragraph note documenting `FINALIZE_MODE`, `SKILL_BUNDLE_PATHS`, `AIGEN_MAX_REPAIRS`, `AIGEN_TEMPERATURE` and their defaults.
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `go test ./backend/internal/modules/markdown/aigen/...`: all five new tests pass without a real LLM (stub provider)
+- `go test ./backend/internal/modules/markdown/...`: Task-32 deterministic tests still pass unchanged
+- `go test ./backend/internal/modules/session/...`: finalize tests still pass; orchestrator wired in test setup with `ModeDeterministic` so behaviour is unchanged for existing tests
+- Manual smoke: `FINALIZE_MODE=hybrid make start`; finalize the Match Point seed session → output `match-point_architecture.md` § 2 contains layered component descriptions with concrete responsibilities, no `TBD`, ≥ 400 chars per section; `match-point_roadmap.md` § 3 contains one phase block per `execution_plan` entry with all seven §8.23 fields filled in; total file depth comparable to `docs/architecture.md` and `docs/implementation_roadmap.md`
+- Manual smoke: `FINALIZE_MODE=deterministic` → behaviour identical to post-Task-32; same byte-for-byte output
+- Manual smoke: stub broken LLM (`COPILOT_API_KEY=invalid FINALIZE_MODE=hybrid`) → finalize still succeeds with deterministic scaffolds; backend logs a `slog.Warn` with the LLM error
+
+**Prompt context needed:** §8.27 (AI-Driven Document Generator contract — SkillBundle composition, rubric defaults, auto-repair algorithm, FinalizeMode semantics, fallback policy), §8.23 (deterministic scaffolds — this task wraps them, never replaces them), §8.2 (`LLMProvider` interface — the only LLM call surface), §8.12 (LLM credential security), AGENTS.md skill registry (canonical paths for the five bundled skills)
+
+---
+
+### Task 34 — DB: Attachments + Chunks Schema (pgvector)
+
+**Goal:** Create the two database migrations that introduce the `attachments` table (per-upload metadata) and the `attachment_chunks` table (RAG-lite chunks with pgvector embeddings). Defines the `attachment_scope` and `attachment_kind` enums used by all subsequent attachment tasks. No Go or frontend code in this task — schema + enum only.
+
+**Files to create:**
+
+- `migrations/006_attachments.sql` — see §8.28 for exact DDL:
+  - `CREATE EXTENSION IF NOT EXISTS vector` — pgvector required for cosine similarity
+  - `CREATE TYPE attachment_scope AS ENUM ('session','iteration','agent')` — lifecycle binding
+  - `CREATE TYPE attachment_kind AS ENUM ('file','image','url','text')` — input modality
+  - `attachments` table: `id UUID PK DEFAULT gen_random_uuid()`, `session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE`, `scope attachment_scope NOT NULL`, `scope_ref TEXT` (nullable; `iteration_number` as string when scope=iteration, `agent_id` UUID string when scope=agent, NULL when scope=session), `kind attachment_kind NOT NULL`, `display_name TEXT NOT NULL`, `mime_type TEXT NOT NULL DEFAULT ''`, `byte_size BIGINT NOT NULL DEFAULT 0`, `source_url TEXT` (set when kind=url), `blob_key TEXT` (object-storage key when kind in (file,image); NULL otherwise), `extracted_text TEXT NOT NULL DEFAULT ''` (full extracted/cleaned text), `summary TEXT NOT NULL DEFAULT ''` (≤ 500 chars, used when chunk retrieval returns nothing), `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`
+  - Scope-consistency CHECK constraint: `(scope = 'session' AND scope_ref IS NULL) OR (scope IN ('iteration','agent') AND scope_ref IS NOT NULL)`
+  - Index: `CREATE INDEX idx_attachments_session_scope ON attachments (session_id, scope, scope_ref)` — supports retrieval queries
+- `migrations/007_attachment_chunks.sql`:
+  - `attachment_chunks` table: `id UUID PK DEFAULT gen_random_uuid()`, `attachment_id UUID NOT NULL REFERENCES attachments(id) ON DELETE CASCADE`, `chunk_index INT NOT NULL`, `content TEXT NOT NULL`, `embedding VECTOR(1536) NOT NULL` (dimension matches `EMBEDDING_DIM` config; default 1536 for OpenAI `text-embedding-3-small`), `tokens INT NOT NULL DEFAULT 0`, `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`
+  - `UNIQUE (attachment_id, chunk_index)` — idempotent re-upload semantics
+  - IVF-Flat index: `CREATE INDEX idx_attachment_chunks_embedding ON attachment_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)` — cosine similarity search
+
+**Validation:**
+
+- `docker compose run --rm backend ./migrate up` — both migrations apply cleanly; pgvector extension created
+- `psql -c "\dT+ attachment_scope"` — shows enum with three values; same for `attachment_kind`
+- `psql -c "\d attachments"` — shows all 12 columns + scope-consistency CHECK + cascade FK
+- `psql -c "\d attachment_chunks"` — shows VECTOR(1536) column + unique constraint + ivfflat index
+- `psql -c "INSERT INTO attachments (session_id, scope, scope_ref, kind, display_name) VALUES ('00000000-0000-0000-0000-000000000000', 'iteration', NULL, 'text', 'x')"` — fails due to scope CHECK; same INSERT with `scope_ref = '1'` succeeds (provided session exists)
+- `docker compose run --rm backend ./migrate down` — rolls back both cleanly; extension preserved (other tables may use it)
+
+**Prompt context needed:** §8.28 (Attachment system schema + scope semantics — new in this task), AGENTS.md migration rules (append-only, numbered sequentially), pgvector docs for IVF-Flat tuning
+
+---
+
+### Task 35 — Platform: Extractor + Embeddings + Blobstore Infrastructure
+
+**Goal:** Build the three platform-layer infrastructure packages every attachment upload depends on: `extractor/` (turns any input modality into clean UTF-8 text), `embeddings/` (turns text into vectors via `LLMProvider`-style interface), and `blobstore/` (MinIO/S3 object storage for original file bytes). These are pure infrastructure — they own no domain logic and are reused only by `modules/attachment/`. Also extends `docker-compose.yml` with the MinIO service and the `config/` package with all related env getters.
+
+**Files to create:**
+
+- `backend/internal/platform/extractor/extractor.go`:
+  - `Extractor` interface: `Extract(ctx context.Context, input ExtractInput) (ExtractResult, error)`
+  - `ExtractInput` struct: `Kind string` (`file`|`image`|`url`|`text`), `Reader io.Reader` (nil for url/text), `URL string`, `Text string`, `MimeType string`, `DisplayName string`
+  - `ExtractResult` struct: `Text string`, `MimeType string`, `ByteSize int64`, `SourceURL string`
+  - `Registry` type: maps kind → `Extractor`; `Resolve(kind) Extractor`; returns error on unknown kind
+- `backend/internal/platform/extractor/plaintext.go`:
+  - Handles `text`, `file` with mime `text/*` or `application/json` or `application/markdown`, also `text/plain` URL responses
+  - Normalises line endings, strips control chars, returns text verbatim (no truncation)
+- `backend/internal/platform/extractor/pdf.go`:
+  - Uses `github.com/ledongthuc/pdf` (or `github.com/dslipak/pdf`) — pure-Go, no CGO, no external binaries
+  - Page-by-page extraction; concatenates with `\n\n` separators; falls back to empty text on parse failure (logged warn, not error)
+- `backend/internal/platform/extractor/url.go`:
+  - `net/http` GET with 15s timeout; allowlist HTTP/HTTPS only (rejects `file://`, `ftp://`, `data:` — SSRF guard)
+  - Honours `Content-Type`; routes HTML through `golang.org/x/net/html` text extraction (strips `<script>`, `<style>`, `<nav>`, `<footer>`); routes PDF responses through `pdf.go`; routes JSON / plain through `plaintext.go`
+  - Body cap: `GetAttachmentMaxBytes()` from config (default 10 MB); rejects oversize with descriptive error
+  - User-Agent header includes `a2a-brainstorm/<version>`
+- `backend/internal/platform/extractor/image.go`:
+  - Calls `LLMProvider.Generate` with a fixed system prompt requesting a dense factual description (≤ 400 words) of the image; the image is sent as a base64 data URL in the user message
+  - Requires the active provider to support vision (Copilot vision, Claude vision, OpenCode with vision-capable model); on unsupported provider returns sentinel error `ErrVisionUnsupported` so service layer can degrade gracefully
+  - Provider is injected into the extractor at construction; no `os.Getenv` here
+- `backend/internal/platform/embeddings/embeddings.go`:
+  - `EmbeddingsProvider` interface: `Embed(ctx context.Context, texts []string) ([][]float32, error)`, `Dimension() int`
+  - Mirrors the `LLMProvider` pattern; credential resolution goes through `config.GetEmbeddingsCredentialRef()`
+- `backend/internal/platform/embeddings/openai.go`:
+  - `OpenAIEmbeddingsProvider` implements the interface using OpenAI `text-embedding-3-small` (1536 dim) by default; configurable via `EMBEDDINGS_MODEL` env
+  - Batches up to 100 texts per HTTP call; retries on 429/5xx with exponential backoff (max 3 attempts)
+- `backend/internal/platform/blobstore/blobstore.go`:
+  - `Blobstore` interface: `Put(ctx, key string, r io.Reader, size int64, contentType string) error`, `Get(ctx, key string) (io.ReadCloser, error)`, `Delete(ctx, key string) error`
+  - Deterministic key shape: `attachments/{sessionID}/{attachmentID}/{slug(displayName)}`
+- `backend/internal/platform/blobstore/minio.go`:
+  - `MinioBlobstore` implements the interface using `github.com/minio/minio-go/v7`
+  - Bucket name from `BLOBSTORE_BUCKET` (default `a2a-attachments`); auto-creates bucket on first `Put` if missing
+- `backend/internal/platform/config/config.go` — add getters (every `os.Getenv` call lives here, never elsewhere):
+  - `GetEmbeddingsProvider()`, `GetEmbeddingsModel()`, `GetEmbeddingsCredentialRef()`, `GetEmbeddingsDimension()` (default 1536, validates ≥ 64)
+  - `GetBlobstoreEndpoint()`, `GetBlobstoreAccessKeyRef()`, `GetBlobstoreSecretKeyRef()`, `GetBlobstoreBucket()`, `GetBlobstoreUseSSL()`
+  - `GetAttachmentMaxBytes()` (default 10_485_760 = 10 MB), `GetAttachmentChunkSize()` (default 1000 tokens), `GetAttachmentChunkOverlap()` (default 150 tokens), `GetAttachmentRetrievalTopK()` (default 5)
+- `docker-compose.yml` — add `minio` service (`minio/minio:latest`, port 9000 API + 9001 console, `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` env, healthcheck on `/minio/health/live`, volume `minio-data`); add to `backend` `depends_on`
+- `.env.example` — append all new env vars with placeholder values and inline comments
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `cd backend && go test ./internal/platform/extractor/...`: covers plaintext passthrough, PDF byte stream → non-empty text, URL with mock HTTP server (HTML → text-only, JSON → verbatim), SSRF guard rejects `file://`, oversize-body rejection
+- `cd backend && go test ./internal/platform/embeddings/...`: covers happy path with `httptest` mock, batch chunking ≤ 100, retry-after-429
+- `cd backend && go test ./internal/platform/blobstore/...`: skipped if `BLOBSTORE_ENDPOINT` not set; otherwise round-trips Put/Get/Delete
+- `docker compose up minio -d` — service healthy; console reachable on `:9001`
+- No `os.Getenv` call anywhere outside `platform/config/config.go` (grep check)
+
+**Prompt context needed:** §8.28 (extraction pipeline + embedding dimension contract — new in this task), §8.12 (credential security — env-var-name-only rule), §5 of `.github/copilot-instructions.md` (`os.Getenv` confined to config file)
+
+---
+
+### Task 36 — Backend: Attachment Module (CRUD + Upload Pipeline)
+
+**Goal:** Implement the full `modules/attachment/` vertical slice — `model.go`, `repository.go`, `service.go`, `handler.go`. The service orchestrates the upload pipeline: extract text → chunk → embed → persist blob (if applicable) → persist attachment + chunks atomically. Exposes REST endpoints for creating attachments via all four input kinds (file multipart, image multipart, URL JSON, raw-text JSON), listing by scope, deleting, and an internal-only retrieval endpoint used by the iteration engine.
+
+**Files to create:**
+
+- `backend/internal/modules/attachment/model.go` — see §8.28 for full schema:
+  - `Attachment` struct: matches `attachments` row 1-to-1 + computed `BlobURL string` (presigned URL when `Kind in (file,image)`, empty otherwise)
+  - `AttachmentChunk` struct: `ID uuid.UUID`, `AttachmentID uuid.UUID`, `Index int`, `Content string`, `Tokens int`, `Score float32` (populated only by retrieval queries)
+  - `Scope` constants: `ScopeSession`, `ScopeIteration`, `ScopeAgent` — typed string aliases
+  - `Kind` constants: `KindFile`, `KindImage`, `KindURL`, `KindText`
+  - `CreateAttachmentInput` struct: `SessionID uuid.UUID`, `Scope Scope`, `ScopeRef *string`, `Kind Kind`, `DisplayName string`, `MimeType string`, `Reader io.Reader` (for file/image), `URL string` (for url), `Text string` (for text)
+- `backend/internal/modules/attachment/repository.go`:
+  - `Create(ctx, tx pgx.Tx, att Attachment) (Attachment, error)` — INSERT row
+  - `CreateChunks(ctx, tx pgx.Tx, attachmentID uuid.UUID, chunks []AttachmentChunk) error` — batched COPY-style INSERT
+  - `GetByID(ctx, id) (Attachment, error)`
+  - `ListBySession(ctx, sessionID uuid.UUID, scopeFilter *Scope, scopeRefFilter *string) ([]Attachment, error)` — ordered by `created_at ASC`
+  - `Delete(ctx, id uuid.UUID) error` — cascade removes chunks
+  - `DeleteByScope(ctx, sessionID uuid.UUID, scope Scope, scopeRef string) error` — used by lifecycle cleanup (Task 37)
+  - `SearchChunks(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryEmbedding []float32, topK int) ([]AttachmentChunk, error)` — pgvector cosine similarity (`embedding <=> $1::vector`) filtered to attachments whose `(scope, scope_ref)` matches any entry in `scopes`; returns top-K ordered by ascending distance with `Score = 1 - distance`
+  - `ScopeMatch` struct: `Scope Scope`, `ScopeRef *string` (NULL for session-scope match)
+- `backend/internal/modules/attachment/service.go`:
+  - Constructor: `NewService(repo, blob blobstore.Blobstore, extractors extractor.Registry, embeddings embeddings.EmbeddingsProvider, db *pgxpool.Pool, cfg ServiceConfig) *Service`
+  - `Create(ctx, input CreateAttachmentInput) (Attachment, error)`:
+    1. Validate input per kind (file/image require non-nil reader + display name; url requires HTTP/HTTPS URL; text requires non-empty Text)
+    2. Validate scope/scope_ref consistency: session ⇒ ref nil; iteration ⇒ ref is integer string; agent ⇒ ref is UUID string referencing an agent assigned to the session
+    3. Call extractor → get `ExtractResult.Text`; reject if text length < `MinExtractedChars` (default 16) — guards against empty PDFs / failed scrapes
+    4. For `kind in (file,image)`: stream original bytes to `blobstore.Put` under the deterministic key (see §8.28 key shape); on failure, do not insert DB row
+    5. Chunk text via `chunkText(text, size, overlap)` helper (token-aware splitting, paragraph-respecting; see §8.28 chunking algorithm)
+    6. Embed all chunks in a single `embeddings.Embed` call
+    7. Generate `summary` via one short `LLMProvider.Generate` call (system prompt: "Summarise this document in ≤ 500 chars for retrieval fallback purposes"); on LLM failure, summary is empty (non-fatal)
+    8. Wrap insert in a single transaction: `repo.Create(tx, attachment)` → `repo.CreateChunks(tx, attachmentID, chunks)` → commit; on rollback, also delete the blob (best-effort cleanup; log warn on failure)
+    9. Emit log: `slog.Info("attachment created", attachment_id, scope, scope_ref, kind, chunk_count, byte_size)`
+  - `List(ctx, sessionID, filter)`, `GetByID`, `Delete` — straight repository delegation; `Delete` also removes blob best-effort
+  - `Retrieve(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryText string, topK int) ([]AttachmentChunk, error)` — embeds queryText (single call), delegates to `repo.SearchChunks`; used by iteration engine in Task 37
+- `backend/internal/modules/attachment/handler.go`:
+  - `POST   /sessions/{sessionID}/attachments` — Content-Type-driven multiplexer:
+    - `multipart/form-data` (fields `scope`, `scope_ref`, `kind`, `file`, `display_name?`) → file or image upload
+    - `application/json` body with `{scope, scope_ref, kind: "url", url, display_name?}` → URL ingest
+    - `application/json` body with `{scope, scope_ref, kind: "text", text, display_name}` → raw text paste
+    - Returns 201 + `Attachment`; 400 on validation; 413 on oversize; 415 on unsupported MIME; 422 on extraction failure (e.g. password-protected PDF)
+  - `GET    /sessions/{sessionID}/attachments?scope=&scope_ref=` → 200 + `[]Attachment`
+  - `GET    /sessions/{sessionID}/attachments/{id}` → 200 + `Attachment`; 404 if not found
+  - `GET    /sessions/{sessionID}/attachments/{id}/content` → 302 redirect to presigned blob URL (only for kind in file/image); 404 otherwise
+  - `DELETE /sessions/{sessionID}/attachments/{id}` → 204; 404 if not found
+  - Server-side caps: `http.MaxBytesReader(r.Body, GetAttachmentMaxBytes())` on every POST; reject MIME types not in `AllowedMimeTypes` (PDF, DOCX, MD, TXT, JSON, PNG, JPG, JPEG, WEBP)
+- `backend/internal/platform/http/router.go` — register all 5 routes under `attachment.NewHandler`; group prefix `/sessions/{sessionID}/attachments`
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `cd backend && go test ./internal/modules/attachment/...`: covers happy path for all four kinds (with fake blobstore + fake embeddings + fake extractor), scope/scope_ref validation, extraction-failure 422, transaction rollback also removes blob, retrieval returns top-K ordered by score
+- Manual smoke:
+  - `curl -F scope=session -F kind=file -F file=@docs/A2A-agent-Brainstorm.md http://localhost:8080/sessions/{id}/attachments` → 201 with non-empty `extracted_text`
+  - `curl -d '{"scope":"session","kind":"url","url":"https://example.com"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 201
+  - `curl -d '{"scope":"agent","scope_ref":"<agent-uuid>","kind":"text","text":"Use Postgres 16","display_name":"db-pick"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 201
+  - `curl -d '{"scope":"agent","kind":"text","text":"x","display_name":"y"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 400 (missing scope_ref)
+  - SSRF: URL `file:///etc/passwd` → 400
+
+**Prompt context needed:** §8.28 (attachment domain model + upload pipeline algorithm + chunking algorithm), Task 35 (extractor / embeddings / blobstore interfaces), AGENTS.md vertical-slice rules, security invariants 5/6 (parameterized queries, input validation)
+
+---
+
+### Task 37 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
+
+**Goal:** Thread attachments into the dispatch path. Introduce a narrow `AttachmentRetriever` interface owned by the iteration engine (same pattern as `agentProvider` and `sessionStore`). Before dispatching each agent, the engine resolves the active scope set (session ∪ current iteration ∪ current agent), retrieves top-K chunks via cosine similarity against the canonical state's `idea + open_questions`, and appends them to `BrainstormPayload` as a new `Attachments []AttachmentChunkRef` field. The agent executor injects the chunks into the assembled system prompt under a dedicated `# Attached Context` section. Iteration- and agent-scoped attachments are deleted after their owning iteration completes via a lifecycle cleanup pass.
+
+**Files to modify:**
+
+- `backend/internal/modules/iteration/engine.go`:
+  - Add `attachmentRetriever` interface field:
+    ```go
+    type attachmentRetriever interface {
+        Retrieve(ctx context.Context, sessionID uuid.UUID, scopes []attachment.ScopeMatch, queryText string, topK int) ([]attachment.AttachmentChunk, error)
+        DeleteByScope(ctx context.Context, sessionID uuid.UUID, scope attachment.Scope, scopeRef string) error
+    }
+    ```
+  - Extend `NewEngine` constructor with `retriever attachmentRetriever` argument (nullable; nil = attachments disabled, no behaviour change)
+  - In `runPipelinePass`, before each agent dispatch:
+    1. Build query text: `current.Idea + "\n\n" + strings.Join(current.OpenQuestions, "\n")`
+    2. Build scope match list: always include `{Scope: session, ScopeRef: nil}`; if iteration > 0 include `{Scope: iteration, ScopeRef: &strconv.Itoa(i)}`; always include `{Scope: agent, ScopeRef: &agent.ID}`
+    3. Call `retriever.Retrieve(ctx, sessID, scopes, query, GetAttachmentRetrievalTopK())` → `chunks`
+    4. Convert to `[]platA2A.AttachmentChunkRef` (drop DB IDs; keep content, score, scope, display name) — agent binary only needs prompt-relevant fields
+    5. Pass through `DispatchFunc` via a new optional argument `attachments []platA2A.AttachmentChunkRef`
+  - After the iteration's `UpdateState` succeeds, call `retriever.DeleteByScope(ctx, sessID, ScopeIteration, strconv.Itoa(i))` to expire iteration-scoped attachments; `ScopeAgent` cleanup runs after each agent's individual dispatch returns
+- `backend/internal/platform/a2a/types.go`:
+  - Add `AttachmentChunkRef` struct: `Scope string \`json:"scope"\``, `ScopeRef string \`json:"scope_ref,omitempty"\``, `DisplayName string \`json:"display_name"\``, `Content string \`json:"content"\``, `Score float32 \`json:"score"\``
+  - Extend `BrainstormPayload` with `Attachments []AttachmentChunkRef \`json:"attachments,omitempty"\`` — backward compatible (omitempty)
+- `backend/internal/modules/agent/client.go`:
+  - Extend `Dispatch` signature with `attachments []platA2A.AttachmentChunkRef` argument (after `currentState`)
+  - Pass through to `payload.Attachments`
+  - Pre-flight log: `slog.Info("dispatch with attachments", agent_id, chunk_count, total_chars)`
+- `agent/internal/executor/executor.go`:
+  - Add `AttachmentChunkRef` struct (mirror, copied verbatim — agent binary must not import backend packages)
+  - Extend `BrainstormPayload` with `Attachments []AttachmentChunkRef`
+  - In `Execute`, after assembling the base system prompt, append a dedicated section when `len(payload.Attachments) > 0`:
+
+    ```
+    # Attached Context
+
+    The following snippets were retrieved from user-attached artifacts for this dispatch. Treat them as authoritative context for the brainstorm but do not echo them verbatim.
+
+    ## [scope: {Scope} | source: {DisplayName} | relevance: {Score:.2f}]
+    {Content}
+    --- (repeated per chunk)
+    ```
+
+  - Order chunks by descending `Score` for prompt priority
+
+- `backend/internal/modules/iteration/engine_test.go`:
+  - Add test: nil retriever → engine runs unchanged (zero-regression guarantee)
+  - Add test: retriever returns 2 chunks → `DispatchFunc` receives 2 `AttachmentChunkRef`s in score-descending order
+  - Add test: after each iteration, `DeleteByScope(ScopeIteration, "i")` invoked exactly once with the correct iteration number
+- `agent/internal/executor/executor_test.go`:
+  - Add test: payload with 3 attachments → assembled system prompt contains "# Attached Context" header and all 3 contents in descending score order
+  - Add test: payload with empty attachments → no `# Attached Context` section appears (byte-identical to existing behaviour)
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `cd agent && go build ./...`: zero errors
+- `cd backend && go test ./internal/modules/iteration/...`: all existing tests still pass + 3 new tests pass
+- `cd agent && go test ./internal/executor/...`: all existing tests still pass + 2 new tests pass
+- Manual smoke: create session, attach a Markdown doc at session scope, run iterate → agent logs show `dispatch with attachments chunk_count=N>0`; converged state cites attachment content
+- Manual smoke: attach a text snippet at iteration scope (`scope_ref=1`), run 2 iterations → after iteration 1 the snippet is deleted; iteration 2 dispatch has chunk_count for that snippet = 0
+
+**Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 36 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
+
+---
+
+### Task 38 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
+
+**Goal:** Build the ChatGPT-style `+` attachment menu UX and mount it at three scope-bound locations: home page (session-scope, set during creation), session page (iteration-scope, added between iterations), and `PipelineStage` per-agent header (agent-scope, narrows the next dispatch). Includes the modal with four input kinds (file picker, image picker, URL paste, raw text paste), a sticky list of active attachments per scope, and the API client layer.
+
+**Files to create / modify:**
+
+- `frontend/src/lib/types.ts` — add:
+  - `AttachmentScope` type: `'session' | 'iteration' | 'agent'`
+  - `AttachmentKind` type: `'file' | 'image' | 'url' | 'text'`
+  - `Attachment` interface: `id`, `session_id`, `scope`, `scope_ref`, `kind`, `display_name`, `mime_type`, `byte_size`, `source_url`, `summary`, `created_at`, `blob_url?: string`
+  - `CreateAttachmentInput` discriminated union per kind
+- `frontend/src/lib/services/api.ts` — add:
+  - `listAttachments(sessionId: string, scope?: AttachmentScope, scopeRef?: string): Promise<Attachment[]>`
+  - `uploadFileAttachment(sessionId, scope, scopeRef, file: File): Promise<Attachment>` — uses `FormData` multipart
+  - `uploadImageAttachment(sessionId, scope, scopeRef, image: File): Promise<Attachment>` — same, kind=image
+  - `uploadURLAttachment(sessionId, scope, scopeRef, url: string, displayName?): Promise<Attachment>` — JSON body
+  - `uploadTextAttachment(sessionId, scope, scopeRef, text: string, displayName: string): Promise<Attachment>` — JSON body
+  - `deleteAttachment(sessionId, id): Promise<void>`
+- `frontend/src/lib/stores/attachmentStore.ts` — **new**:
+  - `attachmentStore` writable: `{ items: Attachment[], loading: boolean, error: string|null }`
+  - Actions: `load(sessionId, scope?, scopeRef?)`, `add(attachment)`, `remove(id)`, `clear()`
+  - Derived: `bySessionScope`, `byIterationScope(n)`, `byAgentScope(agentId)`
+- `frontend/src/lib/components/AttachmentMenu.svelte` — **new** (the `+` button popover, ChatGPT-style):
+  - Props: `sessionId: string`, `scope: AttachmentScope`, `scopeRef?: string`, `disabled?: boolean`
+  - Renders a circular `+` button (`.btn-icon`) → opens popover with four menu items, each invoking the same `AttachmentUploadModal` with a preset kind:
+    - "Add files" (📎) → kind=file
+    - "Add image" (🖼) → kind=image
+    - "Add URL" (🌐) → kind=url
+    - "Paste text" (✏) → kind=text
+  - Keyboard shortcut: `⌘U` opens the file picker directly (mirrors ChatGPT UX)
+  - Closes on outside-click; ARIA: `role="menu"`, focus trap, `aria-expanded`
+- `frontend/src/lib/components/AttachmentUploadModal.svelte` — **new**:
+  - Props: `sessionId`, `scope`, `scopeRef?`, `kind: AttachmentKind`, `onClose: () => void`
+  - Per-kind input rendering:
+    - `file` → `<input type="file" accept=".pdf,.docx,.md,.txt,.json">`; drag-and-drop zone; live size validation against client-side limit (matches `GetAttachmentMaxBytes`)
+    - `image` → `<input type="file" accept="image/png,image/jpeg,image/webp">`; thumbnail preview
+    - `url` → URL input with HTTP/HTTPS validation; optional display name override
+    - `text` → required display name + multiline textarea (max-height with scroll); character count
+  - Submit calls matching `api.upload*Attachment`; on success: `attachmentStore.add(result)`, `onClose()`; on failure: inline error with status-code-aware message (413 → "File too large", 422 → "Could not extract text from this file", 415 → "Unsupported file type")
+  - Loading state: button disabled, spinner inline
+- `frontend/src/lib/components/AttachmentList.svelte` — **new**:
+  - Props: `attachments: Attachment[]`, `onDelete?: (id) => void`, `compact?: boolean`
+  - Renders horizontal chip row (compact) or vertical list (full): each chip shows kind icon + display_name (truncated 30 chars) + byte_size formatted + delete-X button
+  - Hovering a chip shows a tooltip with `summary` text
+  - File/image chips link to `blob_url` (new tab); URL chips link to `source_url`
+- `frontend/src/routes/+page.svelte` — **modify** (home page, session creation):
+  - Below the idea textarea, render `<AttachmentMenu sessionId={null} scope="session" />` — but since session does not exist yet, store pending uploads in a local array and POST them after `createSession` returns the ID, in a single `await Promise.all` batch
+  - Below the menu, render `<AttachmentList attachments={pendingAttachments} compact />`
+  - Visually anchored to the input frame (matches the ChatGPT mockup the user referenced)
+- `frontend/src/routes/session/[id]/+page.svelte` — **modify**:
+  - Above the "Run Next Iteration" button, render `<AttachmentMenu sessionId={id} scope="iteration" scopeRef={String(nextIteration)} />` with a small caption "Add context for next iteration only (auto-removed after this pass)"
+  - Render `<AttachmentList attachments={$attachmentStore.byIterationScope(nextIteration)} compact />`
+  - Persistent session-scope list rendered in a collapsible sidebar block titled "Session context" — uses `<AttachmentList attachments={$attachmentStore.bySessionScope} />`
+- `frontend/src/lib/components/PipelineStage.svelte` — **modify**:
+  - In the agent header (next to the Run / Apply buttons added in Task 30), mount `<AttachmentMenu sessionId={sessionId} scope="agent" scopeRef={agent.id} />` with tooltip "Add context for this agent only"
+  - Below the stage body, render `<AttachmentList attachments={$attachmentStore.byAgentScope(agent.id)} compact />`
+- `frontend/src/app.css` — **modify**: add design-token classes `.btn-icon`, `.attachment-chip`, `.attachment-chip-file`, `.attachment-chip-image`, `.attachment-chip-url`, `.attachment-chip-text` using existing CSS custom properties (`var(--accent)`, `var(--surface)`, etc.); no hard-coded hex values per AGENTS.md
+- `frontend/src/lib/services/api.test.ts` — **modify**: add unit tests for the five new `api.ts` functions using `vi.fn()` for `fetch`
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm lint`: zero warnings
+- `cd frontend && pnpm test`: existing + 5 new API tests pass
+- `cd frontend && pnpm build`: clean production build
+- Manual:
+  - Home page: click `+` → menu opens with four items; "Paste text" opens modal with textarea; submit before session exists → upload deferred until session ID known; both upload after `createSession`
+  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 37 lifecycle cleanup)
+  - PipelineStage: attach a text snippet to agent A → agent B's stage shows no chips; agent A's stage shows the snippet
+  - Keyboard: `⌘U` while focused in the home page opens file picker directly
+  - Large file (> 10 MB) → modal shows "File too large" before sending
+  - PDF upload → after 1-2s shows summary tooltip on the chip; deletion removes both the chip and the blob (verified by re-listing attachments)
+
+**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 36 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
+
+---
+
+### Task 39 — DB: MCP Server Registry Schema
+
+**Goal:** Create the two database migrations that introduce the `mcp_servers` table (MCP server registry) and the `agent_mcp_servers` join table (agent ↔ MCP server many-to-many). No Go or frontend code changes in this task — schema only.
+
+**Files to create:**
+
+- `migrations/008_mcp_servers.sql` — see §8.24 for exact DDL:
+  - `mcp_servers` table: `id UUID PK DEFAULT gen_random_uuid()`, `name TEXT UNIQUE NOT NULL`, `description TEXT NOT NULL DEFAULT ''`, `transport TEXT NOT NULL CHECK (transport IN ('stdio','http'))`, `command TEXT`, `url TEXT`, `env_refs JSONB NOT NULL DEFAULT '{}'`, `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`
+  - Transport consistency check constraint: `(transport = 'stdio' AND command IS NOT NULL AND url IS NULL) OR (transport = 'http' AND url IS NOT NULL AND command IS NULL)` — exactly one of command/url must be set per transport type
+- `migrations/009_agent_mcp_servers.sql`:
+  - `agent_mcp_servers` join table: `agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE`, `mcp_server_id UUID NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE`, `position INT NOT NULL DEFAULT 0`, `PRIMARY KEY (agent_id, mcp_server_id)`
+  - Index: `CREATE INDEX idx_agent_mcp_servers_agent_id ON agent_mcp_servers (agent_id)`
+
+**Validation:**
+
+- `docker compose run --rm backend ./migrate up` — both migrations apply cleanly; no constraint errors
+- `docker compose run --rm backend ./migrate down` — rolls back both migrations cleanly; schema identical to post-005 state
+- `psql -c "\d mcp_servers"` — shows all 8 columns with correct types and constraints
+- `psql -c "\d agent_mcp_servers"` — shows composite PK and both FK constraints with `ON DELETE CASCADE`
+
+**Prompt context needed:** §8.24 (MCP server registry schema, new in this task), migration rules in AGENTS.md (append-only, numbered sequentially)
+
+---
+
+### Task 40 — Backend: MCP Server Module (CRUD)
+
+**Goal:** Implement the full vertical slice for the MCP server registry — `model.go`, `repository.go`, `service.go`, `handler.go`. Expose five REST endpoints (`GET /mcp-servers`, `POST /mcp-servers`, `GET /mcp-servers/{id}`, `PUT /mcp-servers/{id}`, `DELETE /mcp-servers/{id}`). Validation enforces transport-type field consistency and rejects raw secret values in `env_refs`.
+
+**Files to create / modify:**
+
+- `backend/internal/modules/mcpserver/model.go` — see §8.24:
+  - `MCPServer` struct: `ID uuid.UUID`, `Name string`, `Description string`, `Transport string`, `Command *string`, `URL *string`, `EnvRefs map[string]string`, `CreatedAt time.Time`
+  - `CreateMCPServerInput` struct: same fields minus `ID` and `CreatedAt`; `Transport` required
+  - `UpdateMCPServerInput` struct: same as `CreateMCPServerInput` (full replace semantics)
+- `backend/internal/modules/mcpserver/repository.go`:
+  - `Create(ctx, input) (MCPServer, error)` — INSERT with `ON CONFLICT (name) DO NOTHING`; return 409 if name already taken
+  - `GetByID(ctx, id) (MCPServer, error)` — SELECT by PK; return 404 error if not found
+  - `List(ctx) ([]MCPServer, error)` — SELECT all, ORDER BY name ASC (deterministic)
+  - `Update(ctx, id, input) (MCPServer, error)` — UPDATE; return 404 if row missing
+  - `Delete(ctx, id) error` — DELETE; cascade removes `agent_mcp_servers` rows automatically
+- `backend/internal/modules/mcpserver/service.go`:
+  - `validateInput(input) error`: transport must be `"stdio"` or `"http"`; `"stdio"` requires non-nil non-empty `Command` and nil `URL`; `"http"` requires non-nil non-empty `URL` and nil `Command`; `EnvRefs` values must not contain `=` or whitespace (guards against raw secret values being stored)
+  - `Create`, `GetByID`, `List`, `Update`, `Delete` — call repository; `Create` and `Update` call `validateInput` first
+- `backend/internal/modules/mcpserver/handler.go`:
+  - `GET    /mcp-servers` → 200 + `[]MCPServer`
+  - `POST   /mcp-servers` → 201 + `MCPServer`; 400 on validation error; 409 on name conflict
+  - `GET    /mcp-servers/{id}` → 200 + `MCPServer`; 404 if not found
+  - `PUT    /mcp-servers/{id}` → 200 + `MCPServer`; 400 on validation error; 404 if not found
+  - `DELETE /mcp-servers/{id}` → 204; 404 if not found
+- `backend/internal/platform/http/router.go` — register all 5 new routes under `mcpserver.NewHandler`
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `go test ./backend/internal/modules/mcpserver/...`: covers Create/List/Get/Update/Delete happy paths, name-conflict 409, invalid-transport 400, env-ref-with-value 400 (e.g. `"BRAVE_API_KEY": "sk-1234"` → rejected)
+- Manual: `curl -X POST http://localhost:8080/mcp-servers -d '{"name":"brave-search","transport":"stdio","command":"npx -y @modelcontextprotocol/server-brave-search","env_refs":{"BRAVE_API_KEY":"BRAVE_API_KEY"}}'` → 201
+
+**Prompt context needed:** §8.24 (MCP server registry schema + env_refs security rule), AGENTS.md module boundary rules (vertical slice pattern), security invariant §5 (env_refs values are var names only)
+
+---
+
+### Task 41 — Backend: Agent–MCP Association + Payload Extension
+
+**Goal:** Extend the agent module to load and persist `agent_mcp_servers` join rows. Extend `BrainstormPayload` with `MCPServers []MCPServerRef` so the iteration engine includes each agent's configured MCP servers in the dispatch payload, giving the agent binary the connection details it needs to dial those servers at runtime.
+
+**Files to modify:**
+
+- `backend/internal/modules/agent/model.go`:
+  - Add `MCPServers []MCPServerRef` field to the `Agent` response struct (populated in `GetWithDetails`)
+  - Add `MCPServerIDs []uuid.UUID` to `UpdateAgentInput` (optional; nil = leave associations unchanged, empty slice = clear all)
+- `backend/internal/modules/agent/repository.go`:
+  - `GetWithDetails(ctx, id) (Agent, error)` — extend the existing query to LEFT JOIN `agent_mcp_servers` + `mcp_servers`; aggregate into `Agent.MCPServers`
+  - Add `SetMCPServers(ctx, tx pgx.Tx, agentID uuid.UUID, serverIDs []uuid.UUID) error` — DELETE existing rows for agent, INSERT new ones in the same transaction; `ON CONFLICT DO NOTHING`
+  - Add `GetMCPServersForAgent(ctx, agentID uuid.UUID) ([]MCPServerRef, error)` — SELECT join for iteration engine use
+- `backend/internal/modules/agent/service.go`:
+  - `Update(ctx, id, input) (Agent, error)` — if `input.MCPServerIDs != nil`, validate all IDs exist in `mcp_servers`, then call `SetMCPServers` within the same transaction as the agent UPDATE
+  - `GetMCPServersForAgent(ctx, agentID) ([]MCPServerRef, error)` — delegates to repository
+- `backend/internal/modules/agent/handler.go`:
+  - `PUT /agents/{id}` — accept optional `mcp_server_ids []string` in request body; validate UUID format; pass to `UpdateAgentInput`
+  - `GET /agents/{id}` — response now includes `mcp_servers []MCPServerRef` array
+- `backend/internal/platform/a2a/types.go`:
+  - Add `MCPServerRef` struct (see §8.24 for full field list)
+  - Extend `BrainstormPayload`: add `MCPServers []MCPServerRef \`json:"mcp_servers,omitempty"\``
+- `agent/internal/executor/executor.go` (agent binary — mirror type manually, do not import backend packages):
+  - Add `MCPServerRef` struct matching the backend type (copy, not import)
+  - Extend `BrainstormPayload` with `MCPServers []MCPServerRef`
+- `backend/internal/modules/iteration/engine.go`:
+  - Before dispatching each agent, call `agentSvc.GetMCPServersForAgent(ctx, agentID)` → set `payload.MCPServers`
+  - `EnvRefs` values pass through verbatim from DB (they are env var names); the agent binary resolves actual values at runtime
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero errors
+- `cd backend && go vet ./...`: zero issues
+- `go test ./backend/internal/modules/agent/...`: `SetMCPServers` transaction test (assign 2 servers, update to 1 — first server removed; update to nil — associations unchanged)
+- `go test ./backend/internal/modules/iteration/...`: mock `agentSvc.GetMCPServersForAgent` returns 1 server → dispatch payload includes 1 `MCPServerRef`; agent with no assignments → `MCPServers` is empty slice (not nil)
+
+**Prompt context needed:** §8.24 (MCPServerRef wire format + security rules), §8.3 (BrainstormPayload contract), Task 40 (MCPServer model + service), Task 7 (agent repository patterns), Task 9 (iteration engine dispatch path)
+
+---
+
+### Task 42 — Agent: MCP Client Package
+
+**Goal:** Build `agent/internal/mcp/` — the package that dials MCP servers, lists their tools, and executes tool calls. Two transports: `stdio` (spawn subprocess, JSON-RPC 2.0 over stdin/stdout) and `http` (POST JSON-RPC 2.0 to a URL). `MCPPool` fans out across all servers assigned to an agent, deduplicates tools, and routes `Call` to the correct server.
+
+**Files to create:**
+
+- `agent/internal/mcp/types.go` — see §8.25:
+  - `ToolDef` struct: `Name string`, `Description string`, `InputSchema json.RawMessage`
+  - `ToolCall` struct: `ID string`, `Name string`, `Arguments json.RawMessage`
+  - `ToolResult` struct: `CallID string`, `Content string`, `IsError bool`
+  - `ServerRef` struct: mirrors `executor.MCPServerRef` (copied manually — agent binary must not import backend packages)
+- `agent/internal/mcp/client.go`:
+  - `MCPClient` interface: `ListTools(ctx context.Context) ([]ToolDef, error)`, `Call(ctx context.Context, toolName string, args json.RawMessage) (ToolResult, error)`, `Close() error`
+  - `NewStdioClient(ctx context.Context, serverRef ServerRef, resolveEnv func(string) (string, error)) (MCPClient, error)`:
+    - Resolves all `serverRef.EnvRefs` values via `resolveEnv` before setting subprocess env vars; returns error if any env var is absent (no silent fallback)
+    - Spawns subprocess with the command from `serverRef.Command`; communicates via stdin/stdout using newline-delimited JSON-RPC 2.0
+    - Sends `initialize` handshake (see §8.25) and validates server response before returning
+    - Security: `resolveEnv` must be `config.GetLLMAPIKey` — keeps `os.Getenv` confined to `config/config.go`
+  - `NewHTTPClient(ctx context.Context, serverRef ServerRef, httpClient *http.Client, resolveEnv func(string) (string, error)) (MCPClient, error)`:
+    - Sends JSON-RPC 2.0 messages as HTTP POST to `serverRef.URL`
+    - Resolves any auth headers from `EnvRefs` via `resolveEnv`
+    - Uses default 30s timeout client if `httpClient` is nil
+  - Both clients: `ListTools` sends `{"method":"tools/list"}`; `Call` sends `{"method":"tools/call","params":{"name":...,"arguments":...}}`; see §8.25 for full request/response shapes
+- `agent/internal/mcp/pool.go`:
+  - `MCPPool` struct: holds map of server name → `MCPClient`; maps tool name → server name (for routing)
+  - `NewPool(ctx context.Context, servers []ServerRef, resolveEnv func(string)(string,error), httpClient *http.Client) (*MCPPool, error)` — dials all servers in parallel (goroutines + `errgroup`); fails fast if any dial fails; closes already-dialed servers on error
+  - `ListAllTools(ctx context.Context) ([]ToolDef, error)` — calls `ListTools` on all clients, deduplicates by `Name` (last-server-wins in `servers` order), returns sorted by name (determinism guarantee)
+  - `Call(ctx context.Context, toolName string, args json.RawMessage) (ToolResult, error)` — looks up which server owns `toolName`; routes call; returns error if tool not found
+  - `Close() error` — closes all clients; idempotent
+- `agent/internal/mcp/client_test.go`:
+  - HTTP transport test: `httptest.NewServer` mock implementing `tools/list` (returns 2 tools) + `tools/call` (returns text result); assert `ListTools` returns correct `[]ToolDef`; assert `Call` sends correct JSON-RPC body and returns `ToolResult`
+  - Pool test: 2-server pool each with 2 unique tools; `ListAllTools` returns 4 tools sorted alphabetically; `Call("tool-from-server-2", ...)` routes to server 2 only
+  - Env resolution test: `EnvRefs` entry references an env var not in the environment → `NewStdioClient` returns error; `NewPool` fails fast and closes already-dialed servers
+
+**Validation:**
+
+- `cd agent && go build ./...`: zero errors
+- `cd agent && go vet ./...`: zero issues
+- `cd agent && go test ./internal/mcp/...`: all tests pass (no real MCP server required)
+
+**Prompt context needed:** §8.25 (JSON-RPC 2.0 MCP protocol — initialize handshake, tools/list, tools/call message shapes for both transports), §8.12 (credential security — resolveEnv = config.GetLLMAPIKey), §8.24 (ServerRef / MCPServerRef shape)
+
+---
+
+### Task 43 — Agent: LLM Tool-Use Interface + Executor Loop
+
+**Goal:** Add `GenerateWithTools` to the `LLMProvider` interface and implement it in `CopilotProvider` and `OpenCodeProvider` using OpenAI function-calling format. Replace the single-shot `llm.Generate` call in `BrainstormExecutor.Execute` with a configurable multi-turn tool-use loop: build MCP pool → list tools → call LLM with tools → execute any tool calls via pool → re-call LLM with results → repeat until no tool calls or max rounds reached.
+
+**Files to modify:**
+
+- `agent/internal/llm/copilot.go`:
+  - Extend `LLMProvider` interface (defined here): add `GenerateWithTools(ctx context.Context, req LLMRequest, tools []ToolDef) (LLMResponseWithTools, error)`
+  - Add types to this package (do not import `agent/internal/mcp` — copy only what's needed):
+    - `ToolDef` struct: `Name string`, `Description string`, `InputSchema json.RawMessage`
+    - `ToolCallRequest` struct: `ID string`, `Name string`, `Arguments json.RawMessage`
+    - `LLMResponseWithTools` struct: `Content string`, `FinishReason string`, `TokensUsed int`, `ToolCalls []ToolCallRequest`
+    - `Message` struct: `Role string`, `Content string`, `ToolCalls []ToolCallRequest` (optional), `ToolCallID string` (optional, for role `"tool"`)
+  - `CopilotProvider.GenerateWithTools`: converts `[]ToolDef` to OpenAI `tools` array format (`[{"type":"function","function":{"name":...,"description":...,"parameters":<InputSchema>}}]`); sends to Copilot API with full message history; parses `tool_calls` from response when `finish_reason == "tool_calls"`; see §8.25 for wire format
+  - `Generate` remains: calls `GenerateWithTools(ctx, req, nil)` internally — no callers broken, zero regression
+- `agent/internal/llm/opencode.go`:
+  - Implement `GenerateWithTools` — same interface; encodes tools as JSON and appends to system prompt (OpenCode adaptation since it does not have a native function-calling field); parses tool calls from LLM response text using the agreed format in §8.25
+- `agent/internal/executor/executor.go`:
+  - Replace the single `e.llm.Generate(ctx, req)` call with the multi-turn tool-use loop (see §8.25 for the canonical algorithm):
+    1. Build `MCPPool` from `payload.MCPServers` (skip if empty — zero regression path)
+    2. `ListAllTools` from pool → `tools []llm.ToolDef`
+    3. Initialize `messages []llm.Message` with system + user message
+    4. Loop `for round := 0; round < maxRounds; round++`: call `GenerateWithTools(ctx, req, tools)` with message history; if `len(resp.ToolCalls) == 0` → `finalContent = resp.Content; break`; append assistant tool-call message; execute each call via pool; append `"tool"` result messages; continue loop
+    5. After loop: if `finalContent == ""` and loop exhausted, log warning and use last `resp.Content`
+    6. Parse `finalContent` as `CanonicalState` JSON (existing logic unchanged)
+  - When `payload.MCPServers` is empty: pool is nil, `tools` is empty slice, loop runs exactly once — behaviour identical to current implementation
+- `agent/internal/config/config.go`:
+  - Add `GetMCPMaxToolRounds() int` — reads `AGENT_MCP_MAX_TOOL_ROUNDS`; default `5`; clamp to range `[1, 20]`
+- `agent/internal/executor/executor_test.go`:
+  - Add test: mock `GenerateWithTools` returns 1 tool call on round 1 (`finish_reason: "tool_calls"`), then final JSON on round 2 (`finish_reason: "stop"`); assert final `CanonicalState` parsed correctly; assert pool `Call` invoked once
+  - Add test: max rounds exhausted (mock always returns tool calls) → executor uses last `resp.Content` and emits `Completed` event (no panic)
+  - Add test: `payload.MCPServers` empty → loop runs once with `tools = nil`; `GenerateWithTools` called with nil tools; output identical to existing `Generate` tests
+
+**Validation:**
+
+- `cd agent && go build ./...`: zero errors
+- `cd agent && go vet ./...`: zero issues
+- `cd agent && go test ./internal/...`: all existing tests still pass; 3 new tool-use tests pass
+- Smoke: start agent binary with `AGENT_MCP_MAX_TOOL_ROUNDS=3`; no panic; config getter returns 3
+
+**Prompt context needed:** §8.25 (tool-use loop algorithm + `GenerateWithTools` OpenAI wire format + OpenCode adaptation + message history threading), §8.2 (LLMProvider interface), §8.24 (MCPServerRef), Task 42 (MCPPool API), §8.12 (credential security)
+
+---
+
+### Task 44 — Frontend: MCP Server Settings + Agent Assignment + Smart Import
+
+**Goal:** Add the "MCP Servers" tab to `/settings`, build new/edit forms for MCP servers with a "Test Connection" flow, implement the smart JSON config import modal that normalises Claude Desktop / VS Code / Cursor / Zed / Windsurf / canonical JSON formats, and extend the agent edit form with an MCP server multi-select section.
+
+**Files to create / modify:**
+
+- `frontend/src/lib/types.ts` — add:
+  - `MCPServer` interface: `id: string`, `name: string`, `description: string`, `transport: 'stdio' | 'http'`, `command?: string`, `url?: string`, `env_refs: Record<string, string>`, `created_at: string`
+  - `CreateMCPServerInput` interface: same without `id` and `created_at`
+  - `TestConnectionResult` interface: `connected: boolean`, `tool_count: number`, `tool_names: string[]`, `error?: string`
+  - Extend `Agent` with `mcp_servers: MCPServer[]`
+- `frontend/src/lib/services/api.ts` — add:
+  - `listMCPServers(): Promise<MCPServer[]>`
+  - `createMCPServer(input: CreateMCPServerInput): Promise<MCPServer>`
+  - `getMCPServer(id: string): Promise<MCPServer>`
+  - `updateMCPServer(id: string, input: CreateMCPServerInput): Promise<MCPServer>`
+  - `deleteMCPServer(id: string): Promise<void>`
+  - `testMCPConnection(id: string): Promise<TestConnectionResult>` → `POST /mcp-servers/{id}/test` (backend adds this lightweight endpoint in the handler that dials the server and returns the tool list)
+- `frontend/src/routes/settings/mcp/new/+page.svelte` — **new**:
+  - Form fields: Name (text), Description (text), Transport radio toggle (`stdio` | `http`)
+  - Conditional: when `stdio` → Command textarea (placeholder `npx -y @modelcontextprotocol/server-brave-search`); when `http` → URL input (placeholder `http://localhost:3100`)
+  - Env Refs section: dynamic key-value pair list; both columns labeled "Env Var Name" (not key/value) to reinforce that raw secrets are never stored; add/remove row buttons
+  - "Test Connection" button (`.btn-ghost`): saves server first, then calls `testMCPConnection`; shows result inline — `.chip-ok` with tool count on success, `.chip-danger` with error on failure
+  - On submit: `createMCPServer(input)` → navigate to `/settings?tab=mcp`
+- `frontend/src/routes/settings/mcp/[id]/+page.svelte` — **new**:
+  - Pre-populated edit form; `updateMCPServer` on submit; delete with `WarningModal`
+  - Inline "Test Connection" — same as new form; shows current tool list when connected
+- `frontend/src/routes/settings/+page.svelte` — **modify**:
+  - Add "MCP Servers" as fourth tab (after Agents, Skills, Roles)
+  - MCP Servers tab content: table rows — Name, Transport badge (`.badge-build` for `stdio`, `.badge-review` for `http`), Command/URL (truncated 60 chars), Edit → `/settings/mcp/{id}`, Delete (WarningModal)
+  - "Import from Config" button (`.btn-ghost`) → opens smart import modal (inline component below)
+  - "Add Manually" button (`.btn-primary`) → navigates to `/settings/mcp/new`
+  - Smart import modal (inline in this tab):
+    - Textarea labeled "Paste your MCP config JSON"; "Parse" button → calls `parseMCPConfig(raw: string): ParsedMCPServer[]` normaliser (see §8.25 for logic)
+    - Preview table: one row per detected server — Name, Transport, Command/URL; checkbox per row (all pre-checked)
+    - Security warning banner (`.chip-warn`) shown when any env value in the pasted config looks like a raw secret (contains non-alphanumeric/underscore chars): "⚠ API key values were stripped from env fields. Set the shown env var names on the machine running the agent binary."
+    - "Import Selected" button — calls `createMCPServer` for each checked row sequentially; shows per-row progress chip (`pending → importing → done / error`); errors shown inline, import continues for remaining rows
+- `frontend/src/routes/settings/agent/[id]/+page.svelte` — **modify**:
+  - Add "MCP Servers" section after the existing "Skills" section
+  - Renders a checkbox list of all registered MCP servers (loaded from store); pre-checked = agent's current `mcp_servers` array
+  - Each row shows: server name, transport badge, tool count (if last test result cached, else "–")
+  - On submit: include `mcp_server_ids: string[]` in the `updateAgent` payload
+
+**Validation:**
+
+- `cd frontend && pnpm check`: zero svelte-check errors
+- `cd frontend && pnpm build`: clean production build
+- `cd frontend && pnpm test`: existing API service tests still pass
+- Smart import: paste Claude Desktop config JSON → preview shows correct server names; any env value with non-identifier chars is stripped and warning shown; "Import Selected" creates all servers via API
+- Agent edit: assign 2 MCP servers → save → reload → both remain checked
+- Test Connection: mock backend returns 3 tools → chip shows "3 tools"; mock error → chip shows error message
+
+**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 40 (MCP server REST endpoints), Task 41 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
+
+---
+
 ## 6. Task Summary
 
-| Task | Name                                         | Key Files                                                                                                                                                  | Depends On             | Complexity |
-| ---- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------- |
-| 1    | Project Scaffold                             | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                                                      | —                      | Low        |
-| 2    | Platform: Config + DB + Logger               | `platform/config/`, `platform/db/`, `platform/logger/`                                                                                                     | Task 1                 | Low        |
-| 3    | Platform: LLM Abstraction                    | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                                                    | Task 2                 | Medium     |
-| 4    | Platform: A2A Layer                          | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                                             | Task 2                 | Medium     |
-| 5    | State Module                                 | `modules/state/model.go`, `merge.go`, `validator.go`                                                                                                       | Tasks 3, 4             | Medium     |
-| 6    | Agent Module: Models + DB Schema             | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                                                     | Tasks 1, 5             | Medium     |
-| 7    | Agent Module: Service + Handler + Dispatch   | `modules/agent/service.go`, `handler.go`, `client.go`                                                                                                      | Tasks 6, 3, 4          | High       |
-| 8    | Session Module                               | `modules/session/*`, `003_sessions.sql`                                                                                                                    | Task 7                 | Medium     |
-| 9    | Iteration Engine + Convergence               | `iteration/engine.go`, `convergence/engine.go`                                                                                                             | Tasks 5, 7, 8          | High       |
-| 10   | Markdown + Backend Wire-up                   | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                                                   | Tasks 9, 8             | Medium     |
-| 11   | Agent Service Binary                         | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                                                   | Tasks 3, 4             | High       |
-| 12   | Frontend: Scaffold + Stores + API Client     | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                                                           | Task 1                 | Medium     |
-| 13   | Frontend: Session Workspace                  | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                                                          | Task 12                | Medium     |
-| 14   | Frontend: Agent Registry + Skills            | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                                                      | Task 12                | Medium     |
-| 15   | Integration Tests + Docs                     | `*_test.go` files, `README.md`                                                                                                                             | Tasks 11, 13, 14       | Medium     |
-| 16   | Frontend: Design System Foundation           | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                                          | Task 12                | Low        |
-| 17   | Frontend: Home View Redesign                 | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                                              | Task 16                | Medium     |
-| 18   | Frontend: Session View + Pipeline Components | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte`                              | Tasks 16, 17           | High       |
-| 19   | Backend: Session List + Artifact Content     | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                                             | Tasks 10, 12           | Medium     |
-| 20   | Frontend: Settings View (Agents+Skills Tabs) | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                                                     | Tasks 16, 19           | Medium     |
-| 21   | Frontend: Agent Form + Skill Form Views      | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                                                   | Task 20                | Medium     |
-| 22   | Frontend: Roles Tab + Warning Modal          | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                                                    | Task 20                | Medium     |
-| 23   | Frontend: Session History View               | `routes/history/+page.svelte`                                                                                                                              | Tasks 16, 19           | Medium     |
-| 24   | Frontend: Finalize/Export View               | `routes/session/[id]/finalize/+page.svelte`                                                                                                                | Tasks 19, 22           | Medium     |
-| 25   | Frontend: Navigation Wiring + Final UI Val   | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                                               | Tasks 16–24            | Medium     |
-| 26   | Agent: OpenCode LLM Provider                 | `agent/internal/llm/opencode.go`, `opencode_test.go`, `agent/internal/config/config.go` (modified), `agent/cmd/server/main.go` (modified)                  | Task 11 (agent binary) | Medium     |
-| 27   | Infrastructure: OpenCode Service Wiring      | `docker-compose.yml`, `.env.example`, `Makefile`, `docs/STARTUP_GUIDE.md`                                                                                  | Task 26                | Low        |
-| 28   | Backend + FE: Selectable Output Documents    | `005_session_output_docs.sql`, `session/*` (modified), `markdown/generator.go`, `+page.svelte`, `finalize/+page.svelte`                                    | Tasks 10, 19, 24       | Medium     |
-| 29   | Long-form Generators for All Output Docs     | `markdown/templates.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, paired `_test.go`, registry test | Task 28                | High       |
-| 30   | Per-Agent Preview/Apply (Backend + Frontend) | `iteration/preview.go`, `engine.go` (modified), `service.go`, `handler.go`, `PipelineStage.svelte`, `api.ts`                                               | Tasks 9, 18, 19        | High       |
-| 31   | SSE Real-time Agent Progress                 | `platform/sse/broadcaster.go`, `iteration/events.go`, `engine.go` + `handler.go` (modified), `sse.ts`, `session/[id]/+page.svelte`                         | Tasks 9, 18, 30        | High       |
+| Task | Name                                          | Key Files                                                                                                                                                                                                                      | Depends On             | Complexity |
+| ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ---------- |
+| 1    | Project Scaffold                              | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                                                                                                                          | —                      | Low        |
+| 2    | Platform: Config + DB + Logger                | `platform/config/`, `platform/db/`, `platform/logger/`                                                                                                                                                                         | Task 1                 | Low        |
+| 3    | Platform: LLM Abstraction                     | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                                                                                                                        | Task 2                 | Medium     |
+| 4    | Platform: A2A Layer                           | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                                                                                                                 | Task 2                 | Medium     |
+| 5    | State Module                                  | `modules/state/model.go`, `merge.go`, `validator.go`                                                                                                                                                                           | Tasks 3, 4             | Medium     |
+| 6    | Agent Module: Models + DB Schema              | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                                                                                                                         | Tasks 1, 5             | Medium     |
+| 7    | Agent Module: Service + Handler + Dispatch    | `modules/agent/service.go`, `handler.go`, `client.go`                                                                                                                                                                          | Tasks 6, 3, 4          | High       |
+| 8    | Session Module                                | `modules/session/*`, `003_sessions.sql`                                                                                                                                                                                        | Task 7                 | Medium     |
+| 9    | Iteration Engine + Convergence                | `iteration/engine.go`, `convergence/engine.go`                                                                                                                                                                                 | Tasks 5, 7, 8          | High       |
+| 10   | Markdown + Backend Wire-up                    | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                                                                                                                       | Tasks 9, 8             | Medium     |
+| 11   | Agent Service Binary                          | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                                                                                                                       | Tasks 3, 4             | High       |
+| 12   | Frontend: Scaffold + Stores + API Client      | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                                                                                                                               | Task 1                 | Medium     |
+| 13   | Frontend: Session Workspace                   | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                                                                                                                              | Task 12                | Medium     |
+| 14   | Frontend: Agent Registry + Skills             | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                                                                                                                          | Task 12                | Medium     |
+| 15   | Integration Tests + Docs                      | `*_test.go` files, `README.md`                                                                                                                                                                                                 | Tasks 11, 13, 14       | Medium     |
+| 16   | Frontend: Design System Foundation            | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                                                                                                              | Task 12                | Low        |
+| 17   | Frontend: Home View Redesign                  | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                                                                                                                  | Task 16                | Medium     |
+| 18   | Frontend: Session View + Pipeline Components  | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte`                                                                                                  | Tasks 16, 17           | High       |
+| 19   | Backend: Session List + Artifact Content      | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                                                                                                                 | Tasks 10, 12           | Medium     |
+| 20   | Frontend: Settings View (Agents+Skills Tabs)  | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                                                                                                                         | Tasks 16, 19           | Medium     |
+| 21   | Frontend: Agent Form + Skill Form Views       | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                                                                                                                       | Task 20                | Medium     |
+| 22   | Frontend: Roles Tab + Warning Modal           | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                                                                                                                        | Task 20                | Medium     |
+| 23   | Frontend: Session History View                | `routes/history/+page.svelte`                                                                                                                                                                                                  | Tasks 16, 19           | Medium     |
+| 24   | Frontend: Finalize/Export View                | `routes/session/[id]/finalize/+page.svelte`                                                                                                                                                                                    | Tasks 19, 22           | Medium     |
+| 25   | Frontend: Navigation Wiring + Final UI Val    | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                                                                                                                   | Tasks 16–24            | Medium     |
+| 26   | Agent: OpenCode LLM Provider                  | `agent/internal/llm/opencode.go`, `opencode_test.go`, `agent/internal/config/config.go` (modified), `agent/cmd/server/main.go` (modified)                                                                                      | Task 11 (agent binary) | Medium     |
+| 27   | Infrastructure: OpenCode Service Wiring       | `docker-compose.yml`, `.env.example`, `Makefile`, `docs/STARTUP_GUIDE.md`                                                                                                                                                      | Task 26                | Low        |
+| 28   | Backend + FE: Selectable Output Documents     | `005_session_output_docs.sql`, `session/*` (modified), `markdown/generator.go`, `+page.svelte`, `finalize/+page.svelte`                                                                                                        | Tasks 10, 19, 24       | Medium     |
+| 29   | Long-form Generators for All Output Docs      | `markdown/templates.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, paired `_test.go`, registry test                                                                     | Task 28                | High       |
+| 30   | Per-Agent Preview/Apply (Backend + Frontend)  | `iteration/preview.go`, `engine.go` (modified), `service.go`, `handler.go`, `PipelineStage.svelte`, `api.ts`                                                                                                                   | Tasks 9, 18, 19        | High       |
+| 31   | SSE Real-time Agent Progress                  | `platform/sse/broadcaster.go`, `iteration/events.go`, `engine.go` + `handler.go` (modified), `sse.ts`, `session/[id]/+page.svelte`                                                                                             | Tasks 9, 18, 30        | High       |
+| 32   | Generated Document Quality Overhaul           | `markdown/templates.go`, `generator.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, `state/model.go`, `session/service.go`, `session/handler.go`, `executor/executor.go` | Tasks 28, 29           | High       |
+| 33   | AI-Driven Hybrid Doc Generator + Skill Bundle | `markdown/aigen/skills.go`, `rubric.go`, `generator.go`, `aigen_test.go`, `markdown/generator.go` (modified), `session/service.go` (modified), `platform/config/config.go` (modified), `cmd/server/main.go` (modified)         | Task 32                | High       |
+| 34   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/006_attachments.sql`, `migrations/007_attachment_chunks.sql`                                                                                                                                                       | Task 31                | Low        |
+| 35   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 34                | High       |
+| 36   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 35                | High       |
+| 37   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 36, 9, 11        | High       |
+| 38   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 36, 18, 30       | High       |
+| 39   | DB: MCP Server Registry Schema                | `migrations/008_mcp_servers.sql`, `migrations/009_agent_mcp_servers.sql`                                                                                                                                                       | Task 34                | Low        |
+| 40   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 39                | Medium     |
+| 41   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 40, 9            | Medium     |
+| 42   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 39                | High       |
+| 43   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 41, 42           | High       |
+| 44   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 40, 41, 21       | High       |
 
 ---
 
@@ -2643,3 +3364,1068 @@ for i := 1; i <= maxIter; i++ {
 - Ring buffer cap: 100 events per session.
 - Max subscribers per session: 10 (hard limit; 11th `Subscribe` returns `nil` channel → handler responds `429`).
 - Subscriber channel buffer: 32. When full, the broadcaster drops the subscriber (treated as disconnected).
+
+---
+
+### 8.23 Generated Document Quality Standard (v1.5)
+
+**Purpose.** Replace the broken output pipeline (title bug, idea duplication, empty sections, padding boilerplate) with a deterministic quality contract. This section defines the title/description extraction rules, slug-based filename pattern, state readiness gate, and the enriched canonical state schema that the generators consume.
+
+#### Title and description extraction
+
+```go
+// shortTitle picks a concise document title from canonical state.
+// Source priority: idea.name > first sentence of idea.text (60-char max, word boundary) > "Untitled Brainstorm".
+// Output is single-line, Markdown-stripped, multi-space collapsed.
+func shortTitle(s state.CanonicalState) string
+
+// oneLineDescription returns a single sentence ≤ 200 chars suitable for a blockquote/lead paragraph.
+// Never emits the full idea body verbatim. Source priority: idea.summary > first sentence of idea.text.
+func oneLineDescription(s state.CanonicalState) string
+```
+
+**Banned outputs:**
+
+- Using the full `idea.text` (often a multi-sentence paragraph) as an H1 — the root cause of the title bug observed in v1.4 outputs.
+- Emitting `idea.text` in more than one place per document (today: title + blockquote + Overview = triple-print).
+
+#### Slug and filename pattern
+
+```go
+// slugify produces a lowercase, ASCII, hyphen-separated, ≤ 50-char slug.
+// Rules: lowercase, drop punctuation, spaces → "-", collapse repeats, trim leading/trailing "-".
+// Empty input → "untitled".
+func slugify(title string) string
+
+var suffixForKey = map[string]string{
+    "architecture": "architecture.md",
+    "roadmap":      "roadmap.md",
+    "plan":         "plan.md",
+    "readme":       "readme.md",
+}
+
+func buildFilename(title, key string) string {
+    return slugify(title) + "_" + suffixForKey[key]
+}
+```
+
+**Example:** session idea name `"Match Point"` → `match-point_architecture.md`, `match-point_roadmap.md`, `match-point_plan.md`, `match-point_readme.md`. All four files for one session share the same slug prefix (`GenerateAll` computes it once and reuses it).
+
+#### Sparse-state finalize gate
+
+The `Finalize` service helper:
+
+```go
+func isStateReadyForFinalize(s state.CanonicalState) (ready bool, reason string) {
+    if len(s.Idea) == 0           { return false, "idea is empty" }
+    if len(s.Architecture) == 0   { return false, "architecture is empty" }
+    if len(s.ExecutionPlan) == 0  { return false, "execution_plan is empty" }
+    if s.Metrics.Confidence < 0.5 { return false, "confidence below 0.5 — continue brainstorming" }
+    return true, ""
+}
+```
+
+Handler maps `ready == false` to HTTP `422 Unprocessable Entity` with body `{"error":"state_not_ready","reason":"..."}`. The frontend Finalize view surfaces the reason instead of downloading empty files.
+
+#### Enriched CanonicalState schema (additive, backward-compatible)
+
+All fields below are optional JSON keys inside the existing `map[string]any` containers (no struct rename, no schema migration). Agents are instructed via prompt to populate them when known.
+
+```jsonc
+{
+  "architecture": {
+    "layers": [
+      {
+        "name": "Backend",
+        "responsibility": "...",
+        "technologies": ["Go 1.26", "pgx/v5"],
+        "dependencies": ["Database"],
+      },
+    ],
+    "data_flows": [
+      {
+        "from": "Frontend",
+        "to": "Backend",
+        "protocol": "HTTP/JSON",
+        "description": "...",
+      },
+    ],
+    "tech_stack": { "backend": "Go 1.26", "frontend": "SvelteKit" },
+    "directory_layout": ["backend/", "frontend/", "migrations/"],
+  },
+  "execution_plan": [
+    {
+      "phase": "Phase 1 — Foundation",
+      "objective": "Land the platform skeleton",
+      "deliverables": ["go.work", "docker-compose.yml"],
+      "exit_criteria": ["All services build green"],
+      "blocking_dependencies": [],
+    },
+  ],
+  "risks": [
+    {
+      "name": "LLM rate-limit",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "...",
+    },
+  ],
+  "assumptions": [
+    {
+      "name": "Single-tenant deployment",
+      "rationale": "...",
+      "validation_method": "...",
+    },
+  ],
+  "metrics": {
+    "confidence": 0.0,
+    "test_coverage_target": 0.8,
+    "latency_budget_ms": 250,
+  },
+}
+```
+
+Generators iterate these structured fields when present; if absent they fall back to the v1.4 map-walk so old sessions still render (but they will fail the finalize gate above if the core containers are empty).
+
+#### Agent prompt fragment (injected by `executor.go`)
+
+```
+## Required Output Structure (CanonicalState)
+
+When you emit canonical state JSON, populate the structured sub-fields described below — not just free-form maps.
+
+- architecture.layers []{ name, responsibility, technologies, dependencies }
+- architecture.data_flows []{ from, to, protocol, description }
+- execution_plan []{ phase, objective, deliverables, exit_criteria, blocking_dependencies }
+- risks []{ name, likelihood (low|medium|high), impact (low|medium|high), mitigation }
+- assumptions []{ name, rationale, validation_method }
+- metrics { confidence, test_coverage_target, latency_budget_ms }
+
+Do not omit a layer or phase you previously discussed. Do not repeat the idea text verbatim inside architecture or roadmap sections.
+```
+
+The Architect / Engineer / Reviewer role prompts stored in `agents.system_prompt` are appended with this fragment via a one-shot SQL `UPDATE` recorded in task notes (no new migration file — row-level data update only).
+
+#### Deleted: `enforceMinLines`
+
+The v1.3/v1.4 `enforceMinLines(body, minLines)` helper and its four padders (`padArchitecture`, `padRoadmap`, `padPlan`, `padReadme`) are **removed entirely**. Line count is not a quality signal; depth comes from the enriched state schema above. Tests that asserted `lineCount >= 1000` are replaced with content assertions (title shape, idea-occurrence count, presence of per-layer sub-sections).
+
+---
+
+### 8.24 MCP Server Registry Schema (v1.4)
+
+#### `mcp_servers` table (migration 006)
+
+```sql
+CREATE TABLE mcp_servers (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT        NOT NULL UNIQUE,
+    description TEXT        NOT NULL DEFAULT '',
+    transport   TEXT        NOT NULL CHECK (transport IN ('stdio', 'http')),
+    command     TEXT,
+    url         TEXT,
+    env_refs    JSONB       NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT transport_fields CHECK (
+        (transport = 'stdio' AND command IS NOT NULL AND url IS NULL) OR
+        (transport = 'http'  AND url IS NOT NULL     AND command IS NULL)
+    )
+);
+```
+
+**`env_refs` JSONB shape:** maps logical key names to environment variable names. Both keys and values are env var names — neither is ever a raw secret value.
+
+```json
+{
+  "BRAVE_API_KEY": "BRAVE_API_KEY",
+  "GITHUB_TOKEN": "GH_PAT_TOKEN"
+}
+```
+
+The agent binary resolves actual values at runtime via `config.GetLLMAPIKey(envVarName)`. The backend never reads, stores, or logs the resolved values.
+
+**Security validation rule (service layer):** reject any `env_refs` entry whose value contains `=` or whitespace — these characters indicate a raw key value, not a var name. Return HTTP 400.
+
+#### `agent_mcp_servers` join table (migration 007)
+
+```sql
+CREATE TABLE agent_mcp_servers (
+    agent_id      UUID NOT NULL REFERENCES agents(id)      ON DELETE CASCADE,
+    mcp_server_id UUID NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+    position      INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (agent_id, mcp_server_id)
+);
+
+CREATE INDEX idx_agent_mcp_servers_agent_id ON agent_mcp_servers (agent_id);
+```
+
+#### `MCPServerRef` wire format (in `BrainstormPayload.MCPServers`)
+
+```go
+// MCPServerRef — connection details packed into BrainstormPayload by the iteration engine.
+// Defined in: backend/internal/platform/a2a/types.go (canonical)
+//             agent/internal/executor/executor.go   (mirror — no cross-binary imports)
+type MCPServerRef struct {
+    ID        string            `json:"id"`
+    Name      string            `json:"name"`
+    Transport string            `json:"transport"`          // "stdio" | "http"
+    Command   string            `json:"command,omitempty"` // stdio only
+    URL       string            `json:"url,omitempty"`     // http only
+    EnvRefs   map[string]string `json:"env_refs,omitempty"` // var names only, never values
+}
+```
+
+`BrainstormPayload` extension:
+
+```go
+// Added in v1.4 — omit if empty so older agent binaries receive backward-compatible payloads
+MCPServers []MCPServerRef `json:"mcp_servers,omitempty"`
+```
+
+#### `MCPServer` Go struct (backend)
+
+```go
+// MCPServer — DB model in backend/internal/modules/mcpserver/model.go
+type MCPServer struct {
+    ID          uuid.UUID         `json:"id"`
+    Name        string            `json:"name"`
+    Description string            `json:"description"`
+    Transport   string            `json:"transport"`
+    Command     *string           `json:"command,omitempty"`
+    URL         *string           `json:"url,omitempty"`
+    EnvRefs     map[string]string `json:"env_refs"`
+    CreatedAt   time.Time         `json:"created_at"`
+}
+```
+
+#### REST endpoints (registered in `platform/http/router.go`)
+
+| Method   | Path                     | Description                         | Success | Error codes |
+| -------- | ------------------------ | ----------------------------------- | ------- | ----------- |
+| `GET`    | `/mcp-servers`           | List all registered MCP servers     | 200     | —           |
+| `POST`   | `/mcp-servers`           | Register a new MCP server           | 201     | 400, 409    |
+| `GET`    | `/mcp-servers/{id}`      | Get one MCP server by ID            | 200     | 404         |
+| `PUT`    | `/mcp-servers/{id}`      | Update an MCP server (full replace) | 200     | 400, 404    |
+| `DELETE` | `/mcp-servers/{id}`      | Delete an MCP server                | 204     | 404         |
+| `POST`   | `/mcp-servers/{id}/test` | Dial server, return tool list       | 200     | 404, 502    |
+
+---
+
+### 8.25 MCP Tool-Use Loop — Protocol and Algorithm (v1.4)
+
+#### MCP JSON-RPC 2.0 Protocol
+
+The Model Context Protocol uses JSON-RPC 2.0 over two transports:
+
+- **stdio**: newline-delimited JSON messages written to subprocess stdin / read from stdout
+- **http**: each JSON-RPC call is a `POST` to the server's URL with `Content-Type: application/json`
+
+**Initialize handshake (required before first tool call, stdio and http):**
+
+Request:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": { "name": "a2a-brainstorm", "version": "1.4" }
+  }
+}
+```
+
+Response (relevant fields):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2024-11-05",
+    "serverInfo": { "name": "...", "version": "..." },
+    "capabilities": { "tools": {} }
+  }
+}
+```
+
+After receiving `initialize` response, send `{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}` (no `id` — notification, no response expected).
+
+**`tools/list` request:**
+
+```json
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "tools": [
+      {
+        "name": "brave_web_search",
+        "description": "Performs a web search...",
+        "inputSchema": {
+          "type": "object",
+          "properties": { "query": { "type": "string" } },
+          "required": ["query"]
+        }
+      }
+    ]
+  }
+}
+```
+
+**`tools/call` request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "brave_web_search",
+    "arguments": { "query": "Go 1.26 release notes" }
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "content": [{ "type": "text", "text": "Go 1.26 was released on..." }],
+    "isError": false
+  }
+}
+```
+
+Extract all `type=text` parts, concatenate into `ToolResult.Content`. If `isError == true`, set `ToolResult.IsError = true` and include error text in `Content`.
+
+#### `ToolDef` and `LLMResponseWithTools` Go types
+
+```go
+// Defined in agent/internal/llm/copilot.go (canonical for the LLM package)
+// Mirrored without import in agent/internal/mcp/types.go
+
+type ToolDef struct {
+    Name        string          `json:"name"`
+    Description string          `json:"description"`
+    InputSchema json.RawMessage `json:"input_schema"` // JSON Schema object
+}
+
+type ToolCallRequest struct {
+    ID        string          `json:"id"`
+    Name      string          `json:"name"`
+    Arguments json.RawMessage `json:"arguments"`
+}
+
+type LLMResponseWithTools struct {
+    Content      string           `json:"content"`
+    FinishReason string           `json:"finish_reason"` // "stop" | "tool_calls"
+    TokensUsed   int              `json:"tokens_used"`
+    ToolCalls    []ToolCallRequest `json:"tool_calls,omitempty"`
+}
+
+type Message struct {
+    Role       string           `json:"role"`        // "system" | "user" | "assistant" | "tool"
+    Content    string           `json:"content,omitempty"`
+    ToolCalls  []ToolCallRequest `json:"tool_calls,omitempty"` // assistant message with tool calls
+    ToolCallID string           `json:"tool_call_id,omitempty"` // tool result message
+}
+```
+
+#### OpenAI Function Calling Wire Format (for `CopilotProvider.GenerateWithTools`)
+
+Tools array sent to Copilot completions API:
+
+```json
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "brave_web_search",
+        "description": "Performs a web search using Brave Search API",
+        "parameters": {
+          "type": "object",
+          "properties": { "query": { "type": "string" } },
+          "required": ["query"]
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto"
+}
+```
+
+When the model wants to call a tool, response contains:
+
+```json
+{
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "message": {
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "id": "call_abc123",
+            "type": "function",
+            "function": {
+              "name": "brave_web_search",
+              "arguments": "{\"query\":\"Go 1.26\"}"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+#### OpenCode Adaptation (for `OpenCodeProvider.GenerateWithTools`)
+
+OpenCode does not have a native function-calling parameter. Instead, encode the tool definitions as a JSON block appended to the system prompt:
+
+```
+<available_tools>
+[{"name":"brave_web_search","description":"...","inputSchema":{...}}]
+</available_tools>
+
+When you need to call a tool, respond with a JSON block in this format and nothing else:
+{"tool_calls":[{"id":"<uuid>","name":"<tool_name>","arguments":{...}}]}
+
+After receiving tool results, continue your reasoning and produce the final CanonicalState JSON.
+```
+
+The executor parses the LLM response text; if it starts with `{"tool_calls":`, treat as a tool-call response regardless of `FinishReason`.
+
+#### Multi-turn Tool-Use Loop Algorithm
+
+```go
+// In agent/internal/executor/executor.go — Execute()
+maxRounds := config.GetMCPMaxToolRounds() // default 5, clamp [1,20]
+
+// Build pool (skip if no MCP servers configured — zero regression path)
+var pool *mcp.MCPPool
+if len(payload.MCPServers) > 0 {
+    var err error
+    pool, err = mcp.NewPool(ctx, toServerRefs(payload.MCPServers), config.GetLLMAPIKey, nil)
+    if err != nil {
+        // emit agent.error; return
+    }
+    defer pool.Close()
+}
+
+// List tools
+var tools []llm.ToolDef
+if pool != nil {
+    tools, _ = pool.ListAllTools(ctx) // ignore error: empty tools = no tool use
+}
+
+// Build initial message history
+messages := []llm.Message{
+    {Role: "system", Content: payload.SystemPrompt},
+    {Role: "user",   Content: userMessage}, // JSON-encoded CanonicalState
+}
+
+// Multi-turn loop
+var finalContent string
+for round := 0; round < maxRounds; round++ {
+    resp, err := e.llm.GenerateWithTools(ctx, llm.LLMRequest{
+        SystemPrompt: payload.SystemPrompt,
+        UserMessage:  messagesAsText(messages), // implementation-specific encoding
+        Temperature:  0.15,
+    }, tools)
+    if err != nil { /* emit agent.error; return */ }
+
+    if len(resp.ToolCalls) == 0 {
+        finalContent = resp.Content
+        break
+    }
+
+    // Append assistant message with tool calls
+    messages = append(messages, llm.Message{
+        Role:      "assistant",
+        ToolCalls: resp.ToolCalls,
+    })
+
+    // Execute each tool call and append results
+    for _, tc := range resp.ToolCalls {
+        var args json.RawMessage
+        _ = json.Unmarshal([]byte(tc.Arguments.String()), &args)
+        result, _ := pool.Call(ctx, tc.Name, args)
+        messages = append(messages, llm.Message{
+            Role:       "tool",
+            ToolCallID: tc.ID,
+            Content:    result.Content,
+        })
+    }
+}
+
+// Fallback: if loop exhausted without a stop signal, use last response
+if finalContent == "" && len(messages) > 0 {
+    slog.Warn("tool-use loop exhausted without stop signal", "maxRounds", maxRounds)
+    finalContent = resp.Content // last response, may be partial
+}
+
+// Parse finalContent as CanonicalState (existing logic — unchanged)
+```
+
+**Stop conditions:**
+
+- `len(resp.ToolCalls) == 0` AND `resp.FinishReason == "stop"` — normal completion
+- `len(resp.ToolCalls) == 0` AND any other `FinishReason` — treat as stop
+- Round counter reaches `maxRounds` — use last content received
+
+---
+
+### 8.26 Smart Import Config Format (v1.4)
+
+The smart import modal in `/settings?tab=mcp` accepts JSON pasted from any of the following configuration file formats used by MCP host applications. The `parseMCPConfig(raw: string)` function (in `frontend/src/routes/settings/+page.svelte`) normalises all formats to a common `ParsedMCPServer[]` array.
+
+#### Supported source formats
+
+| Source         | Config file                         | Top-level key     | Server value shape                                       |
+| -------------- | ----------------------------------- | ----------------- | -------------------------------------------------------- |
+| Claude Desktop | `claude_desktop_config.json`        | `mcpServers`      | `{"command": "npx", "args": [...], "env": {...}}`        |
+| VS Code        | `.vscode/mcp.json`                  | `servers`         | `{"type":"stdio","command":"...","args":[...],"env":{}}` |
+| Cursor         | `.cursor/mcp.json`                  | `mcpServers`      | same as Claude Desktop                                   |
+| Zed            | `settings.json`                     | `context_servers` | `{"command":{"path":"...","args":[...],"env":{}}}`       |
+| Windsurf       | `.codeium/windsurf/mcp_config.json` | `mcpServers`      | same as Claude Desktop                                   |
+| Canonical      | any                                 | (root array)      | `[{"name":"...","transport":"stdio","command":"..."}]`   |
+
+#### Detection and normalisation algorithm
+
+```typescript
+function parseMCPConfig(raw: string): ParsedMCPServer[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+
+  // Canonical array: root is an array
+  if (Array.isArray(parsed)) return parsed.map(normaliseCanonical);
+
+  // Claude Desktop / Cursor / Windsurf: { mcpServers: { name: {...} } }
+  if (typeof parsed === "object" && parsed !== null && "mcpServers" in parsed) {
+    return Object.entries((parsed as any).mcpServers).map(([name, cfg]) =>
+      normaliseClaudeDesktop(name, cfg),
+    );
+  }
+
+  // VS Code: { servers: { name: {...} } }
+  if (typeof parsed === "object" && parsed !== null && "servers" in parsed) {
+    return Object.entries((parsed as any).servers).map(([name, cfg]) =>
+      normaliseVSCode(name, cfg),
+    );
+  }
+
+  // Zed: { context_servers: { name: {...} } }
+  if (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "context_servers" in parsed
+  ) {
+    return Object.entries((parsed as any).context_servers).map(([name, cfg]) =>
+      normaliseZed(name, cfg),
+    );
+  }
+
+  return [];
+}
+```
+
+#### `normaliseClaudeDesktop(name, cfg)` logic
+
+- `transport`: `"stdio"` always (Claude Desktop only supports stdio)
+- `command`: join `cfg.command` + `cfg.args` as space-separated string, or use `cfg.command` if `args` absent
+- `env_refs`: see env-stripping policy below; map each key to a sanitised env var name
+- Result: `{ name, transport: "stdio", command, env_refs, description: "" }`
+
+#### `normaliseVSCode(name, cfg)` logic
+
+- `transport`: from `cfg.type` → `"stdio"` or `"http"` (default stdio)
+- For `http`: `url` from `cfg.url`; for `stdio`: `command` assembled from `cfg.command + cfg.args`
+- `env_refs`: same stripping policy
+
+#### `normaliseZed(name, cfg)` logic
+
+- `transport`: `"stdio"`
+- `command`: `cfg.command.path + " " + cfg.command.args.join(" ")`
+- `env_refs`: from `cfg.command.env`
+
+#### Env-value stripping policy
+
+When iterating over `env` fields in the pasted config:
+
+```typescript
+function processEnvRefs(env: Record<string, string>): {
+  env_refs: Record<string, string>;
+  hadSecrets: boolean;
+} {
+  const result: Record<string, string> = {};
+  let hadSecrets = false;
+  for (const [key, value] of Object.entries(env)) {
+    // Looks like an env var name: all uppercase, digits, underscores, no spaces
+    const looksLikeVarName = /^[A-Z][A-Z0-9_]*$/.test(value);
+    if (looksLikeVarName) {
+      result[key] = value; // store as-is (already a var name reference)
+    } else {
+      // Value looks like a raw secret — strip it, keep only the key as the var name
+      result[key] = key; // convention: key name becomes the env var name
+      hadSecrets = true;
+    }
+  }
+  return { env_refs: result, hadSecrets };
+}
+```
+
+**Rule:** if `hadSecrets` is true for any server in the batch, show the security warning banner in the import modal.
+
+**Warning message:** "⚠ API key values were detected and stripped from `env` fields. The import stored only env var names. Set the corresponding env vars on the machine where the agent binary runs."
+
+#### `ParsedMCPServer` TypeScript interface
+
+```typescript
+interface ParsedMCPServer {
+  name: string;
+  transport: "stdio" | "http";
+  command?: string; // stdio only
+  url?: string; // http only
+  env_refs: Record<string, string>; // var names only, never raw values
+  description: string;
+  _hadSecrets: boolean; // UI-only flag; not sent to backend
+}
+```
+
+---
+
+### 8.27 AI-Driven Document Generator + Skill Bundle (v1.6)
+
+**Status:** Added in v1.6 with Task 33. This section is the canonical specification for the AI-driven hybrid finalize pipeline. It supplements §8.23 (deterministic quality standard) and is wrapped around — never replaces — the Task-32 generators.
+
+**Goal.** Push generated output (`architecture.md`, `roadmap.md`, `plan.md`, `readme.md`) to the depth, tone, and structure of the reference docs (`docs/A2A-agent-Brainstorm.md`, `docs/architecture.md`, `docs/implementation_roadmap.md`, this repo's `README.md`) by running each deterministic scaffold through an LLM pass that is conditioned on a curated bundle of project skills.
+
+**Three-mode contract.** Selected at startup via `FINALIZE_MODE` env var.
+
+| Mode            | Behaviour                                                                                                                                   | When to use                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `deterministic` | Exactly the post-Task-32 pipeline. No LLM call. Byte-for-byte stable output.                                                                | CI snapshot tests, air-gapped runs, debugging.              |
+| `hybrid`        | Deterministic scaffold first → AI rewrite per document → rubric validate → auto-repair up to N times → on hard failure return the scaffold. | **Default.** Production finalize.                           |
+| `ai`            | Same as `hybrid` but on hard failure return the error instead of the scaffold.                                                              | Testing the AI path; explicit opt-in for high-quality runs. |
+
+**Skill Bundle (canonical, in load order).** Each entry is the verbatim body of a `.github/skills/<name>/SKILL.md` file with YAML frontmatter stripped at load time, concatenated under `## Skill: <name>` headings separated by blank lines. The bundle is composed once per `GenerateAll` call and reused across all document keys.
+
+| Order | Skill path                                | Why it's in the bundle                                                                |
+| ----- | ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| 1     | `.github/skills/modularity/SKILL.md`      | Enforces the modular monolith / vertical-slice mental model in architecture sections. |
+| 2     | `.github/skills/vertical-slice/SKILL.md`  | Drives per-feature directory layout and section structure in plan + roadmap docs.     |
+| 3     | `.github/skills/api-design/SKILL.md`      | Shapes API surface sections (REST contracts, request/response, pagination, errors).   |
+| 4     | `.github/skills/roadmap-spec/SKILL.md`    | Enforces the canonical roadmap section template (Objective / BLOCKERS / Scope / …).   |
+| 5     | `.github/skills/plan-management/SKILL.md` | Mirrors the PLAN.md task template into the generated `plan.md` document.              |
+
+`SKILL_BUNDLE_PATHS` env var (comma-separated) overrides this list. Missing files cause startup error — no silent fallback.
+
+**Per-document rubric defaults.** Returned by `RubricFor(docKey)`. All numeric bounds are config-overridable in a follow-up — Task 33 ships these constants:
+
+````go
+var defaultRubrics = map[string]Rubric{
+  "architecture": {
+    Sections: []SectionRule{
+      {Heading: "1. Overview",          MinChars: 400},
+      {Heading: "2. System Components", MinChars: 600, RequiredKeywords: []string{"Responsibility","Technologies","Dependencies"}},
+      {Heading: "3. Data Model",        MinChars: 400},
+      {Heading: "4. Data Flow",         MinChars: 400, RequiredKeywords: []string{"```mermaid"}},
+      {Heading: "5. Deployment",        MinChars: 300},
+    },
+  },
+  "roadmap": {
+    Sections: []SectionRule{
+      {Heading: "1. Goals",          MinChars: 300},
+      {Heading: "2. Milestones",     MinChars: 500},
+      {Heading: "3. Phase Breakdown",MinChars: 800, RequiredKeywords: []string{"Objective","Scope","Deliverables","Exit Criteria"}},
+      {Heading: "4. Risks",          MinChars: 300},
+    },
+  },
+  "plan": {
+    Sections: []SectionRule{
+      {Heading: "1. Scope",       MinChars: 300},
+      {Heading: "2. Architecture",MinChars: 400},
+      {Heading: "3. Modules",     MinChars: 600},
+      {Heading: "4. Tasks",       MinChars: 800, RequiredKeywords: []string{"Files to create","Validation"}},
+    },
+  },
+  "readme": {
+    Sections: []SectionRule{
+      {Heading: "Overview",     MinChars: 300},
+      {Heading: "Architecture", MinChars: 300},
+      {Heading: "Roadmap",      MinChars: 300},
+      {Heading: "Getting Started", MinChars: 200},
+    },
+  },
+}
+````
+
+All rubrics share the placeholder blocklist: `["TBD", "TODO", "Lorem ipsum", "placeholder"]` — any occurrence in section body fails the rubric.
+
+**Auto-repair algorithm.**
+
+```
+draft        := llm.Generate(ctx, req{ system: bundle + docContract, user: scaffold + state })
+findings     := Validate(draft, rubric)
+attempts     := 0
+for len(findings) > 0 && attempts < maxRepairs {
+  req.UserMessage = "Previous draft:\n\n" + draft +
+                    "\n\nRubric findings (must fix all):\n" + bullets(findings) +
+                    "\n\nReturn the full revised document only."
+  draft     = llm.Generate(ctx, req)
+  findings  = Validate(draft, rubric)
+  attempts++
+}
+if len(findings) > 0 {
+  return scaffold        // hybrid mode
+  // OR
+  return error(findings) // ai mode
+}
+return draft
+```
+
+`maxRepairs` defaults to `2` (`AIGEN_MAX_REPAIRS`, clamp `[0,5]`). Temperature defaults to `0.2` (`AIGEN_TEMPERATURE`, clamp `[0.0,1.0]`) to keep regenerations stable.
+
+**Why backend reuses the existing `LLMProvider` instead of dialing the agent binary.** Finalize is a one-shot synchronous backend operation — there is no canonical-state iteration, no convergence loop, no per-agent role split. Routing it through A2A would add latency, an extra failure mode, and require packing the entire backend state into a `BrainstormPayload`. The same provider abstraction (`backend/internal/platform/llm/`) already exists in the backend module for non-iteration LLM calls, and credential security (§8.12) is unchanged.
+
+**Fallback semantics (hybrid mode).** Any of the following events causes the orchestrator to log `slog.Warn{event:"aigen_fallback", doc_key, reason}` and return the deterministic scaffold for that document key:
+
+- LLM provider returns error (transport, auth, rate limit, timeout)
+- LLM response is empty or shorter than the scaffold
+- Rubric still fails after `maxRepairs` attempts
+- `SkillBundle.Compose()` returns empty (missing skills, fs error)
+
+Other documents in the same `GenerateAll` call continue with AI — fallback is per-key, never global.
+
+**Determinism trade-off.** `deterministic` mode preserves Task-32 byte-stability for CI/snapshot tests. `hybrid` mode is **not** deterministic across runs (LLM stochasticity); this is acceptable because the artifacts are advisory developer outputs, not protocol state. Canonical state merging (§8.5) is untouched by this task.
+
+**Config summary.**
+
+| Env var              | Default                                                                                                                                                                                     | Range           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `FINALIZE_MODE`      | `hybrid`                                                                                                                                                                                    | enum            |
+| `SKILL_BUNDLE_PATHS` | `.github/skills/modularity/SKILL.md,.github/skills/vertical-slice/SKILL.md,.github/skills/api-design/SKILL.md,.github/skills/roadmap-spec/SKILL.md,.github/skills/plan-management/SKILL.md` | comma-separated |
+| `AIGEN_MAX_REPAIRS`  | `2`                                                                                                                                                                                         | `[0, 5]`        |
+| `AIGEN_TEMPERATURE`  | `0.2`                                                                                                                                                                                       | `[0.0, 1.0]`    |
+
+All four getters live in `backend/internal/platform/config/config.go` — no `os.Getenv` calls elsewhere.
+
+---
+
+### 8.28 Hierarchical Attachment Context System (v1.7)
+
+The Attachment Context System lets users enrich brainstorm sessions with external artifacts — files, images, URLs, and raw text snippets — that are extracted, embedded, and retrieved on demand via cosine similarity to enrich each agent dispatch with relevant context. This section is the canonical contract for Tasks 34–38.
+
+#### 8.28.1 Goals & Non-Goals
+
+**Goals:**
+
+- Let users attach context at three scopes (`session` / `iteration` / `agent`) using a single ChatGPT-style `+` menu mounted at the appropriate UI location.
+- Support four input kinds — file (PDF/DOCX/MD/TXT/JSON), image (PNG/JPG/WEBP, vision-described), URL (server-fetched + cleaned), raw text paste.
+- Store extracted text + embeddings in Postgres; store original blobs in MinIO/S3-compatible object storage.
+- Retrieve top-K relevant chunks at dispatch time via pgvector cosine similarity and inject them into the assembled system prompt under a `# Attached Context` section.
+- Auto-expire iteration-scope and agent-scope attachments after their owning unit of work completes.
+
+**Non-Goals:**
+
+- Multi-tenant authorization (attachments inherit the session's access model).
+- Cross-session attachment reuse / global "attachment library" (rejected per brainstorm Q4; deferred to a future task if demand emerges).
+- Streaming uploads > 10 MB (configurable via `ATTACHMENT_MAX_BYTES`; reject 413 above the cap).
+- Full-document RAG (chunk-level only; we deliberately do not pass entire docs into prompts — token budget protection).
+
+#### 8.28.2 Scope Model
+
+| Scope       | `scope_ref` value                            | Lifecycle                                                        | UI mount point                        |
+| ----------- | -------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------- |
+| `session`   | NULL                                         | Survives until session deleted (cascade FK)                      | Home page (during creation) + sidebar |
+| `iteration` | string of next iteration number (e.g. `"3"`) | Deleted by engine immediately after iteration N's state persists | Session page, between iterations      |
+| `agent`     | agent UUID string                            | Deleted by engine after the agent's dispatch returns             | `PipelineStage` header per agent      |
+
+Retrieval at any dispatch always unions all three scopes' attachments for that session + iteration + agent. Scope is a filter on which rows are eligible — not a separate retrieval path.
+
+#### 8.28.3 Database Schema
+
+```sql
+-- migrations/006_attachments.sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TYPE attachment_scope AS ENUM ('session', 'iteration', 'agent');
+CREATE TYPE attachment_kind  AS ENUM ('file', 'image', 'url', 'text');
+
+CREATE TABLE attachments (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id      UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  scope           attachment_scope NOT NULL,
+  scope_ref       TEXT,                        -- NULL for session; iteration number or agent UUID otherwise
+  kind            attachment_kind NOT NULL,
+  display_name    TEXT NOT NULL,
+  mime_type       TEXT NOT NULL DEFAULT '',
+  byte_size       BIGINT NOT NULL DEFAULT 0,
+  source_url      TEXT,                        -- set when kind = 'url'
+  blob_key        TEXT,                        -- object-storage key when kind IN ('file','image')
+  extracted_text  TEXT NOT NULL DEFAULT '',
+  summary         TEXT NOT NULL DEFAULT '',    -- ≤ 500 chars; fallback when chunk retrieval returns 0 rows
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT attachments_scope_ref_consistency CHECK (
+    (scope = 'session' AND scope_ref IS NULL)
+    OR (scope IN ('iteration', 'agent') AND scope_ref IS NOT NULL)
+  )
+);
+CREATE INDEX idx_attachments_session_scope ON attachments (session_id, scope, scope_ref);
+
+-- migrations/007_attachment_chunks.sql
+CREATE TABLE attachment_chunks (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attachment_id  UUID NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+  chunk_index    INT  NOT NULL,
+  content        TEXT NOT NULL,
+  embedding      VECTOR(1536) NOT NULL,        -- dim must equal config.GetEmbeddingsDimension()
+  tokens         INT  NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (attachment_id, chunk_index)
+);
+CREATE INDEX idx_attachment_chunks_embedding
+  ON attachment_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+```
+
+#### 8.28.4 Upload Pipeline Algorithm
+
+```
+Service.Create(input):
+  1. Validate input per kind:
+       file/image: reader != nil, display_name != ""
+       url:        url matches ^https?:// (SSRF guard)
+       text:       text != "", display_name != ""
+  2. Validate scope/scope_ref consistency (see 8.28.2)
+  3. extractor := registry.Resolve(input.Kind)
+     result    := extractor.Extract(ctx, input)
+     reject if len(result.Text) < MinExtractedChars (16)
+  4. if kind in (file, image):
+       blob_key := "attachments/{sessionID}/{newAttachmentID}/{slug(display_name)}"
+       blob.Put(blob_key, originalBytes, contentType)
+  5. chunks := chunkText(result.Text, GetAttachmentChunkSize(), GetAttachmentChunkOverlap())
+  6. vectors := embeddings.Embed(chunks)   // single batched call
+  7. summary := llm.Generate(systemPrompt="Summarise this in ≤ 500 chars …", user=result.Text[:8000])
+                  // optional; failure → summary = ""
+  8. BEGIN TX
+       repo.Create(tx, attachment_row)
+       repo.CreateChunks(tx, attachmentID, zip(chunks, vectors))
+     COMMIT
+     on rollback: blob.Delete(blob_key)  // best-effort
+  9. return attachment
+```
+
+**Chunking algorithm (paragraph-aware, token-budgeted):**
+
+```
+chunkText(text, sizeTokens, overlapTokens):
+  paragraphs := split on /\n\n+/
+  current    := ""
+  out        := []
+  for p in paragraphs:
+    if approxTokens(current + p) > sizeTokens:
+      out.append(current)
+      current = tailTokens(current, overlapTokens) + p
+    else:
+      current = current + "\n\n" + p
+  if current != "":
+    out.append(current)
+  return out
+```
+
+`approxTokens(s) = len(s) / 4` (cheap heuristic; deterministic). Real tokenization is unnecessary at this layer — embedding model handles its own truncation.
+
+#### 8.28.5 Retrieval & Dispatch Algorithm
+
+Called inside `iteration/engine.go` before each agent dispatch (Task 37):
+
+```
+for agent in sess.OrderedAgents:
+  query := state.Idea + "\n\n" + strings.Join(state.OpenQuestions, "\n")
+  scopes := []ScopeMatch{
+    {Scope: ScopeSession,   ScopeRef: nil},
+    {Scope: ScopeIteration, ScopeRef: &iterStr},
+    {Scope: ScopeAgent,     ScopeRef: &agent.ID},
+  }
+  chunks, _ := retriever.Retrieve(ctx, sess.ID, scopes, query, GetAttachmentRetrievalTopK())
+  refs      := convertToAttachmentChunkRefs(chunks)
+  newState  := dispatch(ctx, agent, role, skills, llmOverride, currentState, refs)
+  // ... merge, persist, etc.
+
+// after iteration:
+retriever.DeleteByScope(ctx, sess.ID, ScopeIteration, iterStr)
+```
+
+Per-agent cleanup: `DeleteByScope(ScopeAgent, agent.ID)` invoked after that agent's dispatch returns (inside `runPipelinePass`).
+
+**SQL for `SearchChunks`:**
+
+```sql
+SELECT c.id, c.attachment_id, c.chunk_index, c.content, c.tokens,
+       (1.0 - (c.embedding <=> $1::vector)) AS score
+FROM attachment_chunks c
+JOIN attachments a ON a.id = c.attachment_id
+WHERE a.session_id = $2
+  AND (
+       (a.scope = 'session'   AND $3::bool)
+    OR (a.scope = 'iteration' AND a.scope_ref = $4)
+    OR (a.scope = 'agent'     AND a.scope_ref = $5)
+  )
+ORDER BY c.embedding <=> $1::vector
+LIMIT $6;
+```
+
+#### 8.28.6 Wire Format (`BrainstormPayload` extension)
+
+```go
+// backend/internal/platform/a2a/types.go (and copied verbatim into agent/internal/executor)
+type AttachmentChunkRef struct {
+    Scope       string  `json:"scope"`                // "session" | "iteration" | "agent"
+    ScopeRef    string  `json:"scope_ref,omitempty"`  // omitted when Scope == "session"
+    DisplayName string  `json:"display_name"`
+    Content     string  `json:"content"`
+    Score       float32 `json:"score"`                // cosine similarity in [0, 1]
+}
+
+type BrainstormPayload struct {
+    Role         string                  `json:"role"`
+    SystemPrompt string                  `json:"system_prompt"`
+    LLMConfig    llm.LLMConfig           `json:"llm_config"`
+    State        any                     `json:"state"`
+    Attachments  []AttachmentChunkRef    `json:"attachments,omitempty"` // v1.7
+}
+```
+
+**System-prompt injection format** (agent executor, after base prompt assembly):
+
+```
+# Attached Context
+
+The following snippets were retrieved from user-attached artifacts for this dispatch.
+Treat them as authoritative context for the brainstorm but do not echo them verbatim.
+
+## [scope: session | source: prd-v3.pdf | relevance: 0.84]
+{chunk content}
+
+## [scope: agent | source: db-pick.txt | relevance: 0.79]
+{chunk content}
+
+...
+```
+
+Chunks rendered in **descending score order**. When `payload.Attachments` is empty, the `# Attached Context` section is omitted entirely — byte-identical behaviour to pre-v1.7.
+
+#### 8.28.7 REST API
+
+| Method | Path                                                  | Body                                                   | Response                                   |
+| ------ | ----------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| POST   | `/sessions/{sessionID}/attachments`                   | multipart (file/image) or JSON (url/text) — see 8.28.8 | 201 + `Attachment`                         |
+| GET    | `/sessions/{sessionID}/attachments?scope=&scope_ref=` | —                                                      | 200 + `[]Attachment`                       |
+| GET    | `/sessions/{sessionID}/attachments/{id}`              | —                                                      | 200 + `Attachment`                         |
+| GET    | `/sessions/{sessionID}/attachments/{id}/content`      | —                                                      | 302 → presigned blob URL (file/image only) |
+| DELETE | `/sessions/{sessionID}/attachments/{id}`              | —                                                      | 204                                        |
+
+Error codes: 400 (validation), 404 (not found), 413 (oversize), 415 (unsupported MIME), 422 (extraction failed — e.g. encrypted PDF).
+
+#### 8.28.8 Request Body Variants
+
+```json
+// file (multipart/form-data)
+scope=session
+kind=file
+file=<binary>
+display_name=prd-v3.pdf   (optional; defaults to uploaded filename)
+
+// image (multipart/form-data)
+scope=agent
+scope_ref=<agent-uuid>
+kind=image
+file=<binary>
+
+// url (application/json)
+{
+  "scope": "session",
+  "kind": "url",
+  "url": "https://example.com/article",
+  "display_name": "Competitor article"   // optional; defaults to URL hostname + path
+}
+
+// text (application/json)
+{
+  "scope": "iteration",
+  "scope_ref": "3",
+  "kind": "text",
+  "display_name": "db-pick",
+  "text": "Use Postgres 16 with pgvector for hybrid search."
+}
+```
+
+#### 8.28.9 Security Invariants
+
+1. **SSRF guard:** URL fetcher allowlists `http://` and `https://` schemes only. Reject `file://`, `ftp://`, `data:`, `gopher://`, `javascript:` with 400.
+2. **Size cap:** `http.MaxBytesReader(r.Body, GetAttachmentMaxBytes())` on every POST. Default 10 MB; reject 413 above the cap.
+3. **MIME allowlist:** `AllowedMimeTypes = {application/pdf, application/json, text/plain, text/markdown, application/vnd.openxmlformats-officedocument.wordprocessingml.document, image/png, image/jpeg, image/webp}`. Reject 415 otherwise.
+4. **Blob keys are deterministic + scoped:** `attachments/{sessionID}/{attachmentID}/{slug(displayName)}`. Direct enumeration impossible without knowing both UUIDs.
+5. **No credential values in DB or logs:** the embeddings provider and blobstore both resolve credentials via `config.Get*CredentialRef()` → `os.Getenv` (single call site).
+6. **Presigned URLs expire:** blob redirects use 15-minute presigned URLs; raw bucket access is disabled.
+7. **Cascade deletion:** session deletion → attachments cascade → chunks cascade → blob deletion runs as a post-commit best-effort sweep (logged on failure).
+8. **No agent-to-agent leakage:** agent-scope retrieval filters by `agent_id` — agent A's snippet is invisible to agent B even within the same iteration.
+
+#### 8.28.10 Failure Modes & Degradation
+
+| Failure                                  | Behaviour                                                           |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| Extractor fails (corrupt PDF, blank URL) | 422 to client; no DB write; no blob write                           |
+| Embedding API down                       | Upload fails 503; no partial DB state (transaction-wrapped)         |
+| Blobstore down                           | Upload fails 503; no DB write                                       |
+| Retrieval query times out at dispatch    | Engine logs warn + dispatches with `Attachments = []` (no abort)    |
+| `len(chunks) == 0` for any reason        | Fall back to `attachment.summary` as a single synthetic chunk       |
+| Vision model unavailable for image       | Service returns 422; UI surfaces "Image extraction unavailable"     |
+| Iteration-cleanup `DeleteByScope` fails  | Logged warn; rows orphan until session delete (eventually cascaded) |
+
+#### 8.28.11 Config Summary
+
+| Env var                          | Default                  | Range / format              | Owner   |
+| -------------------------------- | ------------------------ | --------------------------- | ------- |
+| `EMBEDDINGS_PROVIDER`            | `openai`                 | `openai` \| `ollama`        | Task 35 |
+| `EMBEDDINGS_MODEL`               | `text-embedding-3-small` | provider-specific           | Task 35 |
+| `EMBEDDINGS_CREDENTIAL_REF`      | `OPENAI_API_KEY`         | env var name only           | Task 35 |
+| `EMBEDDINGS_DIMENSION`           | `1536`                   | `[64, 4096]`                | Task 35 |
+| `BLOBSTORE_ENDPOINT`             | `http://minio:9000`      | URL                         | Task 35 |
+| `BLOBSTORE_ACCESS_KEY_REF`       | `MINIO_ROOT_USER`        | env var name only           | Task 35 |
+| `BLOBSTORE_SECRET_KEY_REF`       | `MINIO_ROOT_PASSWORD`    | env var name only           | Task 35 |
+| `BLOBSTORE_BUCKET`               | `a2a-attachments`        | DNS-safe                    | Task 35 |
+| `BLOBSTORE_USE_SSL`              | `false`                  | bool                        | Task 35 |
+| `ATTACHMENT_MAX_BYTES`           | `10485760` (10 MB)       | `[1024, 104857600]`         | Task 35 |
+| `ATTACHMENT_CHUNK_SIZE`          | `1000`                   | tokens, `[100, 4000]`       | Task 35 |
+| `ATTACHMENT_CHUNK_OVERLAP`       | `150`                    | tokens, `[0, chunk_size/2]` | Task 35 |
+| `ATTACHMENT_RETRIEVAL_TOP_K`     | `5`                      | `[1, 20]`                   | Task 35 |
+| `ATTACHMENT_MIN_EXTRACTED_CHARS` | `16`                     | `[1, 1000]`                 | Task 36 |
+
+All getters live in `backend/internal/platform/config/config.go` — no `os.Getenv` calls elsewhere.
+
+#### 8.28.12 Determinism Trade-off
+
+Attachment retrieval introduces a non-deterministic surface — same input idea + same attached corpus may rank chunks slightly differently between embedding model versions or pgvector index rebuilds. This is acceptable because:
+
+- Attachment-driven prompts are advisory context, not protocol state. Canonical state merging (§8.5) is untouched.
+- Top-K ordering is **stable within one run** (single SQL `ORDER BY embedding <=> $1`).
+- For CI / snapshot tests, attachments default to none; the iteration engine's existing determinism contract is preserved when `len(attachments) == 0`.

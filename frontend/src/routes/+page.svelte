@@ -12,6 +12,7 @@
   let skillOverrides: Record<string, string[]> = {};
   let modelOverrides: Record<string, string> = {};
   let maxIterations = 5;
+  let selectedDocs: string[] = ["architecture", "roadmap"];
   let submitting = false;
   let error = "";
 
@@ -61,6 +62,7 @@
         idea: idea.trim(),
         agent_ids: selectedAgentIds,
         max_iterations: maxIterations,
+        output_docs: selectedDocs.length > 0 ? selectedDocs : undefined,
         role_overrides: resolvedRoleOverrides,
         llm_overrides:
           Object.keys(llmOverrides).length > 0 ? llmOverrides : undefined,
@@ -151,6 +153,82 @@
       </div>
     </div>
 
+    <!-- How iterations work -->
+    <div class="info-box">
+      <div class="info-box-title">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden="true"
+        >
+          <circle
+            cx="8"
+            cy="8"
+            r="7.25"
+            stroke="currentColor"
+            stroke-width="1.5"
+          />
+          <path
+            d="M8 7v5"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
+          <circle cx="8" cy="4.5" r="0.75" fill="currentColor" />
+        </svg>
+        How iterations work
+      </div>
+      <p class="info-box-body">
+        Each session runs up to <strong
+          >{maxIterations} iteration{maxIterations !== 1 ? "s" : ""}</strong
+        >. Every iteration sends the state through all {selectedAgentIds.length >
+        0
+          ? selectedAgentIds.length
+          : "selected"} agent{selectedAgentIds.length !== 1 ? "s" : ""} in order —
+        the output of each agent feeds the next. After each full pass, a
+        <strong>convergence check</strong>
+        evaluates whether the state has stabilised (confidence delta, risk
+        stability, and open-question stability). If all conditions are met, the
+        pipeline stops early and marks the session as <em>converged</em>. If
+        not, it continues to the next pass. Seeing multiple passes is
+        <strong>expected and intentional</strong>
+        — earlier passes draft the design, later passes refine and critique it
+        until the agents agree. The session will not run beyond
+        {maxIterations} iteration{maxIterations !== 1 ? "s" : ""} regardless of convergence.
+      </p>
+    </div>
+
+    <!-- Documents to generate -->
+    <div style="margin-bottom:18px;">
+      <div class="field-label">Documents to Generate</div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        {#each [{ key: "architecture", label: "Architecture" }, { key: "roadmap", label: "Roadmap" }, { key: "plan", label: "Plan" }, { key: "readme", label: "README" }] as doc (doc.key)}
+          <label
+            style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.875rem;"
+          >
+            <input
+              type="checkbox"
+              value={doc.key}
+              checked={selectedDocs.includes(doc.key)}
+              on:change={(e) => {
+                if ((e.target as HTMLInputElement).checked) {
+                  selectedDocs = [...selectedDocs, doc.key];
+                } else {
+                  selectedDocs = selectedDocs.filter((k) => k !== doc.key);
+                }
+              }}
+            />
+            {doc.label}
+          </label>
+        {/each}
+      </div>
+      <p style="font-size:0.72rem;color:var(--ink-300);margin:4px 0 0;">
+        Select which documents to generate at finalize time.
+      </p>
+    </div>
+
     <!-- CTA row -->
     <div
       style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;"
@@ -177,6 +255,42 @@
     font-size: 0.8125rem;
     margin-bottom: 7px;
     color: var(--ink-900);
+  }
+
+  .info-box {
+    border: 1.5px solid #c7d9f5;
+    background: #f0f6ff;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
+
+  .info-box-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: 0.8125rem;
+    color: #1f5fbf;
+    margin-bottom: 6px;
+  }
+
+  .info-box-body {
+    font-size: 0.8125rem;
+    color: #2d4a7a;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .info-box-body strong {
+    font-weight: 700;
+    color: #1a3b6e;
+  }
+
+  .info-box-body em {
+    font-style: normal;
+    font-weight: 600;
+    color: #1a3b6e;
   }
 
   @media (max-width: 700px) {

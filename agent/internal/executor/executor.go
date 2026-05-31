@@ -59,16 +59,49 @@ type LLMConfig struct {
 }
 
 // BrainstormExecutor implements a2asrv.AgentExecutor.
-// It extracts a BrainstormPayload from the incoming A2A message, calls the
-// injected LLMProvider, and emits the updated CanonicalState as a DataPart.
+// It extracts a BrainstormPayload from the incoming A2A message, selects the
+// appropriate LLMProvider based on payload.LLMConfig.Provider, and emits the
+// updated CanonicalState as a DataPart artifact.
+//
+// Provider resolution order:
+//  1. Look up payload.LLMConfig.Provider in the providers map.
+//  2. If not found (or providers is nil), use fallback.
+//
+// This allows each agent in the DB to declare its own provider (e.g. opencode)
+// while the agent binary gracefully falls back to copilot when that provider
+// is unavailable at runtime.
 type BrainstormExecutor struct {
-	llm    llm.LLMProvider
-	logger *slog.Logger
+	providers map[string]llm.LLMProvider // keyed by provider name, e.g. "copilot", "opencode"
+	fallback  llm.LLMProvider            // used when providers is nil or key not found
+	logger    *slog.Logger
 }
 
-// New constructs a BrainstormExecutor. llmProvider must be non-nil.
-func New(llmProvider llm.LLMProvider, logger *slog.Logger) *BrainstormExecutor {
-	return &BrainstormExecutor{llm: llmProvider, logger: logger}
+// New constructs a BrainstormExecutor.
+//
+// providers maps provider names to LLMProvider implementations; may be nil.
+// fallback is used when the payload's provider is not in the map; must be non-nil.
+func New(providers map[string]llm.LLMProvider, fallback llm.LLMProvider, logger *slog.Logger) *BrainstormExecutor {
+	return &BrainstormExecutor{providers: providers, fallback: fallback, logger: logger}
+}
+
+// resolveProvider returns the LLMProvider to use for a given provider name,
+// and a bool indicating whether the resolution was strict (an exact match
+// in the providers map). When name is empty the fallback is returned and
+// strict=true (the caller did not request a specific provider). When name is
+// non-empty but missing from the providers map, strict=false signals that the
+// agent binary must fail fast rather than silently use the fallback — this
+// enforces the security invariant that a session/agent configured for a
+// specific provider must never be transparently downgraded to another one.
+func (e *BrainstormExecutor) resolveProvider(name string) (llm.LLMProvider, bool) {
+	if name == "" {
+		return e.fallback, true
+	}
+	if e.providers != nil {
+		if p, ok := e.providers[name]; ok {
+			return p, true
+		}
+	}
+	return nil, false
 }
 
 // Compile-time interface assertion.
@@ -143,8 +176,25 @@ func (e *BrainstormExecutor) Execute(
 				slog.String("provider", payload.LLMConfig.Provider),
 			)
 		}
-		resp, err := e.llm.Generate(ctx, llm.LLMRequest{
-			SystemPrompt: payload.SystemPrompt,
+		// Select provider from payload config. When the payload requests a
+		// specific provider that is not available in this agent binary, fail
+		// fast — a silent fallback would let a session configured for one
+		// provider run on a different one, violating the project security
+		// invariant (see AGENTS.md §Security invariants).
+		activeLLM, ok := e.resolveProvider(payload.LLMConfig.Provider)
+		if !ok {
+			e.logError(ctx, "requested LLM provider not registered",
+				fmt.Errorf("provider %q is not configured on this agent", payload.LLMConfig.Provider),
+				slog.String("role", payload.Role),
+			)
+			errMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(
+				fmt.Sprintf("requested LLM provider %q is not configured on this agent", payload.LLMConfig.Provider),
+			))
+			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
+			return
+		}
+		resp, err := activeLLM.Generate(ctx, llm.LLMRequest{
+			SystemPrompt: payload.SystemPrompt + requiredOutputStructurePrompt,
 			UserMessage:  userMessage,
 			Temperature:  0.15,
 		})
@@ -182,9 +232,34 @@ func (e *BrainstormExecutor) Execute(
 
 		// Emit the updated state as a DataPart artifact.
 		if e.logger != nil {
+			// Extract key metrics from the parsed state map for observability.
+			confidence := 0.0
+			openQCount := 0
+			risksCount := 0
+			planSteps := 0
+			if stateMap, ok := updatedState.(map[string]any); ok {
+				if m, ok := stateMap["metrics"].(map[string]any); ok {
+					if c, ok := m["confidence"].(float64); ok {
+						confidence = c
+					}
+				}
+				if oq, ok := stateMap["open_questions"].([]any); ok {
+					openQCount = len(oq)
+				}
+				if r, ok := stateMap["risks"].([]any); ok {
+					risksCount = len(r)
+				}
+				if p, ok := stateMap["execution_plan"].([]any); ok {
+					planSteps = len(p)
+				}
+			}
 			e.logger.InfoContext(ctx, "state updated, emitting artifact",
 				slog.String("task_id", string(execCtx.TaskID)),
 				slog.String("role", payload.Role),
+				slog.Float64("confidence", confidence),
+				slog.Int("execution_plan_steps", planSteps),
+				slog.Int("risks_count", risksCount),
+				slog.Int("open_questions_count", openQCount),
 			)
 		}
 		if !yield(a2a.NewArtifactEvent(execCtx, a2a.NewDataPart(updatedState)), nil) {

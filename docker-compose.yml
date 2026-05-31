@@ -39,6 +39,15 @@ services:
       COPILOT_API_KEY: ${COPILOT_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      OPENCODE_SERVER_USERNAME: ${OPENCODE_SERVER_USERNAME:-opencode}
+      GLOBAL_OPENCODE_BASE_URL: ${GLOBAL_OPENCODE_BASE_URL:-http://opencode:4096}
+      GLOBAL_OPENCODE_MODEL: ${GLOBAL_OPENCODE_MODEL:-github-copilot/claude-sonnet-4.6}
+      FINALIZE_MODE: ${FINALIZE_MODE:-hybrid}
+      # Single-shot per doc: no rubric repair loop. Each retry doubles wall-clock
+      # time against a slow LLM (OpenCode + Claude ~5 min/turn). Override to 1-5
+      # only when you accept that cost.
+      AIGEN_MAX_REPAIRS: ${AIGEN_MAX_REPAIRS:-0}
+      AIGEN_TEMPERATURE: ${AIGEN_TEMPERATURE:-0.2}
     depends_on:
       postgres:
         condition: service_healthy

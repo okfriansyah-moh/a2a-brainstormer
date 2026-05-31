@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -135,8 +136,11 @@ func (stubSessionService) GetSession(_ context.Context, _ string) (session.Sessi
 func (stubSessionService) ListSessions(_ context.Context) (session.ListSessionsResponse, error) {
 	return session.ListSessionsResponse{Sessions: []session.SessionListItem{}, Total: 0}, nil
 }
-func (stubSessionService) FinalizeSession(_ context.Context, _ string) (session.Session, error) {
+func (stubSessionService) FinalizeSession(_ context.Context, _ string, _ session.FinalizeInput) (session.Session, error) {
 	return session.Session{}, session.ErrNotFound
+}
+func (stubSessionService) UpdateOutputDocs(_ context.Context, _ string, _ []string) error {
+	return session.ErrNotFound
 }
 
 func buildTestMux() *http.ServeMux {
@@ -250,7 +254,7 @@ func TestHandler_ListSessions_ReturnsEmptyEnvelope(t *testing.T) {
 // stubFinalizeService returns a valid Session with approved status for finalize.
 type stubFinalizeService struct{ stubSessionService }
 
-func (stubFinalizeService) FinalizeSession(_ context.Context, id string) (session.Session, error) {
+func (stubFinalizeService) FinalizeSession(_ context.Context, id string, _ session.FinalizeInput) (session.Session, error) {
 	return session.Session{
 		ID:     id,
 		Status: "approved",
@@ -288,5 +292,36 @@ func TestHandler_FinalizeSession_ValidUUID_NotFound(t *testing.T) {
 	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// stubNotReadyService returns ErrStateNotReady wrapped with a reason,
+// simulating the §8.23 readiness gate rejecting a premature finalize.
+type stubNotReadyService struct{ stubSessionService }
+
+func (stubNotReadyService) FinalizeSession(_ context.Context, _ string, _ session.FinalizeInput) (session.Session, error) {
+	return session.Session{}, fmt.Errorf("%w: confidence 0.1000 is below threshold 0.5", session.ErrStateNotReady)
+}
+
+func TestHandler_FinalizeSession_StateNotReady_Returns422(t *testing.T) {
+	mux := http.NewServeMux()
+	session.NewHandlerWithService(stubNotReadyService{}, nil).RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/sessions/00000000-0000-0000-0000-000000000001/finalize", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["error"] != "state_not_ready" {
+		t.Errorf("error field = %q, want state_not_ready", body["error"])
+	}
+	if body["reason"] == "" {
+		t.Errorf("expected non-empty reason field, got: %v", body)
 	}
 }

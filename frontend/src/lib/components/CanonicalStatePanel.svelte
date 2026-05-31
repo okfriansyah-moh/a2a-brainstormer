@@ -11,6 +11,28 @@
   $: planSteps = state?.execution_plan ?? [];
   $: assumptions = state?.assumptions ?? [];
   $: openQuestions = state?.open_questions ?? [];
+
+  /**
+   * Split text that embeds a numbered list like
+   * "Preamble: 1. Foo bar 2. Baz qux 3. …" into
+   * { intro: "Preamble:", items: ["Foo bar", "Baz qux", …] }.
+   * Returns null when no embedded numbering is detected.
+   */
+  function parseIdeaItems(
+    text: string,
+  ): { intro: string; items: string[] } | null {
+    const idx = text.search(/\s1\.\s/);
+    if (idx === -1) return null;
+    const intro = text.slice(0, idx).trim();
+    const itemsText = text.slice(idx);
+    const items = itemsText
+      .split(/\s+(?=\d+\.\s)/)
+      .map((s) => s.replace(/^\d+\.\s+/, "").trim())
+      .filter(Boolean);
+    return items.length > 1 ? { intro, items } : null;
+  }
+
+  $: ideaParsed = state?.idea?.text ? parseIdeaItems(state.idea.text) : null;
 </script>
 
 {#if !state}
@@ -25,7 +47,21 @@
     {#if state.idea?.text}
       <div class="card mini-card">
         <div class="mini-label">Idea</div>
-        <div class="mini-body">{state.idea.text}</div>
+        {#if ideaParsed}
+          {#if ideaParsed.intro}
+            <p class="mini-body" style="margin:0 0 8px;">{ideaParsed.intro}</p>
+          {/if}
+          <ol class="numbered-list">
+            {#each ideaParsed.items as item, i}
+              <li>
+                <span class="item-label">{i + 1}.</span>
+                {item}
+              </li>
+            {/each}
+          </ol>
+        {:else}
+          <div class="mini-body">{state.idea.text}</div>
+        {/if}
       </div>
     {/if}
 
@@ -92,11 +128,14 @@
           <span class="mini-chevron">{expandedAssumptions ? "▲" : "▼"}</span>
         </button>
         {#if expandedAssumptions}
-          <ul class="mini-list">
-            {#each assumptions as a}
-              <li>{a}</li>
+          <ol class="numbered-list">
+            {#each assumptions as a, i}
+              <li>
+                <span class="item-label">Assumption {i + 1}:</span>
+                {a}
+              </li>
             {/each}
-          </ul>
+          </ol>
         {/if}
       </div>
     {/if}
@@ -116,11 +155,14 @@
           <span class="mini-chevron">{expandedQuestions ? "▲" : "▼"}</span>
         </button>
         {#if expandedQuestions}
-          <ul class="mini-list">
-            {#each openQuestions as q}
-              <li>{q}</li>
+          <ol class="numbered-list">
+            {#each openQuestions as q, i}
+              <li>
+                <span class="item-label">Open question {i + 1}:</span>
+                {q}
+              </li>
             {/each}
-          </ul>
+          </ol>
         {/if}
       </div>
     {/if}
@@ -201,5 +243,27 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+
+  .numbered-list {
+    list-style: none;
+    margin: 8px 0 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .numbered-list li {
+    font-size: 0.8125rem;
+    color: var(--ink-700);
+    line-height: 1.6;
+    padding-left: 2px;
+  }
+
+  .item-label {
+    font-weight: 700;
+    color: var(--ink-900);
+    margin-right: 4px;
   }
 </style>

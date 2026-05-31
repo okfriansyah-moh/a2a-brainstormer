@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // CanonicalState is the immutable snapshot of a brainstorming session at a
@@ -25,9 +26,70 @@ type CanonicalState struct {
 }
 
 // Step is a single item in the execution plan.
+//
+// The §8.23 structured fields (Objective, BlockingDependencies, Scope,
+// Deliverables, FunctionContracts, FailureHandling, ExitCriteria) are
+// optional: when present they enable the long-form roadmap / plan / readme
+// generators to emit per-phase blocks; when absent the generators fall back
+// to the minimal Title / Description form.
 type Step struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
+
+	Objective            string   `json:"objective,omitempty"`
+	BlockingDependencies []string `json:"blocking_dependencies,omitempty"`
+	Scope                string   `json:"scope,omitempty"`
+	Deliverables         []string `json:"deliverables,omitempty"`
+	FunctionContracts    []string `json:"function_contracts,omitempty"`
+	FailureHandling      string   `json:"failure_handling,omitempty"`
+	ExitCriteria         []string `json:"exit_criteria,omitempty"`
+}
+
+// UnmarshalJSON normalises LLM output that uses "name" or "phase_name"
+// instead of "title", and "summary" instead of "description". The §8.23
+// structured fields are decoded via the same alias struct so they survive
+// the custom unmarshaller.
+func (s *Step) UnmarshalJSON(data []byte) error {
+	type stepAlias struct {
+		Title       string `json:"title"`
+		Name        string `json:"name"`       // LLM alias
+		PhaseName   string `json:"phase_name"` // LLM alias
+		Description string `json:"description"`
+		Summary     string `json:"summary"` // LLM alias for description
+
+		Objective            string   `json:"objective"`
+		BlockingDependencies []string `json:"blocking_dependencies"`
+		Scope                string   `json:"scope"`
+		Deliverables         []string `json:"deliverables"`
+		FunctionContracts    []string `json:"function_contracts"`
+		FailureHandling      string   `json:"failure_handling"`
+		ExitCriteria         []string `json:"exit_criteria"`
+	}
+	var a stepAlias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	s.Title = a.Title
+	if s.Title == "" {
+		switch {
+		case a.Name != "":
+			s.Title = a.Name
+		case a.PhaseName != "":
+			s.Title = a.PhaseName
+		}
+	}
+	s.Description = a.Description
+	if s.Description == "" && a.Summary != "" {
+		s.Description = a.Summary
+	}
+	s.Objective = a.Objective
+	s.BlockingDependencies = a.BlockingDependencies
+	s.Scope = a.Scope
+	s.Deliverables = a.Deliverables
+	s.FunctionContracts = a.FunctionContracts
+	s.FailureHandling = a.FailureHandling
+	s.ExitCriteria = a.ExitCriteria
+	return nil
 }
 
 // Risk describes a potential project risk surfaced by an agent.
@@ -37,9 +99,14 @@ type Risk struct {
 	Resolved bool   `json:"resolved"`
 }
 
-// StateMetrics holds session-level quality metrics updated by the convergence engine.
+// StateMetrics holds session-level quality metrics updated by the convergence
+// engine. The §8.23 optional fields (TestCoverageTarget, LatencyBudgetMs) are
+// emitted only when set; they let the generators render concrete numbers in
+// the architecture / readme documents.
 type StateMetrics struct {
-	Confidence float64 `json:"confidence"`
+	Confidence         float64 `json:"confidence"`
+	TestCoverageTarget float64 `json:"test_coverage_target,omitempty"`
+	LatencyBudgetMs    int     `json:"latency_budget_ms,omitempty"`
 }
 
 // StateMeta holds iteration bookkeeping and the ordered agent roster.
@@ -145,7 +212,7 @@ func coerceStringSlice(raw json.RawMessage) ([]string, error) {
 	if err := json.Unmarshal(raw, &aa); err == nil {
 		out := make([]string, 0, len(aa))
 		for _, v := range aa {
-			out = append(out, fmt.Sprintf("%v", v))
+			out = append(out, humanizeValue(v))
 		}
 		return out, nil
 	}
@@ -160,7 +227,7 @@ func coerceStringSlice(raw json.RawMessage) ([]string, error) {
 		sort.Strings(keys)
 		out := make([]string, 0, len(m))
 		for _, k := range keys {
-			out = append(out, fmt.Sprintf("%v", m[k]))
+			out = append(out, humanizeValue(m[k]))
 		}
 		return out, nil
 	}
@@ -174,6 +241,87 @@ func coerceStringSlice(raw json.RawMessage) ([]string, error) {
 	// Unknown shape — return empty without propagating an error so the rest of
 	// the CanonicalState can still be used.
 	return []string{}, nil
+}
+
+// humanizeValue renders a JSON-decoded value as a human-readable string for
+// display in `assumptions` and `open_questions` lists. LLMs frequently emit
+// objects (e.g. `{id, impact, question, resolution, status}`) where the
+// canonical schema expects plain strings; rather than show raw Go map syntax
+// (`map[id:oq1 impact:high ...]`), we extract the primary text field and
+// decorate it with secondary metadata.
+//
+// Recognised primary fields (in priority order): question, text, statement,
+// title, name, description. Recognised metadata fields: impact, severity,
+// status, resolution, answer.
+func humanizeValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case map[string]any:
+		return humanizeMap(t)
+	case []any:
+		parts := make([]string, 0, len(t))
+		for _, e := range t {
+			parts = append(parts, humanizeValue(e))
+		}
+		return strings.Join(parts, "; ")
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func humanizeMap(m map[string]any) string {
+	primaryKeys := []string{"question", "text", "statement", "title", "name", "description"}
+	var primary string
+	usedKey := ""
+	for _, k := range primaryKeys {
+		if val, ok := m[k]; ok {
+			if s, ok := val.(string); ok && strings.TrimSpace(s) != "" {
+				primary = strings.TrimSpace(s)
+				usedKey = k
+				break
+			}
+		}
+	}
+
+	// Collect well-known metadata fields in display order.
+	metaOrder := []string{"resolution", "answer", "impact", "severity", "status"}
+	var metas []string
+	for _, k := range metaOrder {
+		if k == usedKey {
+			continue
+		}
+		if val, ok := m[k]; ok {
+			if s, ok := val.(string); ok && strings.TrimSpace(s) != "" {
+				metas = append(metas, k+": "+strings.TrimSpace(s))
+			}
+		}
+	}
+
+	if primary != "" {
+		if len(metas) == 0 {
+			return primary
+		}
+		return primary + " (" + strings.Join(metas, " · ") + ")"
+	}
+
+	// No recognised primary field — fall back to sorted key:value pairs,
+	// skipping noisy IDs.
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		if k == "id" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+": "+fmt.Sprintf("%v", m[k]))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // coerceStepSlice converts a raw JSON value to []Step, tolerating the various

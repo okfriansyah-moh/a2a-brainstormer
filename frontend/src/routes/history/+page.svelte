@@ -21,12 +21,24 @@
     (s) => s.status === "approved" || s.status === "converged",
   ).length;
 
+  /** Normalise a raw confidence value to a 0–100 integer.
+   * The canonical spec says [0.0, 1.0] but some LLM providers emit the value
+   * already scaled to [0, 100]. Guard against the double-multiply bug.
+   */
+  function normalizeConfPct(c: number): number {
+    return Math.min(100, Math.round(c > 1 ? c : c * 100));
+  }
+
   $: avgConfidence =
     filteredSessions.length > 0
-      ? Math.round(
-          (filteredSessions.reduce((sum, s) => sum + s.confidence, 0) /
-            filteredSessions.length) *
-            100,
+      ? Math.min(
+          100,
+          Math.round(
+            filteredSessions.reduce(
+              (sum, s) => sum + normalizeConfPct(s.confidence),
+              0,
+            ) / filteredSessions.length,
+          ),
         )
       : 0;
 
@@ -53,8 +65,10 @@
   }
 
   function confidencePillClass(confidence: number): string {
-    if (confidence >= 0.8) return "conf-pill cp-high";
-    if (confidence >= 0.5) return "conf-pill cp-mid";
+    // Normalise to 0-1 range before threshold comparisons.
+    const norm = confidence > 1 ? confidence / 100 : confidence;
+    if (norm >= 0.8) return "conf-pill cp-high";
+    if (norm >= 0.5) return "conf-pill cp-mid";
     return "conf-pill cp-low";
   }
 
@@ -102,24 +116,6 @@
         All brainstorm sessions and their generated outputs
       </div>
     </div>
-    <nav class="topbar-nav">
-      <a
-        href="/"
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto("/");
-        }}>New Session</a
-      >
-      <a
-        href="/settings"
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto("/settings");
-        }}>⚙ Settings</a
-      >
-    </nav>
   </div>
 
   {#if error}
@@ -207,7 +203,7 @@
               <td class="num-cell">{item.current_iteration}</td>
               <td>
                 <span class={confidencePillClass(item.confidence)}>
-                  {Math.round(item.confidence * 100)}%
+                  {normalizeConfPct(item.confidence)}%
                 </span>
               </td>
               <td>
