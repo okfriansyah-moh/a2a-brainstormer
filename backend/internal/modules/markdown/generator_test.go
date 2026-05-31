@@ -2,6 +2,7 @@
 package markdown
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func TestWriteArtifacts_CreatesFiles(t *testing.T) {
 	dir := t.TempDir()
 	s := sampleState()
 
-	if err := WriteArtifacts(s, dir); err != nil {
+	if err := WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("WriteArtifacts returned error: %v", err)
 	}
 
@@ -68,10 +69,10 @@ func TestWriteArtifacts_IsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	s := sampleState()
 
-	if err := WriteArtifacts(s, dir); err != nil {
+	if err := WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("first WriteArtifacts call: %v", err)
 	}
-	if err := WriteArtifacts(s, dir); err != nil {
+	if err := WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("second WriteArtifacts call (idempotent): %v", err)
 	}
 }
@@ -83,7 +84,7 @@ func TestWriter_WriteArtifacts(t *testing.T) {
 	s := sampleState()
 
 	w := &Writer{}
-	if err := w.WriteArtifacts(s, dir); err != nil {
+	if err := w.WriteArtifacts(context.Background(), s, dir, nil); err != nil {
 		t.Fatalf("Writer.WriteArtifacts: %v", err)
 	}
 	expected := filepath.Join(dir, expectedSlug()+"_architecture.md")

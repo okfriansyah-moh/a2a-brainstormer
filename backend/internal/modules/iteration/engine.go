@@ -213,6 +213,9 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 					slog.String("session_id", sess.ID),
 					slog.Int("stalled_iterations", stalledIter),
 				)
+				// Update current to the already-persisted merged state before
+				// breaking so the returned state matches what the engine wrote.
+				current = merged
 				break
 			}
 		} else {
@@ -418,8 +421,8 @@ func (e *Engine) RunSingleAgent(
 		}
 	}
 	if !found {
-		return currentState, fmt.Errorf("run single agent: agent %s is not a member of session %s",
-			agentID, sess.ID)
+		return currentState, fmt.Errorf("run single agent: %w: agent %s, session %s",
+			ErrAgentNotInSession, agentID, sess.ID)
 	}
 
 	ag, err := e.agents.GetAgent(ctx, sa.AgentID)

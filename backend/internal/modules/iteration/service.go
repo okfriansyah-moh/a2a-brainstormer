@@ -33,6 +33,11 @@ var (
 	// ErrPreviewIDMismatch is returned by Apply when the caller supplies a
 	// preview_id that does not match the stored preview.
 	ErrPreviewIDMismatch = errors.New("preview_id does not match the stored preview")
+
+	// ErrAgentNotInSession is returned by Preview when the supplied agentID is
+	// not a member of the session's agent roster. Mapped to HTTP 409 by the
+	// handler per §8.21.
+	ErrAgentNotInSession = errors.New("agent is not a member of the session")
 )
 
 // sessionProvider is the service-layer interface for reading session data.

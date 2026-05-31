@@ -284,8 +284,10 @@ func (s *Service) FinalizeSession(ctx context.Context, id string, input Finalize
 	}
 
 	if len(input.OutputDocs) > 0 {
+		// Return validation errors unwrapped so the handler's
+		// isValidationError prefix check maps them to HTTP 400 instead of 500.
 		if err := validateOutputDocs(input.OutputDocs); err != nil {
-			return Session{}, fmt.Errorf("finalize session: %w", err)
+			return Session{}, err
 		}
 		if err := s.repo.UpdateOutputDocs(ctx, id, input.OutputDocs); err != nil {
 			return Session{}, fmt.Errorf("finalize session: update output docs: %w", err)
@@ -320,12 +322,15 @@ func (s *Service) UpdateOutputDocs(ctx context.Context, id string, docs []string
 		return err
 	}
 
-	// Guard: reject updates on finalized sessions.
+	// Guard: reject updates on non-active sessions. UpdateOutputDocs is only
+	// permitted while the session is in StatusActive — allowing changes during
+	// "running" risks mid-iteration document-selection drift, and "approved"
+	// is terminal for this field.
 	sess, err := s.repo.GetSession(ctx, id)
 	if err != nil {
 		return fmt.Errorf("update output docs: %w", err)
 	}
-	if sess.Status == StatusApproved {
+	if sess.Status != StatusActive {
 		return ErrConflict
 	}
 

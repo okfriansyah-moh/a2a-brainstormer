@@ -54,17 +54,25 @@ func GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.Gener
 	return result, nil
 }
 
-// WriteArtifacts writes the architecture and roadmap markdown documents to
-// outputDir. Each file is written atomically: content is first written to a
-// .tmp file then renamed to the final path. Filenames are derived from the
-// canonical state's short title via buildFilename(title, key).
-func WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	docs, err := GenerateAll(s, []string{"architecture", "roadmap"})
+// WriteArtifacts writes the selected markdown documents to outputDir.
+// Each file is written atomically: content is first written to a .tmp file
+// then renamed to the final path. Filenames are derived from the canonical
+// state's short title via buildFilename(title, key). The ctx parameter is
+// accepted to satisfy the session-handler interface; the deterministic
+// generators make no LLM calls and ignore it.
+func WriteArtifacts(_ context.Context, s state.CanonicalState, outputDir string, keys []string) error {
+	if len(keys) == 0 {
+		keys = []string{"architecture", "roadmap"}
+	}
+	docs, err := GenerateAll(s, keys)
 	if err != nil {
 		return fmt.Errorf("write artifacts: %w", err)
 	}
-	for _, key := range []string{"architecture", "roadmap"} {
-		doc := docs[key]
+	for _, key := range keys {
+		doc, ok := docs[key]
+		if !ok {
+			continue
+		}
 		if err := writeAtomic(filepath.Join(outputDir, doc.Filename), doc.Content); err != nil {
 			return fmt.Errorf("write artifacts: %s: %w", doc.Filename, err)
 		}
@@ -86,8 +94,8 @@ func (w *Writer) GenerateAll(_ context.Context, s state.CanonicalState, keys []s
 }
 
 // WriteArtifacts satisfies the markdownWriter interface used by session.Handler.
-func (w *Writer) WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	return WriteArtifacts(s, outputDir)
+func (w *Writer) WriteArtifacts(ctx context.Context, s state.CanonicalState, outputDir string, keys []string) error {
+	return WriteArtifacts(ctx, s, outputDir, keys)
 }
 
 // writeAtomic writes content to destPath via a .tmp file and an atomic rename.

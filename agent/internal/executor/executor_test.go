@@ -307,8 +307,9 @@ func TestExecute_UserMessageContainsJSON(t *testing.T) {
 }
 
 // TestExecute_ProviderSelection verifies that the executor routes to the
-// provider named in payload.LLMConfig.Provider and falls back to the default
-// when the name is not in the map.
+// provider named in payload.LLMConfig.Provider, uses the fallback only when
+// the name is empty, and fails fast (no silent fallback) when the requested
+// provider is not registered.
 func TestExecute_ProviderSelection(t *testing.T) {
 	copilotResp, _ := json.Marshal(map[string]any{"metrics": map[string]any{"confidence": 0.5}})
 	openCodeResp, _ := json.Marshal(map[string]any{"metrics": map[string]any{"confidence": 0.9}})
@@ -340,10 +341,25 @@ func TestExecute_ProviderSelection(t *testing.T) {
 	copilotProvider.captured = llm.LLMRequest{}
 	openCodeProvider.captured = llm.LLMRequest{}
 
-	// Request with unknown provider → fallback (copilot) should be used.
+	// Request with unknown provider → must fail fast; no provider invoked,
+	// no silent fallback (see AGENTS.md §Security invariants).
 	payload.LLMConfig.Provider = "unknown-provider"
 	_, _ = collectEvents(exec, makeExecCtx(payload))
+	if copilotProvider.captured.UserMessage != "" {
+		t.Error("copilot (fallback) must NOT be invoked when payload requests an unknown provider")
+	}
+	if openCodeProvider.captured.UserMessage != "" {
+		t.Error("opencode must NOT be invoked when payload requests an unknown provider")
+	}
+
+	// Reset captures.
+	copilotProvider.captured = llm.LLMRequest{}
+	openCodeProvider.captured = llm.LLMRequest{}
+
+	// Empty provider name → fallback is used (legitimate "no preference" case).
+	payload.LLMConfig.Provider = ""
+	_, _ = collectEvents(exec, makeExecCtx(payload))
 	if copilotProvider.captured.UserMessage == "" {
-		t.Error("copilot (fallback) should have been called for unknown provider name")
+		t.Error("fallback (copilot) should be used when provider name is empty")
 	}
 }

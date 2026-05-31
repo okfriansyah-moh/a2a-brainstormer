@@ -133,13 +133,19 @@ function createSessionStore() {
           case "agent.complete": {
             if (!agentID) return s;
             // The backend embeds the agent's output CanonicalState so the
-            // frontend can render per-agent contributions immediately.
-            const agentOutput = (payload?.["output"] ?? undefined) as
+            // frontend can render per-agent contributions immediately. Only
+            // overwrite when a non-undefined output is present — some events
+            // (e.g. partial-state deltas) intentionally omit it, and we must
+            // not clobber a previously cached value.
+            const agentOutput = payload?.["output"] as
               | CanonicalState
               | undefined;
-            const updatedAgents = s.agents.map((a) =>
-              a.id === agentID ? { ...a, output: agentOutput } : a,
-            );
+            const updatedAgents =
+              agentOutput === undefined
+                ? s.agents
+                : s.agents.map((a) =>
+                    a.id === agentID ? { ...a, output: agentOutput } : a,
+                  );
             return {
               ...s,
               agents: updatedAgents,

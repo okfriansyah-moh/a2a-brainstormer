@@ -87,17 +87,25 @@ func (o *Orchestrator) GenerateAll(ctx context.Context, s state.CanonicalState, 
 	return enhanced, nil
 }
 
-// WriteArtifacts generates the architecture and roadmap documents via the
-// orchestrator's GenerateAll (so they include any AI enhancement) and writes
-// each atomically into outputDir. This mirrors the package-level WriteArtifacts
-// contract for compatibility with the session handler.
-func (o *Orchestrator) WriteArtifacts(s state.CanonicalState, outputDir string) error {
-	docs, err := o.GenerateAll(context.Background(), s, []string{"architecture", "roadmap"})
+// WriteArtifacts generates the requested documents via the orchestrator's
+// GenerateAll (so they include any AI enhancement) and writes each atomically
+// into outputDir. This mirrors the package-level WriteArtifacts contract for
+// compatibility with the session handler. The caller-supplied ctx bounds the
+// AI enhancement pass (and any other future I/O); keys controls which documents
+// are written (defaults to architecture + roadmap when nil/empty).
+func (o *Orchestrator) WriteArtifacts(ctx context.Context, s state.CanonicalState, outputDir string, keys []string) error {
+	if len(keys) == 0 {
+		keys = []string{"architecture", "roadmap"}
+	}
+	docs, err := o.GenerateAll(ctx, s, keys)
 	if err != nil {
 		return fmt.Errorf("write artifacts: %w", err)
 	}
-	for _, key := range []string{"architecture", "roadmap"} {
-		doc := docs[key]
+	for _, key := range keys {
+		doc, ok := docs[key]
+		if !ok {
+			continue
+		}
 		if err := writeAtomic(filepath.Join(outputDir, doc.Filename), doc.Content); err != nil {
 			return fmt.Errorf("write artifacts: %s: %w", doc.Filename, err)
 		}

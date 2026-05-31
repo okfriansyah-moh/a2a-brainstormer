@@ -55,7 +55,7 @@ type sessionService interface {
 // for unit tests that do not need file I/O.
 type markdownWriter interface {
 	GenerateAll(ctx context.Context, s state.CanonicalState, keys []string) (map[string]shared.GeneratedDocument, error)
-	WriteArtifacts(s state.CanonicalState, outputDir string) error
+	WriteArtifacts(ctx context.Context, s state.CanonicalState, outputDir string, keys []string) error
 }
 
 // MarkdownWriter is the exported alias of the handler's markdown dependency.
@@ -161,12 +161,12 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse optional body — an empty body is treated as FinalizeInput{}.
+	// Use io.EOF instead of ContentLength because chunked requests report
+	// ContentLength = -1 even when a body is present.
 	var input FinalizeInput
-	if r.ContentLength > 0 {
-		if err := readJSON(r, &input); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid request body")
-			return
-		}
+	if err := readJSON(r, &input); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
 	}
 
 	sess, err := h.svc.FinalizeSession(r.Context(), id, input)
@@ -206,7 +206,10 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 		documents = docs
 
 		if h.outputDir != "" {
-			if werr := h.markdown.WriteArtifacts(*sess.CurrentState, h.outputDir); werr != nil {
+			// Pass the same context + keys used by GenerateAll so the writer
+			// honours the handler's finalize timeout and persists every selected
+			// document (not just architecture/roadmap).
+			if werr := h.markdown.WriteArtifacts(genCtx, *sess.CurrentState, h.outputDir, keys); werr != nil {
 				if h.logger != nil {
 					h.logger.ErrorContext(r.Context(), "markdown artifact write failed",
 						slog.String("session_id", id),

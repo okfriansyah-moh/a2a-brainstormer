@@ -157,9 +157,9 @@
 <style>
   .stage {
     padding: 16px 18px;
-    background: #fff;
+    background: var(--surface);
     border-radius: 14px;
-    border: 1.5px solid var(--line-solid, #cfd8ea);
+    border: 1.5px solid var(--line-solid);
     box-shadow: 0 2px 8px rgba(35, 46, 82, 0.05);
     transition:
       border-color 0.25s,
@@ -167,12 +167,12 @@
   }
 
   .stage-done {
-    border-color: #b8e8d0;
+    border-color: var(--ok-line);
     box-shadow: 0 2px 12px rgba(27, 159, 102, 0.08);
   }
 
   .stage-running {
-    border-color: var(--accent-2, #1f7ae0);
+    border-color: var(--accent-2);
     box-shadow: 0 2px 14px rgba(31, 122, 224, 0.12);
   }
 
@@ -199,9 +199,9 @@
     font-weight: 600;
     padding: 5px 12px;
     border-radius: 999px;
-    border: 1.5px solid var(--accent-2, #1f7ae0);
-    background: var(--accent-2, #1f7ae0);
-    color: #fff;
+    border: 1.5px solid var(--accent-2);
+    background: var(--accent-2);
+    color: var(--on-accent);
     cursor: pointer;
     white-space: nowrap;
     transition:
@@ -211,8 +211,8 @@
   }
 
   .btn-stage-preview:hover:not(:disabled) {
-    background: #1560b8;
-    border-color: #1560b8;
+    background: var(--accent-2-hover);
+    border-color: var(--accent-2-hover);
     box-shadow: 0 2px 8px rgba(31, 122, 224, 0.35);
   }
 
@@ -226,9 +226,9 @@
     font-weight: 600;
     padding: 5px 10px;
     border-radius: 999px;
-    border: 1px solid var(--ok, #2a9d5c);
+    border: 1px solid var(--ok);
     background: transparent;
-    color: var(--ok, #2a9d5c);
+    color: var(--ok);
     cursor: pointer;
     white-space: nowrap;
     transition:
@@ -237,8 +237,8 @@
   }
 
   .btn-stage-apply:hover:not(:disabled) {
-    background: var(--ok, #2a9d5c);
-    color: white;
+    background: var(--ok);
+    color: var(--on-accent);
   }
 
   .btn-stage-apply:disabled {
@@ -259,9 +259,9 @@
     font-weight: 700;
     padding: 3px 8px;
     border-radius: 999px;
-    background: #fff8e1;
-    color: #b45309;
-    border: 1px solid #fcd34d;
+    background: var(--warn-bg);
+    color: var(--warn);
+    border: 1px solid var(--warn-line);
     white-space: nowrap;
   }
 
@@ -272,8 +272,8 @@
 
   .preview-log {
     margin-top: 6px;
-    border-color: #fcd34d !important;
-    background: #fffdf0 !important;
+    border-color: var(--warn-line) !important;
+    background: var(--warn-bg) !important;
     opacity: 0.9;
   }
 
@@ -300,12 +300,12 @@
 
   .stage-done .stage-num {
     background: var(--ok);
-    color: white;
+    color: var(--on-accent);
   }
 
   .stage-running .stage-num {
     background: var(--accent-2);
-    color: white;
+    color: var(--on-accent);
   }
 
   .stage-waiting .stage-num {
@@ -337,19 +337,19 @@
   }
 
   .s-done {
-    background: #e6f7ef;
+    background: var(--ok-bg);
     color: var(--ok);
-    border: 1px solid #b8e8d0;
+    border: 1px solid var(--ok-line);
   }
 
   .s-run {
-    background: #edf6ff;
+    background: var(--accent-bg);
     color: var(--accent-2);
-    border: 1px solid #b8d8ff;
+    border: 1px solid var(--accent-line);
   }
 
   .s-wait {
-    background: #f3f5fa;
+    background: var(--neutral-bg);
     color: var(--ink-500);
     border: 1px solid var(--line);
   }
@@ -362,9 +362,9 @@
   .stage-log {
     font-family: "IBM Plex Mono", monospace;
     font-size: 0.75rem;
-    color: #415070;
-    background: #f9fbff;
-    border: 1px solid #dae2f2;
+    color: var(--log-ink);
+    background: var(--log-bg);
+    border: 1px solid var(--log-line);
     border-radius: 9px;
     padding: 10px 12px;
     line-height: 1.65;
@@ -374,12 +374,12 @@
 
   .stage-summary {
     margin-top: 8px;
-    background: #f0f9f4;
-    border: 1px solid #b8e8d0;
+    background: var(--ok-bg-soft);
+    border: 1px solid var(--ok-line);
     border-radius: 9px;
     padding: 10px 14px;
     font-size: 0.8125rem;
-    color: #1a7a50;
+    color: var(--ok-ink);
     word-break: break-word;
     line-height: 1.55;
   }
@@ -392,7 +392,7 @@
   }
 
   .stage-summary-head strong {
-    color: #146b44;
+    color: var(--ok-ink-strong);
     font-weight: 600;
   }
 

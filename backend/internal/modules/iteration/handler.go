@@ -182,6 +182,8 @@ func (h *Handler) handlePreview(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, session.ErrNotFound):
 			writeIterError(w, http.StatusNotFound, "session not found")
+		case errors.Is(err, ErrAgentNotInSession):
+			writeIterError(w, http.StatusConflict, "agent is not a member of this session")
 		case errors.Is(err, ErrIterationInFlight):
 			writeIterError(w, http.StatusConflict, "iteration already in progress")
 		default:

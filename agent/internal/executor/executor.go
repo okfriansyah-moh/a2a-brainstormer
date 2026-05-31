@@ -84,15 +84,24 @@ func New(providers map[string]llm.LLMProvider, fallback llm.LLMProvider, logger 
 	return &BrainstormExecutor{providers: providers, fallback: fallback, logger: logger}
 }
 
-// resolveProvider returns the LLMProvider to use for a given provider name.
-// Falls back to e.fallback when name is empty or not in the providers map.
-func (e *BrainstormExecutor) resolveProvider(name string) llm.LLMProvider {
-	if name != "" && e.providers != nil {
+// resolveProvider returns the LLMProvider to use for a given provider name,
+// and a bool indicating whether the resolution was strict (an exact match
+// in the providers map). When name is empty the fallback is returned and
+// strict=true (the caller did not request a specific provider). When name is
+// non-empty but missing from the providers map, strict=false signals that the
+// agent binary must fail fast rather than silently use the fallback — this
+// enforces the security invariant that a session/agent configured for a
+// specific provider must never be transparently downgraded to another one.
+func (e *BrainstormExecutor) resolveProvider(name string) (llm.LLMProvider, bool) {
+	if name == "" {
+		return e.fallback, true
+	}
+	if e.providers != nil {
 		if p, ok := e.providers[name]; ok {
-			return p
+			return p, true
 		}
 	}
-	return e.fallback
+	return nil, false
 }
 
 // Compile-time interface assertion.
@@ -167,11 +176,22 @@ func (e *BrainstormExecutor) Execute(
 				slog.String("provider", payload.LLMConfig.Provider),
 			)
 		}
-		// Select provider from payload config; fall back to the default when the
-		// requested provider is not available (e.g. opencode not running).
-		activeLLM := e.resolveProvider(payload.LLMConfig.Provider)
-		if activeLLM == nil {
-			activeLLM = e.fallback
+		// Select provider from payload config. When the payload requests a
+		// specific provider that is not available in this agent binary, fail
+		// fast — a silent fallback would let a session configured for one
+		// provider run on a different one, violating the project security
+		// invariant (see AGENTS.md §Security invariants).
+		activeLLM, ok := e.resolveProvider(payload.LLMConfig.Provider)
+		if !ok {
+			e.logError(ctx, "requested LLM provider not registered",
+				fmt.Errorf("provider %q is not configured on this agent", payload.LLMConfig.Provider),
+				slog.String("role", payload.Role),
+			)
+			errMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(
+				fmt.Sprintf("requested LLM provider %q is not configured on this agent", payload.LLMConfig.Provider),
+			))
+			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
+			return
 		}
 		resp, err := activeLLM.Generate(ctx, llm.LLMRequest{
 			SystemPrompt: payload.SystemPrompt + requiredOutputStructurePrompt,
