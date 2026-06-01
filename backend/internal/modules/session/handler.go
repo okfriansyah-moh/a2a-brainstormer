@@ -91,6 +91,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sessions", h.listSessions)
 	mux.HandleFunc("GET /sessions/{id}", h.getSession)
 	mux.HandleFunc("POST /sessions/{id}/finalize", h.finalizeSession)
+	mux.HandleFunc("POST /sessions/{id}/generate-document", h.generateDocument)
 	mux.HandleFunc("PATCH /sessions/{id}/output-docs", h.updateOutputDocs)
 }
 
@@ -249,6 +250,76 @@ func (h *Handler) updateOutputDocs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// generateDocument generates a single output document for an already-approved
+// (or converged-ready) session. Unlike finalizeSession it does not update the
+// session's stored output_docs — it only returns the freshly generated doc.
+//
+// POST /sessions/{id}/generate-document
+// Body: {"key":"architecture"}   (one of AllowedOutputDocs)
+// Returns: {"key":"architecture","document":{filename,content,line_count,source}}
+func (h *Handler) generateDocument(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidRE.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid session ID format")
+		return
+	}
+
+	var req GenerateDocumentRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Key == "" {
+		writeError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+	if !AllowedOutputDocs[req.Key] {
+		writeError(w, http.StatusBadRequest, "invalid document key: "+req.Key)
+		return
+	}
+	if h.markdown == nil {
+		writeError(w, http.StatusServiceUnavailable, "markdown generator not configured")
+		return
+	}
+
+	// FinalizeSession is idempotent for approved sessions and transitions
+	// converged → approved on first call. Empty input leaves output_docs unchanged.
+	sess, err := h.svc.FinalizeSession(r.Context(), id, FinalizeInput{})
+	if err != nil {
+		h.handleServiceError(w, r, err)
+		return
+	}
+	if sess.CurrentState == nil {
+		writeError(w, http.StatusUnprocessableEntity, "no canonical state available")
+		return
+	}
+
+	// Remove the per-response write deadline so a slow LLM call can complete.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+	genCtx, cancel := context.WithTimeout(r.Context(), config.GetFinalizeTimeout())
+	defer cancel()
+
+	docs, err := h.markdown.GenerateAll(genCtx, *sess.CurrentState, []string{req.Key})
+	if err != nil {
+		if h.logger != nil {
+			h.logger.ErrorContext(r.Context(), "generate-document failed",
+				slog.String("session_id", id),
+				slog.String("key", req.Key),
+				slog.Any("error", err))
+		}
+		writeError(w, http.StatusInternalServerError, "document generation failed")
+		return
+	}
+
+	doc, ok := docs[req.Key]
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "document key missing from result")
+		return
+	}
+	writeJSON(w, http.StatusOK, GenerateDocumentResponse{Key: req.Key, Document: doc})
 }
 
 // ── Error helpers ─────────────────────────────────────────────────────────────

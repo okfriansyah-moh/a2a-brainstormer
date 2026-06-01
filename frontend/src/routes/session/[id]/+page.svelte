@@ -39,6 +39,14 @@
   let feedbackText = "";
 
   /**
+   * True while a plain (no-feedback) iterate HTTP call is still in-flight.
+   * SSE may clear loading=false before the HTTP response arrives, creating
+   * a window where handleInjectFeedback incorrectly thinks it can run. This
+   * flag tracks the full HTTP lifecycle so feedback is never silently dropped.
+   */
+  let plainIterPending = false;
+
+  /**
    * Map of agentId → true while a preview dispatch is in flight for that agent.
    * Used to disable per-agent buttons during the request.
    */
@@ -320,18 +328,36 @@
     sseClient = createSSEClient(
       `${API_BASE}/sessions/${sessionId}/events`,
       (evt) => {
-        // Once convergence is confirmed, suppress subsequent iteration.start
-        // events that would reset the pipeline UI back to "waiting" for every
-        // internal pass the engine runs beyond the first.
-        if (evt.type === "iteration.start" && converged) return;
+        // Once convergence is confirmed, suppress ALL further engine progress
+        // events (iteration.start / agent.started / iteration.complete) that
+        // would reset the pipeline UI back to "running" — the engine has
+        // already returned a final state and the user is on the convergence
+        // screen waiting to finalize.
+        if (converged) {
+          if (
+            evt.type === "iteration.start" ||
+            evt.type === "agent.started" ||
+            evt.type === "agent.complete" ||
+            evt.type === "agent.error" ||
+            evt.type === "iteration.complete"
+          ) {
+            return;
+          }
+        }
         sessionStore.applyEvent(evt);
         // Track convergence from SSE so the page updates without a reload.
         if (evt.type === "iteration.complete") {
           const d = evt.data as { converged?: boolean } | null;
-          if (d?.converged) converged = true;
+          if (d?.converged) {
+            converged = true;
+            // Force loading off — engine has returned; any further events are
+            // residual / replayed and must not leave the UI "Running…".
+            sessionStore.setLoading(false);
+          }
         }
         if (evt.type === "session.finalized") {
           converged = true;
+          sessionStore.setLoading(false);
         }
       },
     );
@@ -373,6 +399,7 @@
   async function handleNextIteration() {
     if ($sessionStore.loading || !sessionId || converged) return;
     sessionStore.setLoading(true);
+    plainIterPending = true;
     actionError = "";
     // Clear any local previews — a full pipeline pass supersedes them.
     previewMap = {};
@@ -381,6 +408,9 @@
       const result = await iterate(sessionId);
       sessionStore.updateState(result.state);
       converged = result.converged;
+      // Engine returned — clear loading regardless of any in-flight SSE
+      // events that may still be queued in the ring buffer.
+      if (result.converged) sessionStore.setLoading(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // Another iteration is already running. Stay in loading state and let
@@ -390,13 +420,16 @@
         actionError = err instanceof Error ? err.message : "Iteration failed.";
       }
     } finally {
-      // Only clear loading if the engine isn’t already in-flight. For the 409
+      // Always reset the pending flag — HTTP call is complete.
+      plainIterPending = false;
+      // Only clear loading if the engine isn't already in-flight. For the 409
       // case the SSE stream will fire iteration.complete which clears loading.
       if (!iterInFlight) {
         sessionStore.setLoading(false);
       }
     }
   }
+
 
   async function handleFinalize() {
     if ($sessionStore.loading || !sessionId) return;
@@ -407,13 +440,67 @@
     showFeedback = !showFeedback;
   }
 
-  function handleInjectFeedback() {
+  async function handleInjectFeedback() {
     if (!feedbackText.trim()) return;
-    // Feedback is surfaced in the UI for the next iterate call.
-    // Full wiring is done in Task 15 integration.
+
+    // Guard: a plain iterate is still awaiting its HTTP response even though
+    // SSE may have cleared loading=false (race window). Block the feedback
+    // iterate to avoid conflicting state and show a clear message instead of
+    // silently dropping the feedback.
+    if (plainIterPending || !sessionId) {
+      if (plainIterPending) {
+        actionError =
+          "The previous iteration is still completing. Please wait a moment before adding feedback.";
+      }
+      return;
+    }
+
+    if ($sessionStore.loading) return;
+
+    const feedback = feedbackText.trim();
     actionError = "";
     showFeedback = false;
     feedbackText = "";
+    // Optimistically un-converge so the UI immediately shows "running" state
+    // rather than staying on the finalize prompt during the long iterate call.
+    converged = false;
+    sessionStore.setLoading(true);
+    previewMap = {};
+    let iterInFlight = false;
+    try {
+      const result = await iterate(sessionId, feedback);
+      sessionStore.updateState(result.state);
+      converged = result.converged;
+      if (result.converged) sessionStore.setLoading(false);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // The backend still has an iteration in flight for this session.
+        // Restore the feedback text and re-show the panel so the user can
+        // resubmit once the current pass completes. Do NOT clear loading —
+        // the SSE iteration.complete event will do that.
+        iterInFlight = true;
+        feedbackText = feedback;
+        showFeedback = true;
+        converged = false;
+        actionError =
+          "An iteration is already running. Your feedback has been saved — submit again when the current pass completes.";
+      } else {
+        // If the backend rejects the feedback run, restore the converged state
+        // so the UI returns to the finalize prompt. Prefer the response body
+        // over the generic status message so the user sees the actual reason.
+        converged = true;
+        actionError =
+          err instanceof ApiError && err.body
+            ? err.body
+            : err instanceof Error
+              ? err.message
+              : "Iteration with feedback failed.";
+      }
+    } finally {
+      if (!iterInFlight) {
+        sessionStore.setLoading(false);
+      }
+    }
   }
 
   async function handlePreviewAgent(agentId: string) {
@@ -574,32 +661,54 @@
     {/if}
 
     <!-- ── Run bar ───────────────────────────────────────────────────── -->
+    <!--
+      Button states (single source of truth):
+        converged=true  → Finalize is PRIMARY, Run Next Iteration is hidden
+        loading=true    → Run Next Iteration shows "Running…" (disabled),
+                          Finalize disabled (engine writing state)
+        idle            → Run Next Iteration is PRIMARY, Finalize secondary
+      Per-agent "Run This Agent" buttons stay enabled when converged so the
+      user can experiment without re-running the whole pipeline.
+    -->
     <div class="panel run-bar">
       <div class="run-left">
-        <button
-          class="btn-primary"
-          type="button"
-          on:click={handleNextIteration}
-          disabled={$sessionStore.loading || converged}
-        >
-          {$sessionStore.loading ? "Running…" : "Run Next Iteration"}
-        </button>
-        <button
-          class="btn-ghost"
-          type="button"
-          on:click={handleToggleFeedback}
-          disabled={$sessionStore.loading}
-        >
-          Inject Feedback
-        </button>
-        <button
-          class="btn-ghost"
-          type="button"
-          on:click={handleFinalize}
-          disabled={$sessionStore.loading}
-        >
-          Finalize Session
-        </button>
+        {#if !converged}
+          <button
+            class="btn-primary"
+            type="button"
+            on:click={handleNextIteration}
+            disabled={$sessionStore.loading}
+          >
+            {$sessionStore.loading ? "Running…" : "Run Next Iteration"}
+          </button>
+          <button
+            class="btn-ghost"
+            type="button"
+            on:click={handleToggleFeedback}
+            disabled={$sessionStore.loading}
+          >
+            Inject Feedback
+          </button>
+          <button
+            class="btn-ghost"
+            type="button"
+            on:click={handleFinalize}
+            disabled={$sessionStore.loading}
+          >
+            Finalize Session
+          </button>
+        {:else}
+          <button class="btn-primary" type="button" on:click={handleFinalize}>
+            Finalize Session →
+          </button>
+          <button
+            class="btn-ghost"
+            type="button"
+            on:click={handleToggleFeedback}
+          >
+            Inject Feedback
+          </button>
+        {/if}
       </div>
       <div class="run-status">
         {#if converged}

@@ -15,6 +15,7 @@
 //	session.ErrNotFound      → 404
 //	ErrPreviewNotFound       → 404
 //	ErrSessionTerminal       → 409 Conflict
+//	ErrSessionConverged      → 422 Unprocessable Entity
 //	ErrIterationInFlight     → 409 Conflict
 //	ErrPreviewIDMismatch     → 412 Precondition Failed
 //	validation errors        → 400
@@ -46,7 +47,7 @@ var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 // iterationSvc is the subset of *Service required by the Handler.
 // Using an interface enables test stubs without a live DB.
 type iterationSvc interface {
-	TriggerIteration(ctx context.Context, sessionID string) (IterationResult, error)
+	TriggerIteration(ctx context.Context, sessionID string, userFeedback string) (IterationResult, error)
 	Preview(ctx context.Context, sessionID, agentID string) (PreviewResponse, error)
 	Apply(ctx context.Context, sessionID, agentID, previewID string) (state.CanonicalState, error)
 	DiscardPreview(ctx context.Context, sessionID, agentID string) error
@@ -103,6 +104,20 @@ func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 		slog.String("session_id", sessionID),
 	)
 
+	// Parse optional feedback from request body. An empty or missing body is
+	// valid — it simply means no user feedback was queued for this pass.
+	var userFeedback string
+	if r.ContentLength != 0 {
+		var req struct {
+			UserFeedback string `json:"user_feedback"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeIterError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		userFeedback = req.UserFeedback
+	}
+
 	// Clear the server-level WriteTimeout so this long-running handler can
 	// write the response after the pipeline finishes (which can take minutes).
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
@@ -118,7 +133,7 @@ func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 	)
 	defer cancel()
 
-	result, err := h.svc.TriggerIteration(iterCtx, sessionID)
+	result, err := h.svc.TriggerIteration(iterCtx, sessionID, userFeedback)
 	if err != nil {
 		h.logger.ErrorContext(r.Context(), "trigger iteration failed",
 			slog.String("session_id", sessionID),
@@ -128,7 +143,9 @@ func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, session.ErrNotFound):
 			writeIterError(w, http.StatusNotFound, "session not found")
 		case errors.Is(err, ErrSessionTerminal):
-			writeIterError(w, http.StatusConflict, "session is already approved")
+			writeIterError(w, http.StatusConflict, "session is already finalized")
+		case errors.Is(err, ErrSessionConverged):
+			writeIterError(w, http.StatusUnprocessableEntity, "session has converged; provide feedback to continue iterating")
 		case errors.Is(err, ErrIterationInFlight):
 			writeIterError(w, http.StatusConflict, "iteration already in progress")
 		default:
