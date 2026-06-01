@@ -97,16 +97,17 @@ func completePlanStep() state.Step {
 
 // ─── tests ────────────────────────────────────────────────────────────────────
 
-// TestEngineConvergence verifies that the engine stops early when all three
+// TestEngineConvergence verifies that the engine stops early when all four
 // quality-convergence conditions from §8.6 are met before maxIter is reached.
 //
 // Confidence sequence (2 agents per pass, 10 max iterations):
 //
-//	Pass 1: 0.5,  0.5  → delta = |0.50 - 0.00| = 0.50  → NOT converged
-//	Pass 2: 0.52, 0.52 → delta = |0.52 - 0.50| = 0.02  → NOT converged (equal, not strictly less)
-//	Pass 3: 0.525,0.525→ delta = |0.525- 0.52| = 0.005 → converged  ✓
+//	Pass 1: 0.85, 0.85 → below 0.90 floor                → NOT converged
+//	Pass 2: 0.91, 0.91 → delta = |0.91 - 0.85| = 0.06   → NOT converged (delta too large)
+//	Pass 3: 0.915,0.915→ delta = |0.915- 0.91| = 0.005   → converged  ✓ (≥0.90, delta<0.02)
 func TestEngineConvergence(t *testing.T) {
 	t.Setenv("CONVERGENCE_THRESHOLD", "0.02")
+	t.Setenv("MIN_CONFIDENCE_FLOOR", "0.90")
 
 	const (
 		sessID   = "11111111-1111-1111-1111-111111111111"
@@ -123,7 +124,7 @@ func TestEngineConvergence(t *testing.T) {
 	store := &stubSessionStore{}
 
 	// Confidence per dispatch call (6 calls = 2 agents × 3 passes).
-	callConfidences := []float64{0.5, 0.5, 0.52, 0.52, 0.525, 0.525}
+	callConfidences := []float64{0.85, 0.85, 0.91, 0.91, 0.915, 0.915}
 	callIdx := 0
 
 	mockDispatch := func(
@@ -133,6 +134,7 @@ func TestEngineConvergence(t *testing.T) {
 		_ []agentpkg.Skill,
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
+		_ string,
 	) (state.CanonicalState, error) {
 		out := current
 		if callIdx < len(callConfidences) {
@@ -151,7 +153,7 @@ func TestEngineConvergence(t *testing.T) {
 		Idea: map[string]any{"text": "test idea"},
 	}
 
-	result, err := eng.Run(context.Background(), sess, initial)
+	result, err := eng.Run(context.Background(), sess, initial, "")
 	if err != nil {
 		t.Fatalf("Run returned unexpected error: %v", err)
 	}
@@ -211,6 +213,7 @@ func TestEnginePipelineOrder(t *testing.T) {
 		_ []agentpkg.Skill,
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
+		_ string,
 	) (state.CanonicalState, error) {
 		callOrder = append(callOrder, ag.ID)
 		out := current
@@ -226,7 +229,7 @@ func TestEnginePipelineOrder(t *testing.T) {
 		Idea: map[string]any{"text": "test idea"},
 	}
 
-	_, err := eng.Run(context.Background(), sess, initial)
+	_, err := eng.Run(context.Background(), sess, initial, "")
 	if err != nil {
 		t.Fatalf("Run returned unexpected error: %v", err)
 	}
@@ -274,6 +277,7 @@ func TestEngineMaxIterations(t *testing.T) {
 		_ []agentpkg.Skill,
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
+		_ string,
 	) (state.CanonicalState, error) {
 		// No execution plan → IsExecutionPlanComplete = false → never converges.
 		return current, nil
@@ -285,7 +289,7 @@ func TestEngineMaxIterations(t *testing.T) {
 
 	result, err := eng.Run(context.Background(), sess, state.CanonicalState{
 		Idea: map[string]any{"text": "test idea"},
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("Run returned unexpected error: %v", err)
 	}
@@ -359,6 +363,7 @@ func TestEngineMetaAgentsPopulated(t *testing.T) {
 		_ []agentpkg.Skill,
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
+		_ string,
 	) (state.CanonicalState, error) {
 		out := current
 		out.Metrics.Confidence = 0.999
@@ -372,7 +377,7 @@ func TestEngineMetaAgentsPopulated(t *testing.T) {
 
 	result, err := eng.Run(context.Background(), sess, state.CanonicalState{
 		Idea: map[string]any{"text": "test idea"},
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("Run returned unexpected error: %v", err)
 	}

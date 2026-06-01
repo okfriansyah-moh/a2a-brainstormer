@@ -19,8 +19,13 @@ import (
 // Sentinel errors returned by service methods.
 var (
 	// ErrSessionTerminal is returned by TriggerIteration when the session is
-	// already in a terminal state that prevents further iteration (approved).
+	// already in a fully-approved (finalized) state.
 	ErrSessionTerminal = errors.New("session is in a terminal state")
+
+	// ErrSessionConverged is returned by TriggerIteration when the session has
+	// converged and no user feedback was supplied. The caller must provide
+	// non-empty userFeedback to resume iteration from a converged state.
+	ErrSessionConverged = errors.New("session has converged; provide feedback to continue iterating")
 
 	// ErrIterationInFlight is returned when a concurrent Iterate, Preview, or
 	// Apply call is already holding the per-session lock.
@@ -127,7 +132,7 @@ type PreviewResponse struct {
 // Returns ErrSessionTerminal if the session status is "approved".
 // Returns ErrIterationInFlight if another operation holds the session lock.
 // Returns a wrapped session.ErrNotFound if the session does not exist.
-func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (IterationResult, error) {
+func (s *Service) TriggerIteration(ctx context.Context, sessionID string, userFeedback string) (IterationResult, error) {
 	lock := s.sessionLocks.getLock(sessionID)
 	if !lock.TryLock() {
 		return IterationResult{}, ErrIterationInFlight
@@ -154,6 +159,14 @@ func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (Itera
 	if sess.Status == session.StatusApproved {
 		return IterationResult{}, fmt.Errorf("trigger iteration: session %s is already approved: %w",
 			sessionID, ErrSessionTerminal)
+	}
+
+	// Guard: a converged session may only be re-run when the user provides
+	// explicit feedback. Without feedback the pipeline would produce the same
+	// result, so we surface a clear error instead of wasting compute.
+	if sess.Status == session.StatusConverged && userFeedback == "" {
+		return IterationResult{}, fmt.Errorf("trigger iteration: session %s has converged; provide feedback to continue: %w",
+			sessionID, ErrSessionConverged)
 	}
 
 	// Seed the initial state from existing progress or the session idea.
@@ -191,7 +204,7 @@ func (s *Service) TriggerIteration(ctx context.Context, sessionID string) (Itera
 		)
 	}
 
-	result, err := s.engine.Run(ctx, sess, initial)
+	result, err := s.engine.Run(ctx, sess, initial, userFeedback)
 	if err != nil {
 		// Reset to active so the session can be retried.
 		_ = s.store.UpdateStatus(context.Background(), sessionID, session.StatusActive)

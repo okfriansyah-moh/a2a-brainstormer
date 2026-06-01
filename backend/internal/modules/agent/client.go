@@ -42,6 +42,7 @@ func Dispatch(
 	activeSkills []Skill,
 	sessionLLMOverride *llm.LLMConfig,
 	currentState state.CanonicalState,
+	userFeedback string,
 ) (state.CanonicalState, error) {
 	// 1. Resolve tiered LLM config.
 	globalCfg := &llm.LLMConfig{
@@ -60,6 +61,7 @@ func Dispatch(
 		SystemPrompt: systemPrompt,
 		LLMConfig:    effectiveCfg,
 		State:        currentState,
+		UserFeedback: userFeedback,
 	}
 
 	slog.Default().InfoContext(ctx, "resolving A2A agent endpoint",

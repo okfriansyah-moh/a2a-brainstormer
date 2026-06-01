@@ -38,6 +38,7 @@ type DispatchFunc func(
 	activeSkills []agentpkg.Skill,
 	llmOverride *llm.LLMConfig,
 	current state.CanonicalState,
+	userFeedback string,
 ) (state.CanonicalState, error)
 
 // agentProvider is the iteration engine's narrow view of the agent domain.
@@ -101,7 +102,7 @@ func NewEngine(dispatch DispatchFunc, agents agentProvider, store sessionStore, 
 //  2. On convergence or maxIter: update session status to "converged".
 //
 // Roles are read from sess.Agents[i].Role and are NEVER modified here.
-func (e *Engine) Run(ctx context.Context, sess session.Session, initialState state.CanonicalState) (state.CanonicalState, error) {
+func (e *Engine) Run(ctx context.Context, sess session.Session, initialState state.CanonicalState, userFeedback string) (state.CanonicalState, error) {
 	if len(sess.Agents) < 2 {
 		return initialState, fmt.Errorf("iteration engine: session %s requires at least 2 agents, got %d",
 			sess.ID, len(sess.Agents))
@@ -131,7 +132,11 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 		// (e.g. the user clicked Finalize while this iteration was in-flight).
 		// If so, stop immediately — continuing would waste LLM quota and write
 		// stale state on top of a session the user already approved.
-		if liveStatus, statusErr := e.store.GetStatus(ctx, sess.ID); statusErr == nil {
+		// Use a fresh context so an exhausted iterCtx does not suppress the check.
+		statusCtx, statusCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		liveStatus, statusErr := e.store.GetStatus(statusCtx, sess.ID)
+		statusCancel()
+		if statusErr == nil {
 			if liveStatus == session.StatusApproved {
 				e.logger.InfoContext(ctx, "iteration aborted: session approved mid-run",
 					slog.String("session_id", sess.ID),
@@ -155,7 +160,7 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 			"agents":    agentMetas,
 		})
 
-		pipelineOut, successCount, err := e.runPipelinePass(ctx, sess, current, i)
+		pipelineOut, successCount, err := e.runPipelinePass(ctx, sess, current, i, userFeedback)
 		if err != nil {
 			return current, fmt.Errorf("iteration %d: pipeline pass: %w", i, err)
 		}
@@ -165,8 +170,13 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 		merged.Meta.Iteration = i
 
 		// Persist after each full pass — not per-agent within a pass (§8.4).
-		if err := e.store.UpdateState(ctx, sess.ID, &merged); err != nil {
-			return merged, fmt.Errorf("iteration %d: persist state: %w", i, err)
+		// Use a fresh context so that an exhausted iterCtx does not prevent
+		// the state from being written before the next iteration starts.
+		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		persistErr := e.store.UpdateState(persistCtx, sess.ID, &merged)
+		persistCancel()
+		if persistErr != nil {
+			return merged, fmt.Errorf("iteration %d: persist state: %w", i, persistErr)
 		}
 
 		e.logger.InfoContext(ctx, "iteration pass complete",
@@ -192,13 +202,15 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 				slog.String("session_id", sess.ID),
 				slog.Int("iteration", i),
 			)
-			if err := e.store.UpdateStatus(ctx, sess.ID, session.StatusConverged); err != nil {
+			convCtx, convCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := e.store.UpdateStatus(convCtx, sess.ID, session.StatusConverged); err != nil {
 				// Log the failure but do not mask the successful convergence result.
 				e.logger.WarnContext(ctx, "failed to update session status to converged",
 					slog.String("session_id", sess.ID),
 					slog.String("error", err.Error()),
 				)
 			}
+			convCancel()
 			return merged, nil
 		}
 
@@ -231,7 +243,7 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 		slog.String("session_id", sess.ID),
 		slog.Int("max_iterations", maxIter),
 	)
-	if err := e.store.UpdateStatus(ctx, sess.ID, session.StatusConverged); err != nil {
+	if err := e.store.UpdateStatus(context.Background(), sess.ID, session.StatusConverged); err != nil {
 		e.logger.WarnContext(ctx, "failed to update session status after max iterations",
 			slog.String("session_id", sess.ID),
 			slog.String("error", err.Error()),
@@ -259,6 +271,7 @@ func (e *Engine) runPipelinePass(
 	sess session.Session,
 	initial state.CanonicalState,
 	iterNum int,
+	userFeedback string,
 ) (state.CanonicalState, int, error) {
 	current := initial
 	successCount := 0
@@ -267,12 +280,18 @@ func (e *Engine) runPipelinePass(
 	roster := make([]state.AgentMeta, 0, len(sess.Agents))
 
 	for _, sa := range sess.Agents {
-		ag, err := e.agents.GetAgent(ctx, sa.AgentID)
+		// Use a short-lived context for DB/metadata lookups so that an
+		// exhausted iterCtx budget (from long LLM calls) does not prevent
+		// infrastructure calls from succeeding.
+		dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		ag, err := e.agents.GetAgent(dbCtx, sa.AgentID)
 		if err != nil {
+			dbCancel()
 			return current, successCount, fmt.Errorf("get agent %s: %w", sa.AgentID, err)
 		}
 
-		activeSkills, err := e.agents.ResolveActiveSkills(ctx, sa.AgentID, sa.SkillOverrides)
+		activeSkills, err := e.agents.ResolveActiveSkills(dbCtx, sa.AgentID, sa.SkillOverrides)
+		dbCancel()
 		if err != nil {
 			return current, successCount, fmt.Errorf("resolve skills for agent %s: %w", sa.AgentID, err)
 		}
@@ -318,7 +337,14 @@ func (e *Engine) runPipelinePass(
 
 		confBefore := current.Metrics.Confidence
 		dispatchStart := time.Now()
-		out, err := e.dispatch(ctx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current)
+		// Wrap the dispatch in a per-agent call timeout so that a single slow
+		// LLM call cannot exhaust the entire iterCtx budget. The parent ctx
+		// (iterCtx) is still checked for the global iteration deadline; the
+		// agentCtx timeout is the per-agent upper bound.
+		agentCallTimeout := config.GetAgentCallTimeout()
+		agentCtx, agentCancel := context.WithTimeout(ctx, agentCallTimeout)
+		out, err := e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback)
+		agentCancel()
 		if err != nil {
 			// Agent dispatch failure is non-fatal. Log the error, emit an error
 			// event, leave current state unchanged for this agent's slot, and
@@ -467,7 +493,7 @@ func (e *Engine) RunSingleAgent(
 	})
 
 	confBefore := currentState.Metrics.Confidence
-	out, err := e.dispatch(ctx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, currentState)
+	out, err := e.dispatch(ctx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, currentState, "")
 	if err != nil {
 		e.emitter.Emit(sess.ID, EventAgentError, map[string]any{
 			"iteration": currentState.Meta.Iteration,

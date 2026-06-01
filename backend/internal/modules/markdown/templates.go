@@ -196,7 +196,48 @@ func renderASCIIComponents(s state.CanonicalState) string {
 // in s.Architecture as a fenced code block. Falls back to a placeholder.
 func renderDirectoryTree(s state.CanonicalState) string {
 	if v, ok := s.Architecture["directory_layout"]; ok {
-		return fmt.Sprintf("```\n%v\n```\n\n", v)
+		if m, ok := v.(map[string]any); ok && len(m) > 0 {
+			var b strings.Builder
+			b.WriteString("```\n")
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+			for i, k := range keys {
+				if i == len(keys)-1 {
+					b.WriteString(fmt.Sprintf("└── %s/\n", k))
+				} else {
+					b.WriteString(fmt.Sprintf("├── %s/\n", k))
+				}
+				if sub, ok := m[k].(map[string]any); ok {
+					subKeys := make([]string, 0, len(sub))
+					for sk := range sub {
+						subKeys = append(subKeys, sk)
+					}
+					slices.Sort(subKeys)
+					prefix := "│   "
+					if i == len(keys)-1 {
+						prefix = "    "
+					}
+					for j, sk := range subKeys {
+						if j == len(subKeys)-1 {
+							b.WriteString(fmt.Sprintf("%s└── %s\n", prefix, sk))
+						} else {
+							b.WriteString(fmt.Sprintf("%s├── %s\n", prefix, sk))
+						}
+					}
+				}
+			}
+			b.WriteString("```\n\n")
+			return b.String()
+		}
+		str := fmt.Sprintf("%v", v)
+		if strings.HasPrefix(str, "map[") {
+			// fall through to architecture-keys-based tree
+		} else {
+			return fmt.Sprintf("```\n%s\n```\n\n", str)
+		}
 	}
 	if len(s.Architecture) == 0 {
 		return "```\n<directory structure not yet defined>\n```\n\n"
@@ -222,7 +263,21 @@ func renderDirectoryTree(s state.CanonicalState) string {
 func renderTechStack(s state.CanonicalState) string {
 	var b strings.Builder
 	if ts, ok := s.Architecture["tech_stack"]; ok {
-		b.WriteString(fmt.Sprintf("%v\n\n", ts))
+		if m, ok := ts.(map[string]any); ok && len(m) > 0 {
+			writeMap(&b, m)
+		} else if strs := stringsFromAny(ts); len(strs) > 0 {
+			for _, item := range strs {
+				b.WriteString(fmt.Sprintf("- %s\n", item))
+			}
+			b.WriteString("\n")
+		} else {
+			str := fmt.Sprintf("%v", ts)
+			if strings.HasPrefix(str, "map[") {
+				b.WriteString("_Tech stack not yet defined._\n\n")
+			} else {
+				b.WriteString(str + "\n\n")
+			}
+		}
 		return b.String()
 	}
 	if len(s.Architecture) == 0 {
@@ -244,7 +299,23 @@ func renderTechStack(s state.CanonicalState) string {
 // stored in s.Architecture["decisions"]. Falls back to a placeholder row.
 func renderDecisionsTable(s state.CanonicalState) string {
 	if v, ok := s.Architecture["decisions"]; ok {
-		return fmt.Sprintf("%v\n\n", v)
+		if strs := stringsFromAny(v); len(strs) > 0 {
+			rows := make([][]string, len(strs))
+			for i, d := range strs {
+				rows[i] = []string{fmt.Sprintf("ADR-%03d", i+1), d, "Selected for fit", "Accepted"}
+			}
+			return renderTable([]string{"ID", "Decision", "Rationale", "Status"}, rows)
+		}
+		if m, ok := v.(map[string]any); ok && len(m) > 0 {
+			var b strings.Builder
+			writeMap(&b, m)
+			return b.String()
+		}
+		str := fmt.Sprintf("%v", v)
+		if !strings.HasPrefix(str, "map[") {
+			return str + "\n\n"
+		}
+		return "_Architecture decisions not yet defined._\n\n"
 	}
 	if len(s.Architecture) == 0 {
 		return renderTable(
@@ -314,7 +385,27 @@ func renderExecutionPlanList(s state.CanonicalState) string {
 // placeholder list when the config key is absent.
 func renderEnvVarList(s state.CanonicalState) string {
 	if v, ok := s.Architecture["config"]; ok {
-		return fmt.Sprintf("```env\n%v\n```\n\n", v)
+		if m, ok := v.(map[string]any); ok && len(m) > 0 {
+			var b strings.Builder
+			b.WriteString("```env\n")
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+			for _, k := range keys {
+				name := strings.ToUpper(strings.ReplaceAll(k, " ", "_"))
+				b.WriteString(fmt.Sprintf("%s=%v\n", name, m[k]))
+			}
+			b.WriteString("```\n\n")
+			return b.String()
+		}
+		str := fmt.Sprintf("%v", v)
+		if strings.HasPrefix(str, "map[") {
+			// fall through to generic env-var generation
+		} else {
+			return fmt.Sprintf("```env\n%s\n```\n\n", str)
+		}
 	}
 	var b strings.Builder
 	b.WriteString("```env\n")

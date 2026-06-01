@@ -306,7 +306,7 @@ func TestService_TriggerIteration_ReturnsBusy_WhenLocked(t *testing.T) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	_, err := svc.TriggerIteration(context.Background(), "s1")
+	_, err := svc.TriggerIteration(context.Background(), "s1", "")
 	if !errors.Is(err, ErrIterationInFlight) {
 		t.Errorf("expected ErrIterationInFlight, got %v", err)
 	}

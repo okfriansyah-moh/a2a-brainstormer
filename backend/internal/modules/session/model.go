@@ -154,3 +154,16 @@ type FinalizeResponse struct {
 	Documents map[string]shared.GeneratedDocument `json:"documents"`
 	Status    string                              `json:"status"`
 }
+
+// GenerateDocumentRequest is the body for POST /sessions/{id}/generate-document.
+// Key must be one of the AllowedOutputDocs values.
+type GenerateDocumentRequest struct {
+	Key string `json:"key"`
+}
+
+// GenerateDocumentResponse is the response body for POST /sessions/{id}/generate-document.
+// Returns a single generated document without modifying the session's stored output_docs.
+type GenerateDocumentResponse struct {
+	Key      string                   `json:"key"`
+	Document shared.GeneratedDocument `json:"document"`
+}
