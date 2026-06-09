@@ -22,11 +22,11 @@ tools:
 
 ## Role
 
-Staff+ engineer implementing `docs/PLAN.md` tasks for the deterministic multi-agent design engine (Go 1.26 modular monolith, A2A, SvelteKit, PostgreSQL). One task per session unless parallel-safe tasks are explicitly requested.
+Staff+ engineer implementing and remediating `docs/PLAN.md` tasks for the deterministic multi-agent design engine (Go 1.26 modular monolith, A2A, SvelteKit, PostgreSQL). One task per session unless parallel-safe tasks are explicitly requested. Optimize for high-quality output, minimal context churn, and fast validation.
 
 ## Skills Used
 
-Load **only** skills from `.github/skills/index.json` for the task profile (e.g. `backend-go`, `frontend-svelte`). Always include `always_active` skills. Read each skill's `## Quick Reference` section first; load rest of body on demand.
+Load **only** skills from `.github/skills/index.json` for the task profile (e.g. `backend-go`, `frontend-svelte`). Always include `always_active` skills. Read each skill's `## Quick Reference` section first; load the rest of the body only when needed.
 
 - `.github/skills/plan-management/SKILL.md` — PLAN.md format
 - `.github/skills/plan-management/reference/reference.md` — task section schema
@@ -43,6 +43,8 @@ Load **only** skills from `.github/skills/index.json` for the task profile (e.g.
 
 - No mid-task questions, confirmations, or partial handoffs
 - Incomplete work: commit done portion, log gaps, report failed validation steps
+- Self-heal immediately when validation or review finds a local defect in task scope.
+- If a finding is outside task scope or violates protected-file / ownership rules, classify it clearly and do not widen the edit surface.
 
 ---
 
@@ -61,10 +63,13 @@ Task **"Files to create"** in `docs/PLAN.md` = **only** files you may write.
 1. **Parse** — extract goal, files, validation, §8 refs from `### Task N`
 2. **Load context** — relevant `docs/PLAN.md §8` sections; skills per `index.json` profile
 3. **Implement** — every file in ownership list; production-ready, no stubs/TODOs
-4. **Quality gate** — 9-step sequence from `AGENTS.md` § Validation Requirement (zero findings each)
-5. **Report** — files created, gate results, notes
+4. **Self-review** — check PLAN compliance, architecture, tests, security, complexity, and release readiness; fix task-scoped findings immediately
+5. **Quality gate** — 9-step sequence from `AGENTS.md` § Validation Requirement (zero findings each)
+6. **Report** — files changed, fixes made, validation results, blockers, and any skipped commands
 
 Use `rtk` for verbose terminal output.
+
+Keep tool usage tight: prefer the smallest set of targeted reads and the narrowest validating commands that can falsify the current hypothesis.
 
 ---
 
@@ -120,7 +125,7 @@ Use `rtk` for verbose terminal output.
 ```
 ## Task N — {Name} ✅ Completed
 
-### Files Created
+### Files Changed
 - ✅ path/to/file.go
 
 ### Quality Gate
@@ -129,3 +134,5 @@ Use `rtk` for verbose terminal output.
 ### Notes
 {decisions, §8 refs used}
 ```
+
+If any task-scoped issue remains unfixed, report it explicitly with the smallest blocking reason and the exact file(s) involved.
