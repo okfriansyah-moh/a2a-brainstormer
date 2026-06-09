@@ -38,6 +38,22 @@ func GetConvergenceThreshold() float64 {
 	return envFloat("CONVERGENCE_THRESHOLD", 0.02)
 }
 
+// GetMinConfidenceFloor returns the minimum confidence score that must be
+// reached before the engine is allowed to converge. The threshold is applied
+// to CanonicalState.Metrics.Confidence (aggregate pipeline confidence), not an
+// individual agent score. Defaults to 0.90 and is clamped to [0.0, 1.0].
+// Set MIN_CONFIDENCE_FLOOR to override.
+func GetMinConfidenceFloor() float64 {
+	v := envFloat("MIN_CONFIDENCE_FLOOR", 0.90)
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 // ── Global LLM defaults ───────────────────────────────────────────────────────
 
 // GetGlobalLLMProvider returns the default LLM provider name.

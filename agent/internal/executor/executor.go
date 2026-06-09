@@ -49,6 +49,10 @@ type BrainstormPayload struct {
 
 	// State is the current CanonicalState passed to the agent as context.
 	State any `json:"state"`
+
+	// UserFeedback is the optional human directive injected for this pass.
+	// Empty string means no feedback was queued.
+	UserFeedback string `json:"user_feedback,omitempty"`
 }
 
 // LLMConfig is the per-dispatch LLM configuration embedded in BrainstormPayload.
@@ -156,13 +160,21 @@ func (e *BrainstormExecutor) Execute(
 		// Construct the user message with a strict JSON-only instruction.
 		// Claude may still add prose unless we are very explicit; we also apply
 		// JSON extraction as a fallback in parsing (see extractJSON below).
+		var feedbackSection string
+		if payload.UserFeedback != "" {
+			feedbackSection = fmt.Sprintf(
+				"\n\nUSER FEEDBACK (highest priority — address this in your response):\n%s\n",
+				payload.UserFeedback,
+			)
+		}
 		userMessage := fmt.Sprintf(
 			"CRITICAL INSTRUCTION: You MUST respond with ONLY a valid JSON object.\n"+
 				"Do NOT include any explanation, commentary, markdown, or text outside the JSON.\n"+
 				"Your entire response must start with { and end with }.\n"+
-				"No prose before or after. No ```json fences. Pure JSON only.\n\n"+
+				"No prose before or after. No ```json fences. Pure JSON only.\n%s\n"+
 				"Current brainstorm state (JSON):\n%s\n\n"+
 				"Return the complete updated canonical state as a single JSON object.",
+			feedbackSection,
 			string(stateJSON),
 		)
 

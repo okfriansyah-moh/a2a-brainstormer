@@ -325,3 +325,54 @@ func TestHandler_FinalizeSession_StateNotReady_Returns422(t *testing.T) {
 		t.Errorf("expected non-empty reason field, got: %v", body)
 	}
 }
+
+// ── GenerateDocument handler tests ───────────────────────────────────────────
+
+func TestHandler_GenerateDocument_InvalidUUID(t *testing.T) {
+	mux := buildTestMux()
+	body, _ := json.Marshal(map[string]any{"key": "architecture"})
+	req := httptest.NewRequest(http.MethodPost, "/sessions/not-a-uuid/generate-document", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandler_GenerateDocument_InvalidKey(t *testing.T) {
+	mux := buildTestMux()
+	body, _ := json.Marshal(map[string]any{"key": "unknown_key"})
+	req := httptest.NewRequest(http.MethodPost, "/sessions/00000000-0000-0000-0000-000000000001/generate-document", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+func TestHandler_GenerateDocument_EmptyKey(t *testing.T) {
+	mux := buildTestMux()
+	body, _ := json.Marshal(map[string]any{"key": ""})
+	req := httptest.NewRequest(http.MethodPost, "/sessions/00000000-0000-0000-0000-000000000001/generate-document", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandler_GenerateDocument_ValidKey_NoMarkdown_Returns503(t *testing.T) {
+	// buildTestMux uses nil markdown — valid UUID + valid key should return 503
+	mux := buildTestMux()
+	body, _ := json.Marshal(map[string]any{"key": "architecture"})
+	req := httptest.NewRequest(http.MethodPost, "/sessions/00000000-0000-0000-0000-000000000001/generate-document", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d (body=%s)", w.Code, w.Body.String())
+	}
+}

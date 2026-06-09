@@ -29,4 +29,9 @@ type BrainstormPayload struct {
 	// State is the current CanonicalState passed to the agent as context.
 	// The agent must return an updated state via a DataPart artifact.
 	State any `json:"state"`
+
+	// UserFeedback is an optional human-supplied directive injected into the
+	// LLM user message for the current iteration pass. Empty string means no
+	// feedback was queued. The agent must honour this over default behaviour.
+	UserFeedback string `json:"user_feedback,omitempty"`
 }

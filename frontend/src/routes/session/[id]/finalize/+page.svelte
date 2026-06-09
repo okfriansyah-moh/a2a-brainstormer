@@ -2,7 +2,11 @@
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
-  import { getSession, finalizeSession } from "$lib/services/api";
+  import {
+    getSession,
+    finalizeSession,
+    generateDocument,
+  } from "$lib/services/api";
   import type { Session, GeneratedDocument } from "$lib/types";
 
   // ── Route param ─────────────────────────────────────────────────────────
@@ -16,11 +20,11 @@
   let generated = false;
   let alreadyFinalized = false;
 
-  /** Document key → generated artifact. Populated after generation. */
+  /** Document key → generated artifact. Populated sequentially during generation. */
   let documents: Record<string, GeneratedDocument> = {};
-  /** The doc keys the user wants to generate for this finalize call. */
+  /** The doc keys the user wants to generate — ordered per ALL_DOCS. */
   let selectedDocs: string[] = ["architecture", "roadmap", "plan", "readme"];
-  /** All available document types — single source of truth for the picker. */
+  /** All available document types in canonical generation order. */
   const ALL_DOCS = [
     { key: "architecture", label: "Architecture" },
     { key: "roadmap", label: "Roadmap" },
@@ -29,81 +33,59 @@
   ];
   /** Per-document copied state for clipboard feedback. */
   let copiedDoc: Record<string, boolean> = {};
-  /** Overall doc generation status (applied to all docs uniformly). */
-  let docStatus: "pending" | "generating" | "done" = "pending";
+  /** Per-document generation status — drives individual card badges. */
+  let perDocStatus: Record<string, "pending" | "generating" | "done"> = {};
+  /** Keys that are queued to generate (visible as pending cards). */
+  let queuedKeys: string[] = [];
 
-  // ── Log animation sequence ───────────────────────────────────────────────
+  // ── Log state ────────────────────────────────────────────────────────────
   let logLines: string[] = [];
   let runningLine: string | null = null;
   let logDone = false;
   let logBadgeDone = false;
 
-  const LOG_SEQUENCE = [
-    "Reading canonical state snapshot…",
-    "Extracting architecture decisions and component boundaries…",
-    "Extracting execution plan — steps, milestones, rollback gates…",
-    "Extracting risks, assumptions, and open questions…",
-    "Assembling document sections…",
-    "Writing output artifacts…",
-    "Generation complete. Documents ready. ✓",
-  ];
-
-  function runLogAnimation(): Promise<void> {
-    logLines = [];
-    runningLine = null;
-    logDone = false;
-    logBadgeDone = false;
-
-    return new Promise((resolve) => {
-      let i = 0;
-
-      function step() {
-        if (i >= LOG_SEQUENCE.length) {
-          runningLine = null;
-          logDone = true;
-          logBadgeDone = true;
-          resolve();
-          return;
-        }
-        runningLine = LOG_SEQUENCE[i];
-        setTimeout(() => {
-          logLines = [...logLines, LOG_SEQUENCE[i]];
-          runningLine = null;
-          i++;
-          setTimeout(step, 120);
-        }, 400);
-      }
-
-      step();
-    });
-  }
-
-  // ── Generate flow ────────────────────────────────────────────────────────
+  // ── Sequential generate flow ─────────────────────────────────────────────
   async function generate() {
     const sid = $page.params.id;
     if (!sid || generating || selectedDocs.length === 0) return;
+
     error = "";
     generating = true;
-    docStatus = "generating";
-    // Allow re-running on an already-finalized session.
     generated = false;
+    logLines = [];
+    logDone = false;
+    logBadgeDone = false;
+    runningLine = null;
+    documents = {};
+
+    // Show all selected docs as pending cards immediately
+    const ordered = ALL_DOCS.filter((d) => selectedDocs.includes(d.key));
+    queuedKeys = ordered.map((d) => d.key);
+    perDocStatus = Object.fromEntries(queuedKeys.map((k) => [k, "pending"]));
 
     try {
-      // Run animation and API call in parallel; show content when both finish
-      const [resp] = await Promise.all([
-        finalizeSession(sid, { output_docs: selectedDocs }),
-        runLogAnimation(),
-      ]);
+      for (const { key, label } of ordered) {
+        perDocStatus = { ...perDocStatus, [key]: "generating" };
+        runningLine = `Generating ${label}…`;
 
-      documents = resp.documents ?? {};
-      docStatus = "done";
+        const resp = await generateDocument(sid, key);
+
+        documents = { ...documents, [key]: resp.document };
+        perDocStatus = { ...perDocStatus, [key]: "done" };
+        logLines = [...logLines, `${label} ready. ✓`];
+        runningLine = null;
+      }
+
+      logLines = [...logLines, "All documents generated. ✓"];
+      logDone = true;
+      logBadgeDone = true;
       generated = true;
       alreadyFinalized = true;
     } catch (err) {
       error = err instanceof Error ? err.message : "Generation failed.";
-      docStatus = "pending";
       logDone = false;
       logBadgeDone = false;
+      runningLine = null;
     } finally {
       generating = false;
     }
@@ -168,8 +150,6 @@
     pageLoading = true;
     error = "";
 
-    // Always fetch fresh session status from the API so we get the real
-    // status ("converged", "approved", etc.) rather than a stale store value.
     try {
       session = await getSession(sid);
       pageLoading = false;
@@ -179,45 +159,42 @@
       return;
     }
 
+    const storedDocs =
+      session?.output_docs && session.output_docs.length > 0
+        ? session.output_docs
+        : ALL_DOCS.map((d) => d.key);
+
+    selectedDocs = storedDocs;
+
     if (session?.status === "approved") {
-      // Session was previously finalized — reload the markdown without animation.
-      // The user can still re-select documents and regenerate from this page.
+      // Session was previously finalized — silently reload all docs using the
+      // existing finalizeSession (single call, no sequential animation needed).
       alreadyFinalized = true;
-      docStatus = "generating";
-      // Preserve the previously chosen docs in the picker so the user sees
-      // exactly what's loaded; they can tick more boxes and regenerate.
-      selectedDocs =
-        session.output_docs && session.output_docs.length > 0
-          ? session.output_docs
-          : ALL_DOCS.map((d) => d.key);
+      logLines = [];
+      logBadgeDone = false;
+      queuedKeys = storedDocs;
+      perDocStatus = Object.fromEntries(
+        storedDocs.map((k) => [k, "generating"]),
+      );
+
       try {
         const resp = await finalizeSession(sid);
         documents = resp.documents ?? {};
-        docStatus = "done";
+        perDocStatus = Object.fromEntries(
+          Object.keys(documents).map((k) => [k, "done"]),
+        );
+        queuedKeys = Object.keys(documents);
         generated = true;
         logBadgeDone = true;
         logLines = ["Loaded from previously generated session. ✓"];
       } catch {
         // Fallback: let user click "Generate Documents"
         alreadyFinalized = false;
-        docStatus = "pending";
+        perDocStatus = {};
+        queuedKeys = [];
       }
-    } else if (session?.status === "converged") {
-      // Arrived from the workspace after iterating — DO NOT auto-trigger.
-      // The user must explicitly select documents and click Generate so they
-      // can choose all four (architecture, roadmap, plan, readme) instead of
-      // being locked into the session's stored default.
-      selectedDocs =
-        session.output_docs && session.output_docs.length > 0
-          ? session.output_docs
-          : ALL_DOCS.map((d) => d.key);
-    } else {
-      // Active session: seed selectedDocs from stored session value
-      selectedDocs =
-        session?.output_docs && session.output_docs.length > 0
-          ? session.output_docs
-          : ALL_DOCS.map((d) => d.key);
     }
+    // converged / active: picker is seeded, user clicks Generate to start
   });
 </script>
 
@@ -386,68 +363,70 @@
       {/if}
 
       <!-- ── Output file cards ─────────────────────────────────────────── -->
-      {#if generating || generated || alreadyFinalized}
+      {#if queuedKeys.length > 0}
         <div class="output-grid">
-          {#each Object.entries(documents) as [key, doc] (key)}
-            <div class="output-card">
+          {#each queuedKeys as key (key)}
+            {@const doc = documents[key]}
+            {@const docSt = perDocStatus[key] ?? "pending"}
+            {@const docLabel =
+              ALL_DOCS.find((d) => d.key === key)?.label ?? key}
+            <div
+              class="output-card"
+              class:output-card-active={docSt === "generating"}
+            >
               <div class="output-head">
-                <div class="output-file">{doc.filename}</div>
-                <span class={statusClass(docStatus)}
-                  >{statusLabel(docStatus)}</span
-                >
+                <div class="output-file">
+                  {#if doc}
+                    {doc.filename}
+                  {:else}
+                    {docLabel}
+                  {/if}
+                </div>
+                <span class={statusClass(docSt)}>{statusLabel(docSt)}</span>
               </div>
-              <div class="output-desc">
-                {doc.line_count} lines
-                {#if doc.source === "ai"}
-                  <span class="src-badge src-ai" title="Rewritten by AI"
-                    >✦ AI-generated</span
+              {#if doc}
+                <div class="output-desc">
+                  {doc.line_count} lines
+                  {#if doc.source === "ai"}
+                    <span class="src-badge src-ai" title="Rewritten by AI"
+                      >✦ AI-generated</span
+                    >
+                  {:else if doc.source === "ai_fallback"}
+                    <span
+                      class="src-badge src-fallback"
+                      title="AI pass failed — deterministic scaffold returned"
+                      >⚠ AI fallback (template)</span
+                    >
+                  {:else if doc.source === "deterministic"}
+                    <span
+                      class="src-badge src-det"
+                      title="Template-generated (no AI)">⬡ Template</span
+                    >
+                  {/if}
+                </div>
+                <div class="output-preview">{doc.content}</div>
+                <div class="output-actions">
+                  <button
+                    class="btn-soft"
+                    on:click={() => copyToClipboard(doc.content, key)}
                   >
-                {:else if doc.source === "ai_fallback"}
-                  <span
-                    class="src-badge src-fallback"
-                    title="AI pass failed — deterministic scaffold returned"
-                    >⚠ AI fallback (template)</span
+                    {copiedDoc[key] ? "Copied!" : "Copy"}
+                  </button>
+                  <button
+                    class="btn-soft"
+                    on:click={() => downloadFile(doc.content, doc.filename)}
                   >
-                {:else if doc.source === "deterministic"}
-                  <span
-                    class="src-badge src-det"
-                    title="Template-generated (no AI)">⬡ Template</span
-                  >
-                {/if}
-              </div>
-              <div class="output-preview">
-                {#if doc.content}
-                  {doc.content}
-                {:else}
-                  Waiting…
-                {/if}
-              </div>
-              <div class="output-actions">
-                <button
-                  class="btn-soft"
-                  disabled={!doc.content}
-                  on:click={() => copyToClipboard(doc.content, key)}
-                >
-                  {copiedDoc[key] ? "Copied!" : "Copy"}
-                </button>
-                <button
-                  class="btn-soft"
-                  disabled={!doc.content}
-                  on:click={() => downloadFile(doc.content, doc.filename)}
-                >
-                  Download
-                </button>
-              </div>
+                    Download
+                  </button>
+                </div>
+              {:else if docSt === "generating"}
+                <div class="output-generating">
+                  <span class="dots">Generating {docLabel}…</span>
+                </div>
+              {:else}
+                <div class="output-pending">Queued</div>
+              {/if}
             </div>
-          {:else}
-            {#if generating}
-              <div
-                class="output-card"
-                style="grid-column:1/-1;text-align:center;color:var(--ink-500);"
-              >
-                Generating documents…
-              </div>
-            {/if}
           {/each}
         </div>
       {/if}
@@ -631,6 +610,11 @@
     flex-direction: column;
   }
 
+  .output-card-active {
+    border-color: var(--accent-2);
+    box-shadow: 0 0 0 3px rgba(31, 122, 224, 0.08);
+  }
+
   .output-head {
     display: flex;
     align-items: center;
@@ -693,6 +677,23 @@
     display: flex;
     gap: 8px;
     margin-top: 14px;
+  }
+
+  .output-generating {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--accent-2);
+    padding: 24px 0;
+    text-align: center;
+    flex: 1;
+  }
+
+  .output-pending {
+    font-size: 12px;
+    color: var(--ink-400);
+    padding: 24px 0;
+    text-align: center;
+    flex: 1;
   }
 
   .btn-soft {

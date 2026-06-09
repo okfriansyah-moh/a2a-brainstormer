@@ -24,13 +24,16 @@ import (
 )
 
 // Check returns true when the pipeline has converged based on quality
-// conditions 1–3 from §8.6. All three conditions must hold simultaneously.
+// conditions 1–3 from §8.6, plus the minimum confidence floor. All four
+// conditions must hold simultaneously.
 //
 // The iteration engine is responsible for enforcing the maxIter cap (condition
 // 5); this function only evaluates quality-based convergence.
 func Check(prev, next state.CanonicalState) bool {
 	threshold := config.GetConvergenceThreshold()
-	return !HasNewCriticalRisks(prev, next) &&
+	floor := config.GetMinConfidenceFloor()
+	return next.Metrics.Confidence >= floor &&
+		!HasNewCriticalRisks(prev, next) &&
 		IsExecutionPlanComplete(next) &&
 		ConfidenceDelta(prev, next) < threshold
 }

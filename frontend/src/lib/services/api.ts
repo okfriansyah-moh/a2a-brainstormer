@@ -20,6 +20,7 @@ import type {
   CreateSkillRequest,
   FinalizeRequest,
   FinalizeResponse,
+  GenerateDocumentResponse,
   IterateResponse,
   ListSessionsResponse,
   PreviewResult,
@@ -115,12 +116,19 @@ export async function getSession(sessionId: string): Promise<Session> {
 /**
  * Trigger one iteration of the N-agent pipeline for the given session.
  * Returns the updated canonical state after the full pipeline pass.
+ * Pass userFeedback to inject a human directive into the agents' prompts.
  */
-export async function iterate(sessionId: string): Promise<IterateResponse> {
+export async function iterate(
+  sessionId: string,
+  userFeedback?: string,
+): Promise<IterateResponse> {
   return request<IterateResponse>(
     `/sessions/${encodeURIComponent(sessionId)}/iterate`,
     {
       method: "POST",
+      body: userFeedback
+        ? JSON.stringify({ user_feedback: userFeedback })
+        : undefined,
     },
   );
 }
@@ -142,6 +150,21 @@ export async function finalizeSession(
   return request<FinalizeResponse>(
     `/sessions/${encodeURIComponent(sessionId)}/finalize`,
     init,
+  );
+}
+
+/**
+ * Generate a single output document for a session.
+ * Approves the session if not yet approved, then generates only the requested doc.
+ * Does NOT modify the session's stored output_docs selection.
+ */
+export async function generateDocument(
+  sessionId: string,
+  key: string,
+): Promise<GenerateDocumentResponse> {
+  return request<GenerateDocumentResponse>(
+    `/sessions/${encodeURIComponent(sessionId)}/generate-document`,
+    { method: "POST", ...json({ key }) },
   );
 }
 

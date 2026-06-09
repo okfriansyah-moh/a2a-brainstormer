@@ -262,6 +262,15 @@ export interface FinalizeResponse {
   status: string;
 }
 
+/**
+ * Response from POST /sessions/{id}/generate-document.
+ * Returns a single generated document without modifying the session's stored output_docs.
+ */
+export interface GenerateDocumentResponse {
+  key: string;
+  document: GeneratedDocument;
+}
+
 /** Request body for POST /agents (register agent) */
 export interface CreateAgentRequest {
   name: string;
