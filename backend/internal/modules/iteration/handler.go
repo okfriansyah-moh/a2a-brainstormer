@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -111,7 +112,9 @@ func (h *Handler) handleIterate(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			UserFeedback string `json:"user_feedback"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
 			writeIterError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

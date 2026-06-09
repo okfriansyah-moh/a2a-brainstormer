@@ -43,6 +43,9 @@ func (s *stubAgentProvider) ResolveActiveSkills(_ context.Context, _ string, _ *
 type stubSessionStore struct {
 	states   []state.CanonicalState
 	statuses []string
+	// statusHasDeadline records whether each UpdateStatus call received a
+	// context with a deadline; used to guard timeout regressions.
+	statusHasDeadline []bool
 	// statusOverride, if non-empty, is returned by GetStatus on every call.
 	// Used in tests that simulate mid-run session approval.
 	statusOverride string
@@ -61,8 +64,10 @@ func (s *stubSessionStore) UpdateState(_ context.Context, _ string, cs *state.Ca
 	return nil
 }
 
-func (s *stubSessionStore) UpdateStatus(_ context.Context, _ string, status string) error {
+func (s *stubSessionStore) UpdateStatus(ctx context.Context, _ string, status string) error {
+	_, hasDeadline := ctx.Deadline()
 	s.statuses = append(s.statuses, status)
+	s.statusHasDeadline = append(s.statusHasDeadline, hasDeadline)
 	return nil
 }
 
@@ -166,6 +171,9 @@ func TestEngineConvergence(t *testing.T) {
 	// Session status must be updated to "converged".
 	if len(store.statuses) == 0 || store.statuses[len(store.statuses)-1] != session.StatusConverged {
 		t.Errorf("expected final status %q, got statuses %v", session.StatusConverged, store.statuses)
+	}
+	if len(store.statusHasDeadline) == 0 || !store.statusHasDeadline[len(store.statusHasDeadline)-1] {
+		t.Errorf("expected status update context to include a deadline, got %v", store.statusHasDeadline)
 	}
 
 	// Exactly 6 dispatch calls: 2 agents × 3 passes.
@@ -302,6 +310,9 @@ func TestEngineMaxIterations(t *testing.T) {
 	// Session status must be updated to "converged" even when maxIter is reached.
 	if len(store.statuses) == 0 || store.statuses[len(store.statuses)-1] != session.StatusConverged {
 		t.Errorf("expected final status %q, got statuses %v", session.StatusConverged, store.statuses)
+	}
+	if len(store.statusHasDeadline) == 0 || !store.statusHasDeadline[len(store.statusHasDeadline)-1] {
+		t.Errorf("expected status update context to include a deadline, got %v", store.statusHasDeadline)
 	}
 
 	// State persisted once per pass.

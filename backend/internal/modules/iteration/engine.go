@@ -243,12 +243,14 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 		slog.String("session_id", sess.ID),
 		slog.Int("max_iterations", maxIter),
 	)
-	if err := e.store.UpdateStatus(context.Background(), sess.ID, session.StatusConverged); err != nil {
+	maxIterCtx, maxIterCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := e.store.UpdateStatus(maxIterCtx, sess.ID, session.StatusConverged); err != nil {
 		e.logger.WarnContext(ctx, "failed to update session status after max iterations",
 			slog.String("session_id", sess.ID),
 			slog.String("error", err.Error()),
 		)
 	}
+	maxIterCancel()
 	return current, nil
 }
 

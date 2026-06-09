@@ -430,7 +430,6 @@
     }
   }
 
-
   async function handleFinalize() {
     if ($sessionStore.loading || !sessionId) return;
     await goto(`/session/${sessionId}/finalize`);
@@ -458,6 +457,7 @@
     if ($sessionStore.loading) return;
 
     const feedback = feedbackText.trim();
+    const previousConverged = converged;
     actionError = "";
     showFeedback = false;
     feedbackText = "";
@@ -488,7 +488,7 @@
         // If the backend rejects the feedback run, restore the converged state
         // so the UI returns to the finalize prompt. Prefer the response body
         // over the generic status message so the user sees the actual reason.
-        converged = true;
+        converged = previousConverged;
         actionError =
           err instanceof ApiError && err.body
             ? err.body
@@ -698,13 +698,19 @@
             Finalize Session
           </button>
         {:else}
-          <button class="btn-primary" type="button" on:click={handleFinalize}>
+          <button
+            class="btn-primary"
+            type="button"
+            on:click={handleFinalize}
+            disabled={$sessionStore.loading}
+          >
             Finalize Session →
           </button>
           <button
             class="btn-ghost"
             type="button"
             on:click={handleToggleFeedback}
+            disabled={$sessionStore.loading}
           >
             Inject Feedback
           </button>
