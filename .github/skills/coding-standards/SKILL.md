@@ -1,7 +1,15 @@
 ---
 name: coding-standards
 description: "Enforce clean code standards: naming conventions, function/module structure, formatting, error handling, documentation, language-specific idioms. Use when writing new code, reviewing code quality, or auditing modules for readability and maintainability."
+
 ---
+
+## Quick Reference
+
+✅ Domain-concept filenames (convergence_engine.go not phase4.go)
+✅ Go: camelCase unexported; wrap errors with %w
+❌ Stray package line before doc comment on line 1 of .go files
+Links: code-quality, modularity
 
 # Coding Standards
 

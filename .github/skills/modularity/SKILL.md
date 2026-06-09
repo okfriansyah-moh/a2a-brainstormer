@@ -1,7 +1,15 @@
 ---
 name: modularity
 description: "Module boundary enforcement. Use when creating modules, reviewing imports, or validating the modular monolith architecture. Prevents cross-module imports, enforces package structure, and defines file ownership per phase."
+
 ---
+
+## Quick Reference
+
+✅ Vertical slice: handler→service→repository→model per module
+✅ Import platform/ and shared/ only from other modules
+❌ Cross-module internal imports; raw SQL outside repository.go
+Links: vertical-slice, dependency-analysis
 
 # Module Boundary Skill
 

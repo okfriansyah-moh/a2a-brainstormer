@@ -1,8 +1,15 @@
 ---
 name: project-scaffold
-type: skill
 description: "Project scaffolding patterns. Use when initializing new projects, generating boilerplate, or reviewing project structure for completeness."
+
 ---
+
+## Quick Reference
+
+✅ Match repo layout: backend/agent/frontend/migrations
+✅ go.work, docker-compose, Makefile conventions
+❌ Microservice split; alternate folder layouts
+Links: vertical-slice, modularity
 
 ## Purpose
 

@@ -1,7 +1,15 @@
 ---
 name: token-optimization
 description: "Token optimization for development agents. Use when designing agent prompts, planning context loading, or reducing redundant document reads. Provides strategies for progressive loading, skill-first approach, and context compression."
+
 ---
+
+## Quick Reference
+
+✅ Skills before full docs; Quick Reference section before rest of body
+✅ index.json profiles; cache reads within session
+❌ Load all 36 skills upfront; re-read same doc
+Links: rtk, caveman
 
 # Token Optimization Skill
 
@@ -11,7 +19,7 @@ Minimize token consumption in agent interactions by using skills as pre-digested
 
 ## Rules
 
-1. **Never read full docs as first action** — Load relevant skills first
+1. **Never read full docs as first action** — Load relevant skills; read `## Quick Reference` before full skill body
 2. **Never read docs you don't need** — Orchestrator agent doesn't need full DTO definitions
 3. **Cache within session** — Don't re-read a skill you already loaded
 4. **Use grep for targeted reads** — Search for the section header, read only that section

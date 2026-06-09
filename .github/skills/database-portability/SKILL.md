@@ -1,13 +1,23 @@
 ---
 name: database-portability
 description: "Database engine portability. Use when writing SQL, implementing the database adapter, or reviewing database operations. Ensures all SQL is portable across supported engines and no engine-specific code leaks into modules."
+
 ---
+
+## Quick Reference
+
+✅ pgx parameterized queries; ON CONFLICT DO NOTHING; migrations append-only
+✅ DB access only in module repository.go
+❌ ORM; SQL string concat; cross-module table queries
+Links: migration-management, idempotency
 
 # Database Portability Skill
 
 ## Purpose
 
 Ensure all database operations are engine-agnostic. The database adapter is the sole abstraction boundary — switching engines requires changes only in `database/`. No module may reference any specific database engine.
+
+> **Migration file workflow (numbering, append-only, rollback):** see `migration-management` skill.
 
 ## Rules
 

@@ -20,6 +20,20 @@ This document governs how GitHub Copilot agents and skills are structured, loade
 | `.github/copilot-instructions.md` | Copilot global rules enforced on every session — invariants, stack, forbidden patterns.          |
 | `.github/agents/`                 | Agent definitions (`.agent.md` files). Each file is one deployable agent mode.                   |
 | `.github/skills/`                 | Skill definitions (`SKILL.md` files). Skills are pre-digested knowledge packages.                |
+| `.github/skills/index.json`       | Lazy-loading map: task profile → required skills (load `quick_ref` first).                       |
+
+---
+
+## Model Selection (Credit Efficiency)
+
+| Task type | Model guidance |
+| --- | --- |
+| Explore / grep / file lookup | Lightweight model OK — use auto-select for ~10% billing discount |
+| Single PLAN.md task (task-runner) | Frontier model for complex reasoning |
+| Security review / architecture | Frontier model |
+| Docs sync / formatting | Lightweight model |
+
+Prefer **auto model selection** in Copilot IDE/CLI when quality allows — unlocks GitHub's 10% usage discount.
 
 ---
 
@@ -120,12 +134,15 @@ Every `SKILL.md` **must** begin with YAML frontmatter:
 
 ```yaml
 ---
-name: <skill-name> # kebab-case, matches directory name
-type: skill
+name: <skill-name> # kebab-case, matches directory name; must match folder name
 description: >
-  One paragraph. Describes when to load this skill.
+  One paragraph. Describes when to load this skill. Max 1024 chars.
 ---
 ```
+
+**VS Code supported frontmatter only:** `name`, `description`, `argument-hint`, `user-invocable`, `disable-model-invocation`, `context`, `compatibility`, `license`, `metadata`.
+
+Put condensed rules in a **`## Quick Reference`** section at the top of the skill body (not in frontmatter). Agents read that section first when the skill loads; read the rest only when needed.
 
 The body must contain at minimum:
 
@@ -143,10 +160,11 @@ The body must contain at minimum:
 
 ### Skill Loading Rules
 
-- **Load skills before reading raw docs** — skills are pre-digested and consume fewer tokens
+- **Use `index.json`** — load `always_active` + one task profile; never all 36 skills upfront
+- **Quick Reference first** — `## Quick Reference` body section before rest of `SKILL.md`
+- **Load skills before raw docs** — skills are pre-digested and consume fewer tokens
 - **Reference, do not repeat** — say "per `a2a-protocol-patterns` skill" instead of restating its rules
-- **Progressive disclosure**: skill → doc section → full doc (load only what is needed)
-- Each agent declares its skills explicitly in a `## Skills Used` section
+- **Progressive disclosure**: description → Quick Reference section → skill body → doc section → full doc
 
 ---
 
@@ -275,65 +293,21 @@ Every task and every agent session must end with **all 9 quality gate steps** ex
 
 ## Security Invariants (All Agents Must Enforce)
 
-These rules apply to every file any agent produces. They are not negotiable.
+**Canonical:** `.github/skills/security-audit/SKILL.md` (Quick Reference + full OWASP checklist).
 
-1. **API keys are never stored in source code, config files, or logs.** `CredentialRef` stores the env var _name_ only (e.g. `"CLAUDE_API_KEY"`); the actual key is resolved at runtime via `os.Getenv(credentialRef)`.
-2. **All `os.Getenv()` calls are confined to `backend/internal/platform/config/config.go` (backend) and `agent/internal/config/config.go` (agent binary).** No other file may call `os.Getenv()`.
-3. **`llm_config` JSONB column stores only `{provider, model, credential_ref}`.** The key value must never appear in the DB.
-4. **Absent credential env var at startup → agent marked unavailable.** No silent fallback to another provider.
-5. **No SQL string interpolation.** All queries use parameterized statements (pgx named params).
-6. **Input validation on all HTTP handlers** — UUID format, non-empty required fields, bounded numeric inputs. Return `400` on violation; never pass raw user input to SQL or LLM prompts.
-7. See `.github/skills/security-audit/SKILL.md` for the full OWASP checklist.
+Non-negotiable summary: no API keys in source/DB/logs · `os.Getenv` only in config files · parameterized SQL · HTTP input validation → 400 · missing credential → agent unavailable.
 
 ---
 
 ## Naming Conventions
 
-Source files are named after the **domain concept or behavior** they implement — never after sprint tasks, phase labels, or ticket numbers.
-
-| Bad (opaque)    | Good (functional)        | Reason                           |
-| --------------- | ------------------------ | -------------------------------- |
-| `phase4.go`     | `convergence_engine.go`  | Names the domain concept         |
-| `task3_impl.go` | `llm_resolver.go`        | Describes what the code does     |
-| `helpers.go`    | `prompt_assembly.go`     | Disambiguates the specific logic |
-| `b2_test.go`    | `merge_strategy_test.go` | Names the behavior under test    |
-
-### Duplicate Package Declaration Guard
-
-Automated formatters (editors, CI tools) sometimes prepend a bare `package <name>` line **before** the doc-comment block of a `.go` file. This produces a duplicate `package` declaration and causes the compile error:
-
-```
-expected declaration, found 'package'
-```
-
-**Rule:** After every file creation or edit, check that line 1 of each `.go` file is either the doc comment (`// Package …`) or the single `package` declaration — never both. If a stray `package` line appears before the doc comment, remove it immediately before proceeding.
-
-Example of the broken pattern (FORBIDDEN):
-
-```go
-package llm           ← stray duplicate injected by formatter
-// Package llm …
-package llm           ← real declaration
-```
-
-Correct form:
-
-```go
-// Package llm …
-package llm
-```
+**Canonical:** `.github/skills/coding-standards/SKILL.md` — domain-concept filenames; duplicate `package` line guard on new `.go` files.
 
 ---
 
 ## Module Boundary Rules
 
-See `.github/skills/modularity/SKILL.md` for full rules. Summary:
-
-- `backend/internal/modules/<name>/` — vertical slice: `handler.go`, `service.go`, `repository.go`, `model.go`
-- Modules communicate only via types from `backend/internal/shared/` or their own exported service interface
-- No module imports another module's internal packages (no `internal/modules/session` → `internal/modules/agent/repository`)
-- All DB access goes through the module's own repository, not another module's repository
-- `backend/internal/platform/` is shared infrastructure; any module may import it
+**Canonical:** `.github/skills/modularity/SKILL.md` — vertical slice, no cross-module internal imports, DB via own repository only.
 
 ---
 

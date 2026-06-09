@@ -1,11 +1,18 @@
 ---
 name: brainstorming
-type: skill
 description: >
   Pre-implementation design skill. You MUST use this before any creative work —
   creating features, building pipeline stages, adding modules, or modifying
   architecture. Explores user intent, requirements, and design before implementation.
+
 ---
+
+## Quick Reference
+
+✅ Present design → get approval → then implement (HARD GATE)
+✅ One-paragraph design OK for small changes
+❌ Code/scaffold before approved design
+Links: writing-plans, subagent-driven-development
 
 # Brainstorming: Ideas Into Designs
 

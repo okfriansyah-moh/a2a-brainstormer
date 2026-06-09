@@ -1,8 +1,17 @@
 ---
 name: llm-provider-abstraction
-type: skill
 description: "Enforces the LLMProvider interface, tiered config resolver, and credential-via-env-ref rules across backend/internal/platform/llm/ and agent/internal/llm/."
+
 ---
+
+## Quick Reference
+
+✅ All LLM via LLMProvider.Generate; tiered config resolver
+✅ CredentialRef = env var name only; resolve in config.go
+❌ Direct Copilot/Claude SDK in modules or executor
+Links: security-audit, config-validation
+
+> **Direct SDK anti-patterns:** also listed in `code-quality` skill — reference, don't restate.
 
 ## Purpose
 

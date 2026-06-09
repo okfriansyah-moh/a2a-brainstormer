@@ -1,8 +1,15 @@
 ---
 name: vertical-slice
-type: skill
 description: "Vertical slice architecture enforcement. Use when organizing features, creating modules, or reviewing project structure. Ensures each feature is self-contained with handler/service/repository/DTO layers."
+
 ---
+
+## Quick Reference
+
+✅ handler.go + service.go + repository.go + model.go per module
+✅ HTTP → service interface → repository → DB
+❌ Shared repository across modules; logic in handlers only
+Links: modularity, api-design
 
 ## Purpose
 

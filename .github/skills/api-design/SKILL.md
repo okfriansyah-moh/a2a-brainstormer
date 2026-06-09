@@ -1,8 +1,15 @@
 ---
 name: api-design
-type: skill
 description: "API design patterns. Use when designing REST/gRPC endpoints, error responses, pagination, versioning, or request/response contracts."
+
 ---
+
+## Quick Reference
+
+✅ REST nouns, plural resources; consistent error JSON; 400 on validation fail
+✅ UUID/bounds checks on handlers; idempotent GET/PUT/DELETE
+❌ Verbs in URLs; raw DB errors in responses
+Links: code-quality, security-audit
 
 ## Purpose
 

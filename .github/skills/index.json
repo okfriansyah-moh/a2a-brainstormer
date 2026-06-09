@@ -1,0 +1,86 @@
+{
+  "$schema": "Skill index for progressive/lazy loading. Load always-active skills + one task profile.",
+  "always_active": [
+    "brainstorming",
+    "writing-plans",
+    "subagent-driven-development",
+    "test-driven-development",
+    "caveman",
+    "rtk",
+    "token-optimization"
+  ],
+  "profiles": {
+    "backend-go": [
+      "a2a-protocol-patterns",
+      "api-design",
+      "canonical-state-merge-rules",
+      "code-quality",
+      "coding-standards",
+      "config-validation",
+      "convergence-engine-patterns",
+      "database-portability",
+      "determinism",
+      "dto",
+      "failure",
+      "idempotency",
+      "llm-provider-abstraction",
+      "migration-management",
+      "modularity",
+      "multi-agent-role-orchestration",
+      "security-audit",
+      "test-generation",
+      "vertical-slice"
+    ],
+    "frontend-svelte": [
+      "api-design",
+      "code-quality",
+      "coding-standards",
+      "config-validation",
+      "security-audit",
+      "test-generation"
+    ],
+    "agent-binary": [
+      "a2a-protocol-patterns",
+      "code-quality",
+      "coding-standards",
+      "determinism",
+      "llm-provider-abstraction",
+      "security-audit",
+      "test-generation"
+    ],
+    "design": [
+      "api-design",
+      "brainstorming",
+      "plan-management",
+      "roadmap-spec"
+    ],
+    "explore": [
+      "caveman",
+      "token-optimization"
+    ],
+    "parallel-dev": [
+      "conflict-resolution",
+      "modularity",
+      "parallel-dev",
+      "pipeline"
+    ],
+    "docs": [
+      "docs-sync",
+      "plan-management"
+    ]
+  },
+  "plan_task_hints": {
+    "1-15": "backend-go",
+    "16-18": "frontend-svelte",
+    "19": ["backend-go", "frontend-svelte"],
+    "20-25": "frontend-svelte",
+    "26-31": "backend-go"
+  },
+  "loading_protocol": [
+    "1. Read skill name + description (YAML frontmatter — VS Code discovery)",
+    "2. When skill loads, read ## Quick Reference section first (~50-100 tokens)",
+    "3. Load rest of SKILL.md body only when Quick Reference is insufficient",
+    "4. Load docs/PLAN.md §8 sections referenced by the task",
+    "5. Load docs/A2A-agent-Brainstorm.md sections only when §8 is silent"
+  ]
+}

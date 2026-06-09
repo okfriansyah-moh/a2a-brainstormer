@@ -1,22 +1,21 @@
 # Copilot Instructions — a2a-brainstorm
 
-> These instructions enforce the architectural constraints for the `a2a-brainstorm` project.
-> Violations are not acceptable and must not be introduced, even partially.
-> **Always check `AGENTS.md` for agent/skill governance rules.**
+> Architectural constraints for `a2a-brainstorm`. Violations are not acceptable.
+> **Governance:** `AGENTS.md` · **Lazy skill loading:** `.github/skills/index.json`
 
 ---
 
 ## Reference Documents
 
-| Document                       | Purpose                                                                                                               |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `docs/A2A-agent-Brainstorm.md` | **Single source of truth.** Architecture, modules, A2A interaction model, API endpoints, canonical state, data flows. |
-| `docs/PLAN.md`                 | 31-task implementation plan (v1.3) with exact files, validation steps, and deep knowledge reference (§8).             |
-| `AGENTS.md`                    | Agent & skill governance — registry, composition matrix, protected files policy, naming rules.                        |
-| `.github/agents/`              | Agent definitions (`.agent.md`). Each file is one deployable Copilot agent mode.                                      |
-| `.github/skills/`              | Skill definitions (`SKILL.md`). Pre-digested knowledge packages loaded on demand.                                     |
+| Document | Purpose |
+| --- | --- |
+| `docs/A2A-agent-Brainstorm.md` | Architecture SSOT — modules, A2A, API, canonical state |
+| `docs/PLAN.md` | 31-task plan + §8 deep knowledge (schemas, algorithms) |
+| `AGENTS.md` | Agent/skill registry, composition matrix, protected files |
+| `.github/skills/index.json` | Task-type → required skills (load only these) |
+| `.github/skills/` | Pre-digested knowledge — **load before raw docs** |
 
-When generating code, refer to these documents for exact schemas, interfaces, and algorithms. Do not invent structures that contradict them.
+**Progressive disclosure:** skill `description` → `## Quick Reference` section → skill body → doc section → full doc.
 
 ---
 
@@ -24,387 +23,145 @@ When generating code, refer to these documents for exact schemas, interfaces, an
 
 ### Stack
 
-- **Backend:** Go 1.26, modular monolith, vertical slice per module
-- **Agent binary:** Go 1.26, `github.com/a2aproject/a2a-go/v2` (requires Go ≥ 1.24.4)
-- **Frontend:** SvelteKit (latest stable), TypeScript, TailwindCSS, Svelte stores
-- **Database:** PostgreSQL 16, pgx/v5, sqlc — no heavy ORM
-- **Deployment:** Docker + docker-compose, single shared agent image
-
-### Modular Monolith (Backend)
-
-- Single deployable, single repo, single database
-- Entry point: `backend/cmd/server/main.go`
-- No microservices, no inter-process RPC between backend modules
-- Module structure: `backend/internal/modules/<name>/handler.go + service.go + repository.go + model.go`
+- **Backend:** Go 1.26, modular monolith, vertical slice (`handler.go + service.go + repository.go + model.go`)
+- **Agent binary:** Go 1.26, `github.com/a2aproject/a2a-go/v2`
+- **Frontend:** SvelteKit, TypeScript, TailwindCSS, Svelte stores
+- **Database:** PostgreSQL 16, pgx/v5, sqlc — no ORM
+- **Deploy:** Docker + docker-compose, single shared agent image
 
 ### Module Communication
 
-- Modules communicate only through their own exported service interfaces
-- No module imports another module's internal packages (`internal/modules/session` must not import `internal/modules/agent/repository`)
-- No raw `map[string]any` crossing module boundaries — use typed structs
-- Shared platform infrastructure lives in `backend/internal/platform/` — any module may import it
-- Shared types (used by multiple modules) live in `backend/internal/shared/`
+- Modules export service interfaces only — no cross-module internal imports
+- No `map[string]any` across module boundaries — typed structs
+- `backend/internal/platform/` = shared infra; `backend/internal/shared/` = shared types
+- Entry: `backend/cmd/server/main.go` — single deployable, no inter-module RPC
 
-### A2A Layer
+### Domain Rules (load skill for detail)
 
-- SDK: `github.com/a2aproject/a2a-go/v2` — packages: `a2a`, `a2asrv`, `a2aclient`, `a2agrpc`
-- Communication is **message-based** — no custom task JSON schema
-- Domain context is packed as `a2a.NewDataPart(BrainstormPayload{})` inside `a2a.SendMessageRequest`
-- Backend sends via `a2aclient.NewFromCard(ctx, card)` → `client.SendMessage()`
-- Agent receives via `a2asrv.AgentExecutor.Execute(ctx, execCtx *a2asrv.ExecutorContext)`
-- `BrainstormPayload` is the **only** backend↔agent wire format — see `docs/PLAN.md §8.3`
+| Topic | Skill / Doc |
+| --- | --- |
+| A2A wire format | `.github/skills/a2a-protocol-patterns/SKILL.md` · `docs/PLAN.md §8.3` |
+| LLM calls | `.github/skills/llm-provider-abstraction/SKILL.md` · `§8.12` |
+| Database / SQL | `.github/skills/database-portability/SKILL.md` |
+| Determinism | `.github/skills/determinism/SKILL.md` |
+| Idempotency | `.github/skills/idempotency/SKILL.md` |
+| N-agent pipeline | `.github/skills/multi-agent-role-orchestration/SKILL.md` · `§8.4` |
+| Canonical state | `docs/PLAN.md §8.1` — shape is non-negotiable |
+| State merge | `.github/skills/canonical-state-merge-rules/SKILL.md` · `§8.5` |
+| Convergence | `.github/skills/convergence-engine-patterns/SKILL.md` · `§8.6` |
+| Skill injection | Server-side prompt assembly in `agent/client.go` — agent binary sees assembled `SystemPrompt` only |
 
-### LLM Provider Abstraction (Enforced)
+### N-Agent Pipeline (summary)
 
-- All LLM calls go through the `LLMProvider` interface — **never** call Copilot/Claude SDK directly from business logic
-- Interface: `Generate(ctx context.Context, req LLMRequest) (LLMResponse, error)`
-- Tiered config resolver: session override → agent-level → global default (see `docs/PLAN.md §8.12`)
-- `LLMConfig.CredentialRef` stores the **env var name only** (e.g. `"CLAUDE_API_KEY"`) — never the key value
-- Agent binary ships three provider implementations: **Copilot** (`copilot.go`), **OpenCode** (`opencode.go`), **Claude** (backend `platform/llm/copilot.go`)
-- See `.github/skills/llm-provider-abstraction/SKILL.md`
+Fixed roles at session creation · min 2 agents · ordered by `session_agents.position ASC` · each agent receives previous agent's output · state persisted once per full pass · no runtime role alternation.
 
-### Database Rules
+Full algorithm: `.github/skills/multi-agent-role-orchestration/SKILL.md`
 
-- All DB access goes through the module's own `repository.go` — no module queries another module's tables directly
-- Only pgx parameterized queries — no string interpolation in SQL
-- All schema changes go through `migrations/*.sql` files (numbered, sequential)
-- Migrations are **append-only** — never modify an existing migration file
-- Use `ON CONFLICT DO NOTHING` (not engine-specific variants)
-- See `.github/skills/database-portability/SKILL.md`
+### Session / Output / Preview / SSE (v1.3)
 
-### Determinism
-
-- Same input + same config = identical output. Always.
-- The iteration engine produces deterministic results: ordered pipeline, fixed roles per session
-- No `rand.New()`, no `time.Now()` used for state transitions, no non-deterministic sources
-- See `.github/skills/determinism/SKILL.md`
-
-### Idempotency
-
-- Running the iteration pipeline twice on the same input produces no duplicates
-- All SQL writes use `ON CONFLICT DO NOTHING` or `ON CONFLICT DO UPDATE` semantics
-- See `.github/skills/idempotency/SKILL.md`
+- `POST /sessions`: `agent_ids` ≥ 2 (400 otherwise); `skill_overrides` / `role_overrides` / `output_docs` per `§8` and Task 28
+- Output docs: `GenerateAll(state, keys)` registry in `markdown/generator.go` — keys: `architecture`, `roadmap`, `plan`, `readme`
+- Preview/apply: `iteration/preview.go` — `POST/GET /sessions/{id}/preview/{agentID}`, `POST .../apply`
+- SSE: `platform/sse/broadcaster.go` — `GET /sessions/{id}/events`; native `EventSource` in frontend; fire-and-forget
 
 ---
 
-## Core Business Rules (Do Not Violate)
+## Security Invariants
 
-### N-Agent Pipeline
+**Full checklist:** `.github/skills/security-audit/SKILL.md`
 
-```go
-agents := session.GetOrderedAgents() // min 2, ordered by session_agents.position ASC
-
-for i := 1; i <= maxIter; i++ {
-    current := state
-    for _, agent := range agents {
-        current = agent.Dispatch(ctx, agent, agent.Role, activeSkills, llmOverride, current)
-    }
-    newState := state.Merge(state, current)
-    if convergence.Check(state, newState) { break }
-    state = newState
-}
-```
-
-- Roles are **fixed at session creation** — no runtime alternation
-- Min 2 agents enforced at session start (service layer + HTTP 400 response)
-- State persisted after each full pipeline pass, not per-agent within a pass
-
-### Canonical State Shape
-
-See `docs/PLAN.md §8.1`. The shape is non-negotiable — agents depend on it:
-
-```json
-{
-  "idea": {},
-  "architecture": {},
-  "execution_plan": [],
-  "risks": [],
-  "assumptions": [],
-  "open_questions": [],
-  "metrics": { "confidence": 0.0 },
-  "meta": {
-    "iteration": 0,
-    "agents": [
-      {
-        "agent_id": "",
-        "name": "",
-        "role": "",
-        "provider": "",
-        "model": "",
-        "skills": []
-      }
-    ]
-  }
-}
-```
-
-### Skill Injection
-
-Skills are prompt-level text fragments — not tool calls. Assembly happens server-side in `agent/client.go`:
-
-```
-effective_system_prompt = agent.system_prompt + "\n\n" + skill_1.prompt + "\n\n" + skill_2.prompt
-```
-
-The agent binary receives only the assembled `SystemPrompt` string. It has no knowledge of skill names, IDs, or the `agent_skills` table.
-
-### Session Creation Rules
-
-- `POST /sessions` requires `agent_ids` with ≥ 2 entries — reject with `400` otherwise
-- `skill_overrides`: omitted = use agent defaults; empty array `[]` = disable all skills for that agent
-- `role_overrides`: optional; if absent, use `agent.DefaultRoles(agentCount)` distribution
-- `output_docs` (Task 28, v1.3): optional string array of document keys to generate; valid keys: `architecture`, `roadmap`, `plan`, `readme`; omit = generate all four
-
-### Output Documents (Tasks 28–29, v1.3)
-
-- `GenerateContent` is **deprecated**. The new signature is `GenerateAll(state CanonicalState, keys []string) (map[string]GeneratedDocument, error)`
-- Each document key maps to a dedicated generator function registered in a `Generators` map (`markdown/generator.go`)
-- Valid keys: `architecture`, `roadmap`, `plan`, `readme` — each generator produces ≥ 1000 lines of formatted Markdown
-- Add new document types by extending the `Generators` registry map — never hardcode new keys in service or handler
-- `enforceMinLines(body string, min int) string` pads short outputs with structured section stubs; min is read from config, never hardcoded
-- Long-form templates live in `backend/internal/modules/markdown/templates.go` — no raw template strings in `generator.go`
-
-### Per-Agent Preview/Apply (Task 30, v1.3)
-
-- `RunSingleAgent(ctx, sessionID, agentID, state) (CanonicalState, error)` dispatches one agent without persisting state
-- Preview results are held in a keyed in-memory store (`iteration/preview.go`); key = `sessionID + ":" + agentID`
-- Three new endpoints: `POST /sessions/{id}/preview/{agentID}`, `GET /sessions/{id}/preview/{agentID}`, `POST /sessions/{id}/preview/{agentID}/apply`
-- `Apply` replaces the session's live canonical state with the previewed state and persists it
-
-### SSE Real-time Progress (Task 31, v1.3)
-
-- SSE broadcaster lives in `backend/internal/platform/sse/broadcaster.go` — no WebSocket, no third-party push libs
-- The iteration engine receives an `EventEmitter` interface; fires `IterationStarted`, `AgentDispatched`, `AgentDone`, `IterationDone`, `ConvergenceReached` events
-- Endpoint: `GET /sessions/{id}/events` (text/event-stream, keep-alive)
-- Frontend subscribes via native `EventSource` — see `frontend/src/lib/services/sse.ts`
-- Events are fire-and-forget; a closed client must not block or crash the engine
+1. API keys never in source/config/logs — `CredentialRef` = env var **name** only
+2. `os.Getenv()` only in `backend/internal/platform/config/config.go` and `agent/internal/config/config.go`
+3. `llm_config` JSONB: `{provider, model, credential_ref}` only
+4. Missing credential at startup → agent unavailable (no silent fallback)
+5. HTTP handlers validate input (UUID, bounds) → 400 on violation
+6. Parameterized SQL only — no string interpolation
+7. Never log resolved credential values
 
 ---
 
-## Security Invariants (Non-Negotiable)
+## Always-Active Skills
 
-1. **API keys never in source, config files, or logs.** `CredentialRef` is the env var name only.
-2. **`os.Getenv()` confined to one file per binary:**
-   - Backend: `backend/internal/platform/config/config.go`
-   - Agent: `agent/internal/config/config.go`
-   - Nowhere else.
-3. **`llm_config` JSONB stores only `{provider, model, credential_ref}`.** Never the key value.
-4. **Absent credential at startup → agent unavailable.** No silent fallback.
-5. **All HTTP handlers validate input** — UUID format, non-empty fields, bounded integers. Return `400` on violation.
-6. **No SQL string interpolation.** Parameterized queries only (pgx named params).
-7. **Secrets never logged.** Structured logger must not emit `CredentialRef` resolved values.
-8. See `.github/skills/security-audit/SKILL.md` for the full OWASP checklist.
+See `AGENTS.md` § Always-Active Skills: `brainstorming`, `writing-plans`, `subagent-driven-development`, `test-driven-development`, `caveman`, `rtk`.
 
----
-
-## Always-Active Skills (Apply to Every Session)
-
-| Skill                         | File                                                  | Why Always Active                                               |
-| ----------------------------- | ----------------------------------------------------- | --------------------------------------------------------------- |
-| `brainstorming`               | `.github/skills/brainstorming/SKILL.md`               | Design-first gate — NEVER write code before presenting a design |
-| `writing-plans`               | `.github/skills/writing-plans/SKILL.md`               | Break approved work into 2–5 min tasks before implementing      |
-| `subagent-driven-development` | `.github/skills/subagent-driven-development/SKILL.md` | Fresh subagent per task with 2-stage spec + quality review      |
-| `test-driven-development`     | `.github/skills/test-driven-development/SKILL.md`     | No production code without a failing test first                 |
-| `caveman`                     | `.github/skills/caveman/SKILL.md`                     | Compress output ~75% on request — no filler, full accuracy      |
-| `rtk`                         | `.github/skills/rtk/SKILL.md`                         | Use `rtk <cmd>` for terminal output (60-90% token savings)      |
-
----
-
-## Skill Invocation
-
-Reference skills by path in any prompt:
-
-```
-#file:.github/skills/a2a-protocol-patterns/SKILL.md
-#file:.github/skills/modularity/SKILL.md
-```
-
-**Load skills before raw docs.** Skills are pre-digested; they cost far fewer tokens than re-reading `docs/A2A-agent-Brainstorm.md` in full.
-
-**Progressive disclosure:** skill → doc section → full doc.
+Load via `#file:.github/skills/<name>/SKILL.md` or task-specific set from `index.json`.
 
 ---
 
 ## Development Rules
 
-1. **No production code before design.** Present a design, get approval, then implement. (`brainstorming` skill)
-2. **Vertical slice per module.** `handler.go + service.go + repository.go + model.go` per module under `backend/internal/modules/`.
-3. **No cross-module internal imports.** Modules may only import `backend/internal/platform/`, `backend/internal/shared/`, and their own internal packages.
-4. **All DB access through the module's own repository.** No raw SQL outside `repository.go` files.
-5. **LLMProvider interface is the only LLM call boundary.** No direct SDK imports outside `platform/llm/`.
-6. **Config via env vars only** — no hardcoded values, thresholds, or magic numbers. All getters in `config.go`.
-7. **Structured logging only** — use `log/slog` (stdlib); no `fmt.Println`; no unstructured console output.
-8. **Tests without network.** All tests must run without real DB, real LLM, or real agent endpoints. Use mocks/fakes.
-9. **One canonical location per concept.** No duplicate types, no copied SQL schemas, no parallel utility files.
+1. Design before code — `brainstorming` skill
+2. Vertical slice per module — `.github/skills/vertical-slice/SKILL.md`
+3. No cross-module internal imports — `.github/skills/modularity/SKILL.md`
+4. DB access via module `repository.go` only
+5. LLM via `LLMProvider` interface only — `platform/llm/`
+6. Config via env vars — getters in `config.go` only
+7. Structured logging — `log/slog`; no `fmt.Println`
+8. Tests without network — mocks/fakes
+9. One canonical location per concept
 
 ---
 
 ## Forbidden Patterns
 
-| Category     | Forbidden                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Architecture | Microservices between backend modules, inter-module RPC, shared mutable global state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Database     | ORM frameworks (`gorm`, `ent`), direct driver imports in `internal/modules/`, SQL string concat                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| LLM          | Direct Copilot/Claude SDK calls in `internal/modules/` or `agent/internal/executor/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Config       | Hardcoded API keys, hardcoded ports, hardcoded model names, `os.Getenv` outside config                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Credentials  | Storing raw API keys anywhere other than environment variables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| State        | Per-agent mutable global state; non-deterministic ID generation (UUID v4 for new IDs is fine; never use timestamps as IDs)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Naming       | Task codes as file names (`phase4.go`, `b3_test.go`), single-letter files (`h.go`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| File format  | Duplicate `package` declaration at line 1 — automated formatters sometimes prepend a bare `package <name>` line before the doc-comment block, causing `expected declaration, found 'package'` compile errors. **Always check line 1 of every `.go` file for a stray `package` declaration before the doc comment.** Remove the duplicate if found.                                                                                                                                                                                                                                                                                      |
-| UI (v1.1+)   | Hard-coding color hex values in Svelte components — always use CSS custom properties (`var(--accent)`, `var(--ok)`, etc.). Do not create new `/agents` or `/skills` pages; they redirect to `/settings`. Do not use `AgentPanel`, `StateView`, or `Timeline` components in new code — use `PipelineStage`, `CanonicalStatePanel`, or inline patterns respectively. Do not add Tailwind `gray-*` classes that conflict with the warm/cool design token palette. For v1.3 SSE: never use WebSocket or polling — use native `EventSource` only. For v1.3 preview/apply: add Run+Apply controls to `PipelineStage`, not to a new component. |
+**Full table:** `.github/skills/code-quality/SKILL.md` · `.github/skills/security-audit/SKILL.md`
+
+| Category | Forbidden |
+| --- | --- |
+| Architecture | Microservices between modules, inter-module RPC, shared mutable globals |
+| Database | ORM (`gorm`, `ent`), SQL concat, driver imports in `internal/modules/` |
+| LLM | Direct SDK calls in `internal/modules/` or `agent/internal/executor/` |
+| Config | Hardcoded keys/ports/models; `os.Getenv` outside config files |
+| State | Non-deterministic IDs from timestamps; per-agent mutable globals |
+| Naming | Task-code filenames (`phase4.go`), single-letter files |
+| Go format | Stray `package` line before doc comment on line 1 — check every new `.go` file |
+| UI (v1.1+) | Hardcoded hex colors; new `/agents`/`/skills` pages; deprecated `AgentPanel`/`StateView`/`Timeline`; WebSocket for SSE; preview UI outside `PipelineStage` |
 
 ---
 
-## Repository Structure
+## Repository Layout (top-level)
 
 ```
-a2a-brainstorm/
-├── AGENTS.md                        ← agent & skill governance (this context)
-├── go.work                          ← Go workspace (backend + agent)
-├── docker-compose.yml
-├── Makefile
-├── docs/
-│   ├── A2A-agent-Brainstorm.md      ← architecture blueprint (read-only)
-│   ├── PLAN.md                      ← implementation plan (task progress only)
-│   ├── STARTUP_GUIDE.md             ← local dev setup guide
-│   └── seeds/                       ← local test seed data (gitignored)
-├── backend/
-│   ├── go.mod
-│   ├── cmd/server/main.go
-│   ├── internal/
-│   │   ├── platform/
-│   │   │   ├── config/              ← ALL os.Getenv() calls live here
-│   │   │   ├── db/                  ← pgx pool, migration runner
-│   │   │   ├── logger/              ← log/slog wrapper
-│   │   │   ├── http/                ← net/http server, CORS, middleware
-│   │   │   ├── llm/                 ← LLMProvider interface + impls + resolver
-│   │   │   ├── sse/                 ← SSE broadcaster (Task 31, v1.3)
-│   │   │   └── a2a/                 ← a2aclient factory, AgentCard resolver
-│   │   ├── shared/                  ← types shared across modules
-│   │   └── modules/                 ← domain modules (vertical slices)
-│   │       ├── session/
-│   │       ├── iteration/           ← engine.go, service.go, handler.go; events.go + preview.go (Task 30-31)
-│   │       ├── agent/
-│   │       ├── state/
-│   │       ├── convergence/
-│   │       └── markdown/            ← generator.go; templates.go added in Task 29
-├── agent/
-│   ├── go.mod
-│   ├── agentcard.go
-│   ├── cmd/server/main.go
-│   └── internal/
-│       ├── executor/                ← BrainstormExecutor implements a2asrv.AgentExecutor
-│       ├── llm/                     ← LLMProvider implementations: Copilot (copilot.go), OpenCode (opencode.go)
-│       └── config/                  ← ALL os.Getenv() calls for agent binary live here
-├── frontend/
-│   └── src/
-│       ├── routes/
-│       │   ├── +layout.svelte               ← global topbar + WarningModal mount
-│       │   ├── +page.svelte                  ← home: session creation (redesigned v1.1)
-│       │   ├── session/[id]/
-│       │   │   ├── +page.svelte              ← session workspace: sequential pipeline
-│       │   │   └── finalize/
-│       │   │       └── +page.svelte          ← export: generation log + download (v1.1)
-│       │   ├── settings/
-│       │   │   ├── +page.svelte              ← unified agents/skills/roles tabs (v1.1)
-│       │   │   ├── agent/
-│       │   │   │   ├── new/+page.svelte      ← create agent form (v1.1)
-│       │   │   │   └── [id]/+page.svelte     ← edit agent form (v1.1)
-│       │   │   └── skill/
-│       │   │       ├── new/+page.svelte      ← create skill form (v1.1)
-│       │   │       └── [id]/+page.svelte     ← edit skill form (v1.1)
-│       │   ├── history/
-│       │   │   └── +page.svelte              ← session history: stats + table (v1.1)
-│       │   ├── agents/
-│       │   │   └── +page.svelte              ← redirects to /settings?tab=agents (v1.1)
-│       │   └── skills/
-│       │       └── +page.svelte              ← redirects to /settings?tab=skills (v1.1)
-│       └── lib/
-│           ├── components/
-│           │   ├── PipelineStage.svelte      ← v1.1: replaces AgentPanel (deprecated)
-│           │   ├── ConfidenceBar.svelte      ← v1.1: new
-│           │   ├── CanonicalStatePanel.svelte← v1.1: replaces StateView (deprecated)
-│           │   ├── RiskBoard.svelte          ← v1.1: new
-│           │   ├── WarningModal.svelte       ← v1.1: new (guarded-action modal)
-│           │   ├── AgentPanel.svelte         ← deprecated; use PipelineStage
-│           │   ├── ControlPanel.svelte       ← deprecated; inlined in session page
-│           │   ├── StateView.svelte          ← deprecated; use CanonicalStatePanel
-│           │   └── Timeline.svelte           ← deprecated; inlined in session page
-│           ├── stores/
-│           │   ├── sessionStore.ts
-│           │   ├── agentRegistryStore.ts
-│           │   └── uiStore.ts                ← v1.1: modal state + nav guard
-│           └── services/
-│               ├── api.ts
-│               ├── api.test.ts
-│               └── sse.ts                   ← SSE EventSource client (Task 31)
-├── migrations/                      ← SQL migration files (numbered, append-only); 001–004 implemented; 005_session_output_docs.sql added by Task 28
-└── .github/
-    ├── copilot-instructions.md      ← this file
-    ├── AGENTS.md                    → root AGENTS.md (canonical)
-    ├── agents/                      ← agent definitions
-    └── skills/                      ← skill definitions
+backend/  agent/  frontend/  migrations/  docs/  .github/
 ```
+
+Module map and file ownership: `docs/PLAN.md` tasks · `AGENTS.md` File Ownership Rule.
 
 ---
 
-## File Naming Standards
+## File Naming
 
-Name source files after the **domain concept or behavior** they implement.
-
-| Bad (opaque)    | Good (functional)        | Reason                           |
-| --------------- | ------------------------ | -------------------------------- |
-| `phase4.go`     | `convergence_engine.go`  | Names the domain concept         |
-| `task3_impl.go` | `llm_resolver.go`        | Describes what the code does     |
-| `helpers.go`    | `prompt_assembly.go`     | Disambiguates the specific logic |
-| `b2_test.go`    | `merge_strategy_test.go` | Names the behavior under test    |
-| `h.go`          | `session_handler.go`     | Full word, no abbreviation       |
+See `.github/skills/coding-standards/SKILL.md` — name files after domain concept (`convergence_engine.go` not `phase4.go`).
 
 ---
 
 ## Protected Files
 
-| Path                           | Rule                                                                    |
-| ------------------------------ | ----------------------------------------------------------------------- |
-| `docs/A2A-agent-Brainstorm.md` | **Read-only.** Never modified after design lock.                        |
-| `docs/PLAN.md`                 | **Task progress comments only.** Never rewrite task bodies or §8.       |
-| `migrations/*.sql`             | **Append-only.** New files may be added; existing files never modified. |
-| `.github/skills/*/SKILL.md`    | **Read-only during task execution.**                                    |
-| `.github/agents/*.agent.md`    | **Read-only during task execution.**                                    |
+| Path | Rule |
+| --- | --- |
+| `docs/A2A-agent-Brainstorm.md` | Read-only after design lock |
+| `docs/PLAN.md` | Task progress comments only; §8 read-only during execution |
+| `migrations/*.sql` | Append-only |
+| `.github/skills/*/SKILL.md` | Read-only during task execution |
+| `.github/agents/*.agent.md` | Read-only during task execution |
 
 ---
 
 ## Validation Gates
 
-Every implementation session must end with **all 9 quality gate steps** executed in order. Each step must reach **zero findings** before the next begins.
+**9-step quality gate** (ordered, zero findings each): tests → security → linter → build.
 
-### Mandatory Final Todo Sequence (ordered, non-skippable)
+Commands and todo requirements: `AGENTS.md` § Validation Requirement.
 
-| Step | Action               | Command / Check                                                           |
-| ---- | -------------------- | ------------------------------------------------------------------------- |
-| 1    | **Check test cases** | Identify tests that cover changed code; create any that are missing       |
-| 2    | **Run test cases**   | `go test ./...` (backend/agent) · `pnpm test` (frontend)                  |
-| 3    | **Fix test cases**   | Zero test failures required before proceeding                             |
-| 4    | **Check security**   | Review for OWASP Top 10, secrets exposure, injection, input validation    |
-| 5    | **Fix security**     | Zero security findings required before proceeding                         |
-| 6    | **Check linter**     | `go vet ./...` (backend/agent) · `pnpm lint` (frontend)                   |
-| 7    | **Fix linter**       | Zero linter warnings/errors required before proceeding                    |
-| 8    | **Check errors**     | `go build ./...` (backend/agent) · `pnpm check` + `pnpm build` (frontend) |
-| 9    | **Fix errors**       | Zero compile/type errors required before marking task complete            |
-
-> **A task is NOT complete until all 9 steps show zero findings.**
-> These steps must be explicit todo items in `manage_todo_list` — not just mentally assumed.
+Use `rtk` for verbose command output: `.github/skills/rtk/SKILL.md`
 
 ---
 
 ## Documentation Ownership
 
-Each concept has one canonical document. Use cross-references rather than duplicating content.
-
-| Topic                            | Canonical Document                |
-| -------------------------------- | --------------------------------- |
-| System architecture & data flows | `docs/A2A-agent-Brainstorm.md`    |
-| Implementation tasks             | `docs/PLAN.md`                    |
-| Deep knowledge (schemas/algos)   | `docs/PLAN.md §8`                 |
-| Agent & skill governance         | `AGENTS.md`                       |
-| Copilot global rules             | `.github/copilot-instructions.md` |
+| Topic | Canonical |
+| --- | --- |
+| Architecture | `docs/A2A-agent-Brainstorm.md` |
+| Tasks + schemas | `docs/PLAN.md` / §8 |
+| Agent/skill governance | `AGENTS.md` |
+| Global Copilot rules | `.github/copilot-instructions.md` (this file) |

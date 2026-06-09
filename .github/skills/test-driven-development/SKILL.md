@@ -1,11 +1,18 @@
 ---
 name: test-driven-development
-type: skill
 description: >
   RED-GREEN-REFACTOR cycle enforcement. No production code without a failing
   test first. Prevents test-after contamination, forces interface design before
   implementation, yields naturally testable architecture.
+
 ---
+
+## Quick Reference
+
+✅ RED: failing test first → GREEN: minimal code → REFACTOR
+✅ Test name: Test<Behavior>_<Condition>; meaningful failure message
+❌ Production code before failing test exists
+Links: test-generation, writing-plans (design/plan boundary)
 
 # Test-Driven Development
 
@@ -27,21 +34,11 @@ Each iteration covers exactly one behavior. Commit after every GREEN.
 
 ---
 
-## Verification Checklist (Before Writing Any Code)
+## Verification
 
-Before writing production code:
-
-- [ ] Test written first
-- [ ] Test fails with a meaningful error (not compile/import error)
-- [ ] Error message confirms what's actually missing
-- [ ] Test name follows `Test<WhatBehavior>_<Condition>` pattern
-
-After making test pass:
-
-- [ ] Test passes
-- [ ] All other tests still pass
-- [ ] No production code beyond what the test requires
-- [ ] Ready to refactor (if needed)
+✅ Test written first; fails meaningfully (not compile/import error)  
+✅ Test name: `Test<Behavior>_<Condition>`  
+✅ After GREEN: all tests pass; no extra production code; refactor if needed
 
 ---
 

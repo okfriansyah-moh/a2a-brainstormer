@@ -1,7 +1,15 @@
 ---
 name: config-validation
 description: "Configuration validation and management. Use when creating, modifying, or reviewing YAML configuration files. Ensures no hardcoded values, correct config structure, and config-driven parameter management."
+
 ---
+
+## Quick Reference
+
+✅ All tunables via env getters in config.go (this project)
+✅ No hardcoded ports/thresholds/models in business logic
+❌ os.Getenv outside platform/config or agent/internal/config
+Links: security-audit, determinism
 
 # Config Validation Skill
 

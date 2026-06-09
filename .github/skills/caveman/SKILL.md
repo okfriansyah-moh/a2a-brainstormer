@@ -1,12 +1,19 @@
 ---
 name: caveman
-type: skill
 description: >
   Ultra-compressed output mode. Cuts token usage ~65-75% by responding like
   a caveman — terse fragments, no filler — while keeping full technical accuracy.
   Supports intensity levels: lite, full (default), ultra.
   Triggers on: "caveman mode", "less tokens", "be brief", "compress output", /caveman.
+
 ---
+
+## Quick Reference
+
+✅ Terse output on request; keep technical terms exact; code blocks unchanged
+✅ Levels: lite | full (default) | ultra
+❌ Caveman for security warnings or destructive confirmations
+Links: token-optimization, rtk
 
 # Caveman Output Mode
 

@@ -1,6 +1,5 @@
 ---
 name: parallel-dev
-type: skill
 description: >
   Execution-grade standard for PARALLEL_DEV.md documentation. Enforces a canonical
   10-section structure: Overview, Model Routing, Mode Definitions, Mode Selection,
@@ -8,7 +7,15 @@ description: >
   Requirements, and Fully Autonomous Pipeline. Language-agnostic: quality gate hooks
   are kept in scripts/hooks/ so run_parallel.sh stays language-independent.
   Compliant with run_parallel.sh, config/phases.yaml, and phase-builder.agent.md.
+
 ---
+
+## Quick Reference
+
+✅ Group independent PLAN tasks; strict file ownership per branch
+✅ Union merge on conflict; dedicated conflict-resolution skill
+❌ Parallel tasks sharing same module files
+Links: conflict-resolution, modularity
 
 # Parallel Dev — Documentation Standard
 

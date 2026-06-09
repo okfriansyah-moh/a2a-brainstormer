@@ -1,8 +1,15 @@
 ---
 name: security-audit
-type: skill
 description: "OWASP-aware security auditing. Use when reviewing code for security vulnerabilities, input validation, injection prevention, authentication, authorization, and secrets management."
+
 ---
+
+## Quick Reference
+
+✅ No secrets in source/DB/logs; parameterized SQL; input validation → 400
+✅ os.Getenv only in config.go files
+❌ Log resolved CredentialRef values; raw user input in prompts
+Links: config-validation, llm-provider-abstraction
 
 ## Purpose
 

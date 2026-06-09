@@ -1,17 +1,26 @@
 ---
 name: writing-plans
-type: skill
 description: >
   Implementation planning skill. Converts an approved design spec into a detailed,
   task-by-task implementation plan. Each task is small (2-5 minutes), has exact file
   paths, complete code guidance, and verification steps. Used after brainstorming,
   before subagent-driven-development or executing-plans.
+
 ---
+
+## Quick Reference
+
+✅ Break approved design into 2–5 min tasks before coding
+✅ Each task: goal, files, validation steps
+❌ Implement before plan exists (see brainstorming for design gate)
+Links: brainstorming, plan-management, test-driven-development
 
 # Writing Implementation Plans
 
 Converts an approved design spec into a detailed, step-by-step implementation plan
 that an agent (or junior developer) can follow without ambiguity.
+
+> **Boundaries:** design approval = `brainstorming` skill · test discipline = `test-driven-development` skill · this skill covers task breakdown only.
 
 ---
 

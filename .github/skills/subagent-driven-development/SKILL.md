@@ -1,11 +1,18 @@
 ---
 name: subagent-driven-development
-type: skill
 description: >
   Execute implementation plans by dispatching a fresh subagent per task with
   two-stage review (spec compliance, then code quality) after each. Faster
   iteration than manual execution, with isolated context per task.
+
 ---
+
+## Quick Reference
+
+✅ Fresh subagent per task; spec review then quality review
+✅ Explore for read-only research before writes
+❌ One agent context for entire multi-task sprint
+Links: test-driven-development, token-optimization
 
 # Subagent-Driven Development
 

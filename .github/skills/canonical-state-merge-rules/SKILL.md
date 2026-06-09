@@ -1,8 +1,15 @@
 ---
 name: canonical-state-merge-rules
-type: skill
 description: "Enforces the union-dedup, stability-lock, and vague-output-rejection rules for CanonicalState merges in backend/modules/state/merge.go."
+
 ---
+
+## Quick Reference
+
+✅ Union-dedup risks; drop resolved; reject vague plan steps (<10 words)
+✅ Stability lock on architecture; 3-iteration conflict → open_questions
+❌ agentA/agentB keys; drop risks without dedup hash
+Links: multi-agent-role-orchestration, convergence-engine-patterns
 
 ## Purpose
 

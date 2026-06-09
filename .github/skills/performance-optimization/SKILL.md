@@ -1,8 +1,15 @@
 ---
 name: performance-optimization
-type: skill
 description: "Performance optimization patterns. Use when reviewing code for performance issues, optimizing queries, reducing memory usage, or improving throughput."
+
 ---
+
+## Quick Reference
+
+✅ Profile before optimize; index hot queries; bound allocations
+✅ SSE fire-and-forget; don't block engine on slow clients
+❌ Premature micro-opts; caching nondeterministic state
+Links: database-portability
 
 ## Purpose
 

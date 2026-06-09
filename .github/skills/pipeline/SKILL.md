@@ -1,7 +1,15 @@
 ---
 name: pipeline
 description: "Pipeline reasoning. Use when validating stage ordering, understanding dependencies between modules, checking checkpoint behavior, or planning parallel development. Provides the stage sequence pattern, DTO flow map, and parallelism matrix."
+
 ---
+
+## Quick Reference
+
+✅ Ordered stage flow; DTO handoff map documented
+✅ One owner per pipeline stage output field
+❌ Skip validation between stages
+Links: multi-agent-role-orchestration, dto
 
 # Pipeline Reasoning Skill
 

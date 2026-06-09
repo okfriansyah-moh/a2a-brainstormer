@@ -1,8 +1,15 @@
 ---
 name: dependency-analysis
-type: skill
 description: "Dependency graph validation. Use when reviewing imports, detecting circular dependencies, measuring coupling metrics, or enforcing module boundary rules."
+
 ---
+
+## Quick Reference
+
+✅ Modules → shared/platform only; no circular imports
+✅ Detect forbidden cross-module internal imports
+❌ Module imports another module's repository
+Links: modularity, vertical-slice
 
 ## Purpose
 

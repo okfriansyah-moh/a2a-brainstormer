@@ -1,7 +1,15 @@
 ---
 name: failure
 description: "Failure handling. Use when implementing retry logic, abort thresholds, graceful degradation, or error recovery. Defines retry policies, failure thresholds, state transitions on error, and timeout handling."
+
 ---
+
+## Quick Reference
+
+✅ Retry transient A2A/LLM errors with backoff; structured errors
+✅ Fail fast on 4xx; log context; never panic in handlers
+❌ Silent swallow; infinite retry loops
+Links: a2a-protocol-patterns, llm-provider-abstraction
 
 # Failure Handling Skill
 

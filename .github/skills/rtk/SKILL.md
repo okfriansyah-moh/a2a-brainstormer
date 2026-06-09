@@ -1,11 +1,18 @@
 ---
 name: rtk
-type: skill
 description: >
   Token-efficient CLI proxy. Use `rtk <cmd>` instead of running commands
   directly to get compressed, AI-optimized output with 60-90% fewer tokens.
   Supports 100+ commands including git, go, npm, docker, curl, and more.
+
 ---
+
+## Quick Reference
+
+✅ rtk <cmd> for verbose output (go test, git log, docker logs)
+✅ Read errors in full — rtk doesn't compress failures
+❌ rtk for interactive commands (vim, ssh)
+Links: token-optimization, caveman
 
 # RTK — AI-Optimized CLI Proxy
 

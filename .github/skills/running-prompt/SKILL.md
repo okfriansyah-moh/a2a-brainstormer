@@ -1,7 +1,15 @@
 ---
 name: running-prompt
 description: "This skill defines a structured workflow for executing tasks, including planning, implementation, security review, verification, and issue remediation. It ensures that all tasks are completed securely, verified, and approved before final confirmation. Optimized for Principal Engineer execution standards."
+
 ---
+
+## Quick Reference
+
+✅ Plan → implement → verify workflow; complete tasks end-to-end
+✅ Use subagents/skills when available
+❌ Stop mid-task without reporting gaps
+Links: subagent-driven-development, writing-plans
 
 ## Trigger
 

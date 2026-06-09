@@ -1,8 +1,15 @@
 ---
 name: multi-agent-role-orchestration
-type: skill
 description: "Enforces ordered N-agent pipeline dispatch, role assignment rules, and sequential state threading through the iteration engine."
+
 ---
+
+## Quick Reference
+
+✅ Fixed roles at session create; min 2 agents; position ASC order
+✅ Each agent gets previous agent output; persist once per full pass
+❌ i%2 runtime role alternation; persist mid-pass
+Links: canonical-state-merge-rules, a2a-protocol-patterns
 
 ## Purpose
 

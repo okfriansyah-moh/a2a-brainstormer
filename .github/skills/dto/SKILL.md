@@ -1,7 +1,15 @@
 ---
 name: dto
 description: "DTO interpretation and validation. Use when creating, modifying, reviewing, or consuming immutable DTOs from contracts/. Provides the DTO registry pattern, field types, constraints, producer/consumer mapping, and anti-patterns."
+
 ---
+
+## Quick Reference
+
+✅ Immutable DTOs; explicit field types; producer/consumer mapping
+✅ Registry in contracts/shared — single canonical location
+❌ map[string]any across module boundaries
+Links: modularity, code-quality
 
 # DTO Interpretation Skill
 

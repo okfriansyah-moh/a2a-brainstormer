@@ -1,7 +1,15 @@
 ---
 name: conflict-resolution
 description: "Git merge conflict resolution for parallel development. Use when resolving merge conflicts between parallel phase branches. Provides union-merge strategy, file ownership rules, and resolution patterns."
+
 ---
+
+## Quick Reference
+
+✅ Union merge; respect file ownership per PLAN.md task
+✅ contracts/ additive only; migrations append-only
+❌ Discard either branch's work; modify protected docs
+Links: parallel-dev, modularity
 
 # Conflict Resolution Skill
 

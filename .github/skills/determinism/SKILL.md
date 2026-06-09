@@ -1,7 +1,14 @@
 ---
 name: determinism
 description: "Determinism enforcement. Use when implementing or reviewing code to ensure same input + same config = identical output. Detects randomness, non-deterministic patterns, and sorting violations."
+
 ---
+
+## Quick Reference
+
+✅ Same input+config = identical output
+❌ rand.New(); time.Now() for state transitions; nondeterministic ordering
+Links: idempotency, convergence-engine-patterns
 
 # Determinism Enforcement Skill
 

@@ -1,8 +1,15 @@
 ---
 name: test-generation
-type: skill
 description: "Test generation patterns. Use when creating unit tests, integration tests, or validating test coverage. Provides testing strategies, mocking patterns, and coverage requirements."
+
 ---
+
+## Quick Reference
+
+✅ Mocks/fakes; no network/DB/LLM in unit tests
+✅ Table-driven Go tests; cover handler/service edges
+❌ Tests coupled to implementation internals
+Links: test-driven-development, code-quality
 
 ## Purpose
 

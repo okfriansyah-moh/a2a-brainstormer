@@ -1,7 +1,15 @@
 ---
 name: idempotency
 description: "Idempotency enforcement. Use when implementing database writes, file operations, or pipeline resume logic. Ensures running the pipeline twice on the same input produces no duplicates and no corruption."
+
 ---
+
+## Quick Reference
+
+✅ ON CONFLICT DO NOTHING/UPDATE on writes
+✅ Pipeline re-run produces no duplicates
+❌ Blind INSERT without conflict handling
+Links: database-portability, determinism
 
 # Idempotency Skill
 

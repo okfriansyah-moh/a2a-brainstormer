@@ -1,7 +1,15 @@
 ---
 name: code-quality
 description: "Code quality enforcement. Use when reviewing code for style, type annotations, logging standards, and best practices. Ensures production-ready code with proper typing, structured logging, and no anti-patterns. For detailed naming, function design, and language idioms, see the coding-standards skill."
+
 ---
+
+## Quick Reference
+
+✅ Typed public APIs; structured slog logging; no fmt.Println
+✅ Reference coding-standards for naming/idioms
+❌ Direct SDK/ORM in modules; unstructured console output
+Links: coding-standards, security-audit
 
 # Code Quality Skill
 

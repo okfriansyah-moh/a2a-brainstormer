@@ -1,8 +1,15 @@
 ---
 name: convergence-engine-patterns
-type: skill
 description: "Enforces correct multi-condition convergence detection, delta-confidence threshold evaluation, and stop logic in backend/internal/modules/convergence/engine.go."
+
 ---
+
+## Quick Reference
+
+✅ Check(prev,next) pure — no DB; AND: no new critical risks + plan complete + delta<threshold
+✅ Early exit: approved OR iteration>=maxIter
+❌ DB/HTTP inside convergence module
+Links: canonical-state-merge-rules, multi-agent-role-orchestration
 
 ## Purpose
 

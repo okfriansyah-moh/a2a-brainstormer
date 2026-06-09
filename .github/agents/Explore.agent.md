@@ -38,5 +38,4 @@ When responding inline, use concise bullet points with file:line citations.
 
 ## Skills Used
 
-- `.github/skills/token-optimization/SKILL.md` — load only what's needed
-- `.github/skills/caveman/SKILL.md` — compressed output mode
+Load **only** `explore` profile from `.github/skills/index.json` (`token-optimization`, `caveman`). Read `## Quick Reference` first; full body on demand.

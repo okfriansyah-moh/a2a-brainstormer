@@ -1,7 +1,15 @@
 ---
 name: docs-sync
 description: "Documentation synchronization. Use when verifying that code implementations match their documentation specifications. Detects drift between docs/ specifications and actual code."
+
 ---
+
+## Quick Reference
+
+✅ Verify code matches docs/PLAN.md §8 and blueprint
+✅ Report drift with file:line citations
+❌ Modify protected docs to match broken code
+Links: plan-management
 
 # Documentation Sync Skill
 

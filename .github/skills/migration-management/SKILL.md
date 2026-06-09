@@ -1,12 +1,21 @@
 ---
 name: migration-management
-type: skill
 description: "Database migration best practices. Use when creating, reviewing, or managing database schema migrations. Ensures portable, reversible, safe migrations."
+
 ---
+
+## Quick Reference
+
+✅ Numbered sequential migrations/*.sql; append-only
+✅ Portable SQL; reversible when possible
+❌ Edit existing migration files
+Links: database-portability (canonical SQL rules)
 
 ## Purpose
 
 Enforce safe database migration practices. Ensure all schema changes are versioned, reversible, portable across database engines, and applied through the proper migration system.
+
+> **SQL portability rules (ON CONFLICT, parameterized queries, no ORM):** canonical in `database-portability` skill — do not duplicate here.
 
 ---
 

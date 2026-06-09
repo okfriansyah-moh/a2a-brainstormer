@@ -1,8 +1,15 @@
 ---
 name: a2a-protocol-patterns
-type: skill
 description: "Enforces correct usage of github.com/a2aproject/a2a-go/v2 for backend↔agent communication in the brainstorm pipeline."
+
 ---
+
+## Quick Reference
+
+✅ BrainstormPayload via a2a.NewDataPart only; resolve AgentCard before client
+✅ Executor: Submitted→Working→Artifact(DataPart)→Completed
+❌ TextPart for state; hardcoded endpoints; 4xx retries
+Links: multi-agent-role-orchestration, llm-provider-abstraction
 
 ## Purpose
 

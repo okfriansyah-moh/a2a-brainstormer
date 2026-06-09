@@ -1,6 +1,5 @@
 ---
 name: roadmap-spec
-type: skill
 description: >
   Execution-grade implementation roadmap standard. Enforces a canonical section
   structure for every phase spec: Objective, BLOCKERS, Scope, Event Types,
@@ -8,7 +7,15 @@ description: >
   Failure Handling, and Exit Criteria. Use when writing or reviewing any phase
   specification under docs/implementation_roadmap.md or docs/specs/.
   Language-agnostic: works for Python, Go, TypeScript, Node.js, Rust, and Java.
+
 ---
+
+## Quick Reference
+
+✅ Phase spec: Objective, Scope, Function Contracts
+✅ Link to PLAN.md tasks — don't duplicate §8 schemas
+❌ Open-ended scope without validation criteria
+Links: plan-management, brainstorming
 
 # Roadmap Spec — Execution-Grade Standard
 
