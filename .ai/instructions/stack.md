@@ -1,1 +1,5 @@
-**Backend:** Go 1.26, modular monolith, vertical slice (`handler.go + service.go + repository.go + model.go`)**Agent binary:** Go 1.26, `github.com/a2aproject/a2a-go/v2`**Frontend:** SvelteKit, TypeScript, TailwindCSS, Svelte stores**Database:** PostgreSQL 16, pgx/v5, sqlc — no ORM**Deploy:** Docker + docker-compose, single shared agent image
+- **Backend:** Go 1.26, modular monolith, vertical slice (`handler.go + service.go + repository.go + model.go`)
+- **Agent binary:** Go 1.26, `github.com/a2aproject/a2a-go/v2`
+- **Frontend:** SvelteKit, TypeScript, TailwindCSS, Svelte stores
+- **Database:** PostgreSQL 16, pgx/v5, sqlc — no ORM
+- **Deploy:** Docker + docker-compose, single shared agent image
