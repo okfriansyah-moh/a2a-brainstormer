@@ -68,17 +68,8 @@ var defaultRubrics = map[string]Rubric{
 			{Heading: "3. Data Model", MinChars: 2500},
 			{Heading: "4. Data Flow", MinChars: 2000, RequiredKeywords: []string{"```mermaid"}},
 			{Heading: "5. Deployment", MinChars: 1500},
-		},
-	},
-	"roadmap": {
-		DocKey:        "roadmap",
-		MinTotalLines: 1000,
-		MinTotalChars: 35000,
-		Sections: []SectionRule{
-			{Heading: "1. Goals", MinChars: 1200},
-			{Heading: "2. Milestones", MinChars: 2500},
-			{Heading: "3. Phase Breakdown", MinChars: 5000, RequiredKeywords: []string{"Objective", "Scope", "Deliverables", "Exit Criteria"}},
-			{Heading: "4. Risks", MinChars: 1500},
+			{Heading: "6. Architecture Decisions", MinChars: 2000},
+			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Key Contracts", "Implementation Order", "Out of Scope"}},
 		},
 	},
 	"plan": {
@@ -86,10 +77,11 @@ var defaultRubrics = map[string]Rubric{
 		MinTotalLines: 1000,
 		MinTotalChars: 35000,
 		Sections: []SectionRule{
-			{Heading: "1. Scope", MinChars: 1200},
-			{Heading: "2. Architecture", MinChars: 2000},
-			{Heading: "3. Modules", MinChars: 3500},
-			{Heading: "4. Tasks", MinChars: 5000, RequiredKeywords: []string{"Files to create", "Validation"}},
+			{Heading: "1. Goals", MinChars: 1200},
+			{Heading: "2. Milestones", MinChars: 2500},
+			{Heading: "3. Phase Breakdown", MinChars: 5000, RequiredKeywords: []string{"Objective", "Scope", "Deliverables", "Exit Criteria"}},
+			{Heading: "5. Module Tasks", MinChars: 3500, RequiredKeywords: []string{"Files to create", "Validation"}},
+			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Key Contracts", "Implementation Order", "Out of Scope"}},
 		},
 	},
 	"readme": {
@@ -99,8 +91,8 @@ var defaultRubrics = map[string]Rubric{
 		Sections: []SectionRule{
 			{Heading: "Overview", MinChars: 1500},
 			{Heading: "Architecture", MinChars: 1500},
-			{Heading: "Roadmap", MinChars: 1500},
 			{Heading: "Getting Started", MinChars: 1000},
+			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Implementation Order"}},
 		},
 	},
 }

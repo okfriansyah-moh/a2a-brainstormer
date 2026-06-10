@@ -83,7 +83,7 @@
   }
 
   function viewHref(item: SessionListItem): string {
-    return item.status === "approved"
+    return item.status === "approved" || item.status === "converged"
       ? `/session/${item.id}/finalize`
       : `/session/${item.id}`;
   }
@@ -214,9 +214,9 @@
                 >
               </td>
               <td>
-                {#if item.status === "approved"}
+                {#if item.status === "approved" || item.status === "converged"}
                   <span class="out-chip">arch.md</span>
-                  <span class="out-chip">roadmap.md</span>
+                  <span class="out-chip">plan.md</span>
                 {:else}
                   <span class="dim-label">—</span>
                 {/if}

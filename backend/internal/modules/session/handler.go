@@ -48,6 +48,8 @@ type sessionService interface {
 	ListSessions(ctx context.Context) (ListSessionsResponse, error)
 	FinalizeSession(ctx context.Context, id string, input FinalizeInput) (Session, error)
 	UpdateOutputDocs(ctx context.Context, id string, docs []string) error
+	PersistArtifacts(ctx context.Context, sessionID string, docs map[string]shared.GeneratedDocument) error
+	GetArtifacts(ctx context.Context, sessionID string) (ListArtifactsResponse, error)
 }
 
 // markdownWriter is the subset of the markdown package required by the Handler.
@@ -68,15 +70,17 @@ type MarkdownWriter = markdownWriter
 type Handler struct {
 	svc       sessionService
 	markdown  markdownWriter
+	hints     *DiscoveryHintsService
 	outputDir string
 	logger    *slog.Logger
 }
 
 // NewHandler constructs a Handler backed by the given Service.
 // md may be nil — if nil, markdown generation is skipped on finalize.
+// hints may be nil — discovery-hints then returns static defaults only.
 // outputDir is the directory where artifacts are written; ignored when md is nil.
-func NewHandler(svc *Service, md markdownWriter, outputDir string, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, markdown: md, outputDir: outputDir, logger: logger}
+func NewHandler(svc *Service, md markdownWriter, hints *DiscoveryHintsService, outputDir string, logger *slog.Logger) *Handler {
+	return &Handler{svc: svc, markdown: md, hints: hints, outputDir: outputDir, logger: logger}
 }
 
 // NewHandlerWithService constructs a Handler from any sessionService implementation.
@@ -88,8 +92,10 @@ func NewHandlerWithService(svc sessionService, logger *slog.Logger) *Handler {
 // RegisterRoutes registers all session HTTP routes on mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /sessions", h.createSession)
+	mux.HandleFunc("POST /sessions/discovery-hints", h.discoveryHints)
 	mux.HandleFunc("GET /sessions", h.listSessions)
 	mux.HandleFunc("GET /sessions/{id}", h.getSession)
+	mux.HandleFunc("GET /sessions/{id}/artifacts", h.listArtifacts)
 	mux.HandleFunc("POST /sessions/{id}/finalize", h.finalizeSession)
 	mux.HandleFunc("POST /sessions/{id}/generate-document", h.generateDocument)
 	mux.HandleFunc("PATCH /sessions/{id}/output-docs", h.updateOutputDocs)
@@ -125,6 +131,43 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, sess)
+}
+
+func (h *Handler) discoveryHints(w http.ResponseWriter, r *http.Request) {
+	var req DiscoveryHintsRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	idea := strings.TrimSpace(req.Idea)
+	if len(idea) < 20 || len(idea) > 4000 {
+		writeError(w, http.StatusBadRequest, "idea must be between 20 and 4000 characters")
+		return
+	}
+	var resp DiscoveryHintsResponse
+	if h.hints != nil {
+		resp = h.hints.Generate(r.Context(), idea)
+	} else {
+		resp = StaticDiscoveryHints
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) listArtifacts(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !uuidRE.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid session ID format")
+		return
+	}
+	resp, err := h.svc.GetArtifacts(r.Context(), id)
+	if err != nil {
+		h.handleServiceError(w, r, err)
+		return
+	}
+	if resp.Artifacts == nil {
+		resp.Artifacts = []SessionArtifact{}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +248,15 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		documents = docs
+
+		if err := h.svc.PersistArtifacts(genCtx, id, documents); err != nil {
+			if h.logger != nil {
+				h.logger.ErrorContext(r.Context(), "artifact persistence failed",
+					slog.String("session_id", id),
+					slog.Any("error", err))
+			}
+			// Persistence failure is non-fatal — response still returns generated docs.
+		}
 
 		if h.outputDir != "" {
 			// Pass the same context + keys used by GenerateAll so the writer
@@ -318,6 +370,13 @@ func (h *Handler) generateDocument(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "document key missing from result")
 		return
+	}
+	if err := h.svc.PersistArtifacts(genCtx, id, map[string]shared.GeneratedDocument{req.Key: doc}); err != nil {
+		if h.logger != nil {
+			h.logger.WarnContext(r.Context(), "artifact persistence failed after generate-document",
+				slog.String("session_id", id),
+				slog.Any("error", err))
+		}
 	}
 	writeJSON(w, http.StatusOK, GenerateDocumentResponse{Key: req.Key, Document: doc})
 }

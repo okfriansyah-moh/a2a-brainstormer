@@ -42,11 +42,11 @@ func TestGeneratePlan_StructuralSections(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for _, want := range []string{
-		"## 1. Goal",
-		"## 2. Architecture Overview",
-		"## 3. Tech Stack",
-		"## 4. Project Structure",
-		"## 5. Implementation Tasks",
+		"## 1. Goals",
+		"## 2. Milestones",
+		"## 3. Phase Breakdown",
+		"## 5. Module Tasks",
+		"## For AI Agents",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected output to contain %q", want)

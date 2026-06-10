@@ -209,7 +209,8 @@ func (g *Generator) buildSystemPrompt(docKey string) string {
 	sb.WriteString("4. Every top-level section must contain at minimum: a 2–3 paragraph narrative introduction, 2+ sub-sections (###), at least one table OR mermaid diagram OR fenced code block, and a closing 'Implications' or 'Trade-offs' paragraph.\n")
 	sb.WriteString("5. Never emit literal placeholder strings such as TBD, TODO, Lorem ipsum, placeholder, '...', 'to be defined', or '<insert ...>'. If a detail is genuinely unknowable, make a reasoned recommendation and label it 'Recommended default:'.\n")
 	sb.WriteString("6. Cite numbers (latencies, sizes, throughput, p95, error budgets) wherever you make performance claims. Round to plausible engineering values; never leave a quantity vague.\n")
-	sb.WriteString("7. Quality bar: write at the level of a senior staff engineer publishing an internal RFC — explicit trade-offs, concrete component boundaries, named interfaces, schemas, error paths.\n\n")
+	sb.WriteString("7. Quality bar: write at the level of a senior staff engineer publishing an internal RFC — explicit trade-offs, concrete component boundaries, named interfaces, schemas, error paths.\n")
+	sb.WriteString("8. Dual-audience: every document MUST end with a `## For AI Agents` appendix containing `### Stack`, `### Key Contracts`, `### Implementation Order`, and `### Out of Scope` sub-sections with concrete, pasteable guidance for coding agents.\n\n")
 	sb.WriteString("## Required structural depth for this document type\n")
 	sb.WriteString(docSkeletonHint(docKey))
 	if composed := g.bundle.Compose(); composed != "" {
@@ -237,29 +238,20 @@ func docSkeletonHint(docKey string) string {
 - ### Trade-offs & open questions  — explicit list
 
 Section 2 (System Components) must include a per-component sub-section (### N. <Component>) for EVERY component named in the canonical state architecture.components list, each ≥ 200 lines.
-Section 4 (Data Flow) must contain at least TWO mermaid diagrams (sequenceDiagram + flowchart).`
-	case "roadmap":
-		return `For every top-level section, produce these sub-sections:
-- ### Objective
-- ### Scope (in / out)
-- ### Deliverables  — numbered list with acceptance criteria
-- ### Exit Criteria  — measurable
-- ### Dependencies & blockers
-- ### Risks  — table of (Risk | Likelihood | Impact | Mitigation | Owner)
-- ### Estimation  — effort, team size, calendar weeks
-
-Section 3 (Phase Breakdown) must contain one ### sub-section per execution_plan entry, each ≥ 100 lines, fully populated with all seven fields above.
-Section 4 (Risks) must contain a risk register table with EVERY risk from canonical state, followed by per-risk paragraphs.`
+Section 4 (Data Flow) must contain at least TWO mermaid diagrams (sequenceDiagram + flowchart).
+End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, Out of Scope).`
 	case "plan":
 		return `For every top-level section, produce these sub-sections:
+- ### Milestone detail  — acceptance criteria, owners, calendar timing
+- ### Phase objectives  — numbered deliverables with exit criteria
+- ### Cross-phase dependencies  — explicit blocking edges between phases
 - ### Module charter  — purpose, boundary, public surface
-- ### Public interfaces  — function signatures, types, error contracts
-- ### Internal design  — algorithm, data structures, complexity
-- ### Tests required  — table of (Test name | What it asserts | Inputs | Expected output)
-- ### Files to create  — explicit paths
+- ### Files to create  — explicit paths per module/task
 - ### Validation  — commands to run, expected output
 
-Section 4 (Tasks) must contain one ### sub-section per task, each ≥ 80 lines, with all six fields above filled in.`
+Section 3 (Phase Breakdown) must contain one ### sub-section per execution_plan entry with all seven §8.23 fields.
+Section 5 (Module Tasks) must contain one ### sub-section per task with Files to create and Validation.
+End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, Out of Scope).`
 	case "readme":
 		return `For every top-level section, produce these sub-sections:
 - ### What & why  — problem framing, value proposition
@@ -268,9 +260,9 @@ Section 4 (Tasks) must contain one ### sub-section per task, each ≥ 80 lines, 
 - ### Walkthrough  — worked example with code snippets and CLI output
 - ### Configuration reference  — table of every env var
 - ### Troubleshooting  — numbered failure modes with diagnosis steps
-- ### Roadmap pointer  — next-phase summary
+- ### Plan pointer  — next-phase summary from execution_plan
 
-Produce a comprehensive Configuration Reference table that includes EVERY env var the system reads.`
+End with ## For AI Agents appendix. Produce a comprehensive Configuration Reference table that includes EVERY env var the system reads.`
 	default:
 		return `For every top-level section, produce a Context paragraph, 2–4 named sub-sections (###), at least one table or mermaid diagram, concrete code snippets where applicable, and a closing Implications paragraph. Expand each sub-section with worked examples and quantitative detail until total document length reaches 1000+ lines of genuine content.`
 	}

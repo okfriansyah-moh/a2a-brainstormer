@@ -125,5 +125,7 @@ func GenerateArchitecture(s state.CanonicalState) (string, error) {
 		b.WriteString("_No open questions at this time._\n\n")
 	}
 
+	b.WriteString(renderForAIAgentsAppendix(s, "architecture"))
+
 	return b.String(), nil
 }

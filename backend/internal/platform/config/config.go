@@ -243,6 +243,29 @@ func GetAIDocTemperature() float64 {
 	return v
 }
 
+// GetDiscoveryHintsCacheSize returns the LRU cache capacity for discovery chip
+// hints keyed by sha256(idea). Defaults to 128.
+func GetDiscoveryHintsCacheSize() int {
+	v := envInt("DISCOVERY_HINTS_CACHE_SIZE", 128)
+	if v < 1 {
+		return 128
+	}
+	return v
+}
+
+// GetDiscoveryHintsTemperature returns the LLM temperature for discovery hint
+// generation. Defaults to 0.0 for deterministic labels.
+func GetDiscoveryHintsTemperature() float64 {
+	v := envFloat("DISCOVERY_HINTS_TEMPERATURE", 0.0)
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // envString reads an env var and returns defVal when absent or empty.

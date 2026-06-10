@@ -24,7 +24,6 @@ import (
 // service or handler layers.
 var Generators = map[string]func(state.CanonicalState) (string, error){
 	"architecture": GenerateArchitecture,
-	"roadmap":      GenerateRoadmap,
 	"plan":         GeneratePlan,
 	"readme":       GenerateReadme,
 }
@@ -62,7 +61,7 @@ func GenerateAll(s state.CanonicalState, keys []string) (map[string]shared.Gener
 // generators make no LLM calls and ignore it.
 func WriteArtifacts(_ context.Context, s state.CanonicalState, outputDir string, keys []string) error {
 	if len(keys) == 0 {
-		keys = []string{"architecture", "roadmap"}
+		keys = []string{"architecture", "plan"}
 	}
 	docs, err := GenerateAll(s, keys)
 	if err != nil {

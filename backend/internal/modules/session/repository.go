@@ -22,6 +22,7 @@ import (
 
 	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/llm"
+	"a2a-brainstorm/backend/internal/shared"
 )
 
 // ErrNotFound is returned when a requested session or session_agent does not exist.
@@ -47,9 +48,11 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // ID and timestamps are populated by the database.
 func (r *Repository) CreateSession(ctx context.Context, s Session) (Session, error) {
 	const q = `
-		INSERT INTO sessions (idea, status, max_iterations, current_state, output_docs)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, idea, status, max_iterations, output_docs, current_state, created_at, updated_at`
+		INSERT INTO sessions (idea, status, max_iterations, current_state, output_docs,
+		                      discovery_answers, tech_constraints, enriched_idea)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, idea, status, max_iterations, output_docs, discovery_answers,
+		          tech_constraints, enriched_idea, current_state, created_at, updated_at`
 
 	stateJSON, err := marshalState(s.CurrentState)
 	if err != nil {
@@ -60,6 +63,14 @@ func (r *Repository) CreateSession(ctx context.Context, s Session) (Session, err
 	if len(outputDocs) == 0 {
 		outputDocs = DefaultOutputDocs
 	}
+	discoveryJSON, err := marshalDiscoveryAnswers(s.DiscoveryAnswers)
+	if err != nil {
+		return Session{}, fmt.Errorf("create session: marshal discovery: %w", err)
+	}
+	techJSON, err := marshalTechConstraints(s.TechConstraints)
+	if err != nil {
+		return Session{}, fmt.Errorf("create session: marshal tech constraints: %w", err)
+	}
 
 	row := r.pool.QueryRow(ctx, q,
 		s.Idea,
@@ -67,6 +78,9 @@ func (r *Repository) CreateSession(ctx context.Context, s Session) (Session, err
 		s.MaxIterations,
 		stateJSON,
 		outputDocs,
+		discoveryJSON,
+		techJSON,
+		s.EnrichedIdea,
 	)
 	return scanSession(row)
 }
@@ -107,7 +121,8 @@ func (r *Repository) CreateSessionWithAgents(ctx context.Context, s Session, age
 // SessionAgent list (populated via GetOrderedAgents internally).
 func (r *Repository) GetSession(ctx context.Context, id string) (Session, error) {
 	const q = `
-		SELECT id, idea, status, max_iterations, output_docs, current_state, created_at, updated_at
+		SELECT id, idea, status, max_iterations, output_docs, discovery_answers,
+		       tech_constraints, enriched_idea, current_state, created_at, updated_at
 		FROM sessions
 		WHERE id = $1`
 
@@ -130,7 +145,8 @@ func (r *Repository) GetSession(ctx context.Context, id string) (Session, error)
 // issuing N+1 queries per session.
 func (r *Repository) ListSessions(ctx context.Context) ([]Session, error) {
 	const q = `
-		SELECT s.id, s.idea, s.status, s.max_iterations, s.output_docs, s.current_state,
+		SELECT s.id, s.idea, s.status, s.max_iterations, s.output_docs,
+		       s.discovery_answers, s.tech_constraints, s.enriched_idea, s.current_state,
 		       s.created_at, s.updated_at,
 		       COUNT(sa.agent_id)::int AS agent_count
 		FROM sessions s
@@ -147,14 +163,23 @@ func (r *Repository) ListSessions(ctx context.Context) ([]Session, error) {
 	var sessions []Session
 	for rows.Next() {
 		var (
-			s         Session
-			stateJSON []byte
+			s              Session
+			stateJSON      []byte
+			discoveryJSON  []byte
+			techJSON       []byte
 		)
 		if err := rows.Scan(
-			&s.ID, &s.Idea, &s.Status, &s.MaxIterations, &s.OutputDocs, &stateJSON,
+			&s.ID, &s.Idea, &s.Status, &s.MaxIterations, &s.OutputDocs,
+			&discoveryJSON, &techJSON, &s.EnrichedIdea, &stateJSON,
 			&s.CreatedAt, &s.UpdatedAt, &s.AgentCount,
 		); err != nil {
 			return nil, fmt.Errorf("list sessions: scan: %w", err)
+		}
+		if err := unmarshalDiscoveryJSON(discoveryJSON, &s.DiscoveryAnswers); err != nil {
+			return nil, fmt.Errorf("list sessions: unmarshal discovery: %w", err)
+		}
+		if err := unmarshalTechJSON(techJSON, &s.TechConstraints); err != nil {
+			return nil, fmt.Errorf("list sessions: unmarshal tech constraints: %w", err)
 		}
 		if len(stateJSON) > 0 && string(stateJSON) != "null" {
 			var cs state.CanonicalState
@@ -255,9 +280,11 @@ type queryRowExecer interface {
 
 func createSessionWithQuerier(ctx context.Context, q queryRowExecer, s Session) (Session, error) {
 	const insertSession = `
-		INSERT INTO sessions (idea, status, max_iterations, current_state, output_docs)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, idea, status, max_iterations, output_docs, current_state, created_at, updated_at`
+		INSERT INTO sessions (idea, status, max_iterations, current_state, output_docs,
+		                      discovery_answers, tech_constraints, enriched_idea)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, idea, status, max_iterations, output_docs, discovery_answers,
+		          tech_constraints, enriched_idea, current_state, created_at, updated_at`
 
 	stateJSON, err := marshalState(s.CurrentState)
 	if err != nil {
@@ -268,6 +295,14 @@ func createSessionWithQuerier(ctx context.Context, q queryRowExecer, s Session) 
 	if len(outputDocs) == 0 {
 		outputDocs = DefaultOutputDocs
 	}
+	discoveryJSON, err := marshalDiscoveryAnswers(s.DiscoveryAnswers)
+	if err != nil {
+		return Session{}, fmt.Errorf("create session: marshal discovery: %w", err)
+	}
+	techJSON, err := marshalTechConstraints(s.TechConstraints)
+	if err != nil {
+		return Session{}, fmt.Errorf("create session: marshal tech constraints: %w", err)
+	}
 
 	row := q.QueryRow(ctx, insertSession,
 		s.Idea,
@@ -275,6 +310,9 @@ func createSessionWithQuerier(ctx context.Context, q queryRowExecer, s Session) 
 		s.MaxIterations,
 		stateJSON,
 		outputDocs,
+		discoveryJSON,
+		techJSON,
+		s.EnrichedIdea,
 	)
 	created, err := scanSession(row)
 	if err != nil {
@@ -349,8 +387,10 @@ type rowScanner interface {
 
 func scanSession(row rowScanner) (Session, error) {
 	var (
-		s         Session
-		stateJSON []byte
+		s             Session
+		stateJSON     []byte
+		discoveryJSON []byte
+		techJSON      []byte
 	)
 	err := row.Scan(
 		&s.ID,
@@ -358,6 +398,9 @@ func scanSession(row rowScanner) (Session, error) {
 		&s.Status,
 		&s.MaxIterations,
 		&s.OutputDocs,
+		&discoveryJSON,
+		&techJSON,
+		&s.EnrichedIdea,
 		&stateJSON,
 		&s.CreatedAt,
 		&s.UpdatedAt,
@@ -367,6 +410,12 @@ func scanSession(row rowScanner) (Session, error) {
 			return Session{}, ErrNotFound
 		}
 		return Session{}, fmt.Errorf("scan session: %w", err)
+	}
+	if err := unmarshalDiscoveryJSON(discoveryJSON, &s.DiscoveryAnswers); err != nil {
+		return Session{}, fmt.Errorf("scan session: unmarshal discovery: %w", err)
+	}
+	if err := unmarshalTechJSON(techJSON, &s.TechConstraints); err != nil {
+		return Session{}, fmt.Errorf("scan session: unmarshal tech constraints: %w", err)
 	}
 	if len(stateJSON) > 0 && string(stateJSON) != "null" {
 		var cs state.CanonicalState
@@ -439,4 +488,95 @@ func marshalSkillOverrides(overrides *[]string) ([]byte, error) {
 		return nil, nil
 	}
 	return json.Marshal(*overrides)
+}
+
+// UpsertArtifacts persists finalized document bodies (one row per doc key).
+func (r *Repository) UpsertArtifacts(ctx context.Context, sessionID string, docs map[string]shared.GeneratedDocument) error {
+	const q = `
+		INSERT INTO session_artifacts (session_id, doc_key, filename, content, line_count, source)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (session_id, doc_key) DO UPDATE SET
+			filename = EXCLUDED.filename,
+			content = EXCLUDED.content,
+			line_count = EXCLUDED.line_count,
+			source = EXCLUDED.source,
+			generated_at = now()`
+
+	for key, doc := range docs {
+		source := mapArtifactSource(doc.Source)
+		if _, err := r.pool.Exec(ctx, q,
+			sessionID,
+			key,
+			doc.Filename,
+			doc.Content,
+			doc.LineCount,
+			source,
+		); err != nil {
+			return fmt.Errorf("upsert artifact %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// ListArtifacts returns all persisted artifacts for a session ordered by doc_key.
+func (r *Repository) ListArtifacts(ctx context.Context, sessionID string) ([]SessionArtifact, error) {
+	const q = `
+		SELECT id, session_id, doc_key, filename, content, line_count, source, generated_at
+		FROM session_artifacts
+		WHERE session_id = $1
+		ORDER BY doc_key ASC`
+
+	rows, err := r.pool.Query(ctx, q, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list artifacts: %w", err)
+	}
+	defer rows.Close()
+
+	var artifacts []SessionArtifact
+	for rows.Next() {
+		var a SessionArtifact
+		if err := rows.Scan(
+			&a.ID, &a.SessionID, &a.DocKey, &a.Filename, &a.Content,
+			&a.LineCount, &a.Source, &a.GeneratedAt,
+		); err != nil {
+			return nil, fmt.Errorf("list artifacts: scan: %w", err)
+		}
+		artifacts = append(artifacts, a)
+	}
+	return artifacts, rows.Err()
+}
+
+func mapArtifactSource(source string) string {
+	switch source {
+	case "ai":
+		return "ai"
+	case "ai_fallback", "hybrid":
+		return "hybrid"
+	default:
+		return "deterministic"
+	}
+}
+
+func marshalDiscoveryAnswers(d DiscoveryAnswers) ([]byte, error) {
+	return json.Marshal(d)
+}
+
+func marshalTechConstraints(t shared.TechConstraints) ([]byte, error) {
+	return json.Marshal(t)
+}
+
+func unmarshalDiscoveryJSON(data []byte, d *DiscoveryAnswers) error {
+	if len(data) == 0 || string(data) == "null" {
+		*d = DiscoveryAnswers{}
+		return nil
+	}
+	return json.Unmarshal(data, d)
+}
+
+func unmarshalTechJSON(data []byte, t *shared.TechConstraints) error {
+	if len(data) == 0 || string(data) == "null" {
+		*t = shared.DefaultTechConstraints()
+		return nil
+	}
+	return json.Unmarshal(data, t)
 }

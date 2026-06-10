@@ -20,6 +20,7 @@ import (
 
 	"a2a-brainstorm/backend/internal/modules/agent"
 	"a2a-brainstorm/backend/internal/modules/session"
+	"a2a-brainstorm/backend/internal/shared"
 )
 
 // ── stub agentProvider ────────────────────────────────────────────────────────
@@ -141,6 +142,12 @@ func (stubSessionService) FinalizeSession(_ context.Context, _ string, _ session
 }
 func (stubSessionService) UpdateOutputDocs(_ context.Context, _ string, _ []string) error {
 	return session.ErrNotFound
+}
+func (stubSessionService) PersistArtifacts(_ context.Context, _ string, _ map[string]shared.GeneratedDocument) error {
+	return nil
+}
+func (stubSessionService) GetArtifacts(_ context.Context, _ string) (session.ListArtifactsResponse, error) {
+	return session.ListArtifactsResponse{Artifacts: []session.SessionArtifact{}}, nil
 }
 
 func buildTestMux() *http.ServeMux {

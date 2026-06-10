@@ -6,6 +6,7 @@
     getSession,
     finalizeSession,
     generateDocument,
+    listSessionArtifacts,
   } from "$lib/services/api";
   import type { Session, GeneratedDocument } from "$lib/types";
 
@@ -23,11 +24,10 @@
   /** Document key → generated artifact. Populated sequentially during generation. */
   let documents: Record<string, GeneratedDocument> = {};
   /** The doc keys the user wants to generate — ordered per ALL_DOCS. */
-  let selectedDocs: string[] = ["architecture", "roadmap", "plan", "readme"];
+  let selectedDocs: string[] = ["architecture", "plan", "readme"];
   /** All available document types in canonical generation order. */
   const ALL_DOCS = [
     { key: "architecture", label: "Architecture" },
-    { key: "roadmap", label: "Roadmap" },
     { key: "plan", label: "Plan" },
     { key: "readme", label: "README" },
   ];
@@ -43,6 +43,27 @@
   let runningLine: string | null = null;
   let logDone = false;
   let logBadgeDone = false;
+  let loadedFromCache = false;
+
+  function artifactsToDocuments(
+    artifacts: import("$lib/types").SessionArtifact[],
+  ): Record<string, GeneratedDocument> {
+    const out: Record<string, GeneratedDocument> = {};
+    for (const a of artifacts) {
+      out[a.doc_key] = {
+        filename: a.filename,
+        content: a.content,
+        line_count: a.line_count,
+        source:
+          a.source === "ai"
+            ? "ai"
+            : a.source === "hybrid"
+              ? "ai_fallback"
+              : "deterministic",
+      };
+    }
+    return out;
+  }
 
   // ── Sequential generate flow ─────────────────────────────────────────────
   async function generate() {
@@ -166,9 +187,33 @@
 
     selectedDocs = storedDocs;
 
+    const cacheable =
+      session?.status === "approved" || session?.status === "converged";
+
+    if (cacheable) {
+      try {
+        const cached = await listSessionArtifacts(sid);
+        if (cached.artifacts.length > 0) {
+          documents = artifactsToDocuments(cached.artifacts);
+          queuedKeys = Object.keys(documents);
+          perDocStatus = Object.fromEntries(
+            queuedKeys.map((k) => [k, "done"]),
+          );
+          generated = true;
+          loadedFromCache = true;
+          logBadgeDone = true;
+          logLines = ["Loaded from previously generated session. ✓"];
+          if (session?.status === "approved") {
+            alreadyFinalized = true;
+          }
+          return;
+        }
+      } catch {
+        // Fall through to regenerate path
+      }
+    }
+
     if (session?.status === "approved") {
-      // Session was previously finalized — silently reload all docs using the
-      // existing finalizeSession (single call, no sequential animation needed).
       alreadyFinalized = true;
       logLines = [];
       logBadgeDone = false;
@@ -188,7 +233,6 @@
         logBadgeDone = true;
         logLines = ["Loaded from previously generated session. ✓"];
       } catch {
-        // Fallback: let user click "Generate Documents"
         alreadyFinalized = false;
         perDocStatus = {};
         queuedKeys = [];
@@ -220,6 +264,8 @@
       <div class="topbar-subtitle">
         {#if alreadyFinalized}
           Session complete — previously generated documents
+        {:else if loadedFromCache}
+          Loaded from previously generated session
         {:else if generated}
           Session complete — {Object.keys(documents).length} document{Object.keys(
             documents,
@@ -236,15 +282,19 @@
     <div class="fin-topbar-actions">
       {#if alreadyFinalized}
         <span class="chip-ok fin-status-chip">Already finalized</span>
+      {:else if loadedFromCache}
+        <span class="chip-ok fin-status-chip">Cached artifacts</span>
       {/if}
-      <a
-        href={`/session/${sessionId}`}
-        class="topbar-link"
-        on:click={(e) => {
-          e.preventDefault();
-          goto(`/session/${sessionId}`);
-        }}>← Back to Session</a
-      >
+      {#if session?.status !== "approved"}
+        <a
+          href={`/session/${sessionId}`}
+          class="topbar-link"
+          on:click={(e) => {
+            e.preventDefault();
+            goto(`/session/${sessionId}`);
+          }}>← Back to Session</a
+        >
+      {/if}
     </div>
   </div>
 

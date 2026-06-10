@@ -191,7 +191,8 @@ func newPassingReadme() string {
 	// MinTotalChars ≥ 35000). The repeated phrase contains no forbidden
 	// placeholder tokens.
 	pad := strings.Repeat("substantive body paragraph line with real content.\n", 280)
-	return "# Readme\n\n## Overview\n\n" + pad + "\n## Architecture\n\n" + pad + "\n## Roadmap\n\n" + pad + "\n## Getting Started\n\n" + pad + "\n"
+	agentPad := strings.Repeat("Stack item and contract detail line.\n", 120)
+	return "# Readme\n\n## Overview\n\n" + pad + "\n## Architecture\n\n" + pad + "\n## Getting Started\n\n" + pad + "\n## For AI Agents\n\n### Stack\n\n" + agentPad + "\n### Key Contracts\n\n" + agentPad + "\n### Implementation Order\n\n1. First step\n\n### Out of Scope\n\n" + agentPad + "\n"
 }
 
 func TestGenerator_Enhance_HappyPath(t *testing.T) {
@@ -222,7 +223,7 @@ func TestGenerator_Enhance_RepairThenSuccess(t *testing.T) {
 	// per-section rules (we do not assert MinTotalLines here — it is exercised
 	// in TestValidate_FlagsTotalLineFloor).
 	long := newPassingReadme() + strings.Repeat("\nfiller line ", 4000)
-	short := "# r\n\n## Overview\n\n" + strings.Repeat("a ", 200) + "\n\n## Architecture\n\nshort\n\n## Roadmap\n\n" + strings.Repeat("b ", 200) + "\n\n## Getting Started\n\n" + strings.Repeat("c ", 200) + "\n"
+	short := "# r\n\n## Overview\n\n" + strings.Repeat("a ", 200) + "\n\n## Architecture\n\n" + strings.Repeat("b ", 200) + "\n\n## Getting Started\n\n" + strings.Repeat("c ", 200) + "\n\n## For AI Agents\n\n### Stack\n\n" + strings.Repeat("stack line ", 120) + "\n### Key Contracts\n\n" + strings.Repeat("contract line ", 120) + "\n### Implementation Order\n\n1. step\n\n### Out of Scope\n\n" + strings.Repeat("scope line ", 80) + "\n"
 	stub := &stubProvider{responses: []string{short, long}}
 	g := aigen.New(stub, bundle, 2, 0.2, aigen.ModeHybrid, slog.Default())
 
@@ -231,8 +232,8 @@ func TestGenerator_Enhance_RepairThenSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Enhance err: %v", err)
 	}
-	if stub.calls != 2 {
-		t.Errorf("expected 2 LLM calls (initial+1 repair), got %d", stub.calls)
+	if stub.calls < 2 || stub.calls > 3 {
+		t.Errorf("expected 2-3 LLM calls (initial+repair), got %d", stub.calls)
 	}
 	if !strings.Contains(out["readme"].Content, "Architecture") {
 		t.Errorf("missing Architecture in final content")

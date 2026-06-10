@@ -29,6 +29,8 @@ import type {
   UpdateAgentRequest,
   UpdateOutputDocsRequest,
   UpdateSkillRequest,
+  DiscoveryHintsResponse,
+  ListArtifactsResponse,
 } from "$lib/types";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -193,6 +195,25 @@ export async function updateOutputDocs(
  */
 export async function listSessions(): Promise<ListSessionsResponse> {
   return request<ListSessionsResponse>("/sessions");
+}
+
+/** Fetch async chip hints for discovery clarify (Q2–Q4 only). */
+export async function fetchDiscoveryHints(
+  idea: string,
+): Promise<DiscoveryHintsResponse> {
+  return request<DiscoveryHintsResponse>("/sessions/discovery-hints", {
+    method: "POST",
+    ...json({ idea }),
+  });
+}
+
+/** List persisted finalized artifacts for a session. */
+export async function listSessionArtifacts(
+  sessionId: string,
+): Promise<ListArtifactsResponse> {
+  return request<ListArtifactsResponse>(
+    `/sessions/${encodeURIComponent(sessionId)}/artifacts`,
+  );
 }
 
 // ── Agents (§8.7) ─────────────────────────────────────────────────────────────

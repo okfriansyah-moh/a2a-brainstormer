@@ -8,7 +8,7 @@ import (
 
 func TestGenerateAll_AllFourKeys(t *testing.T) {
 	s := sampleState()
-	keys := []string{"architecture", "roadmap", "plan", "readme"}
+	keys := []string{"architecture", "plan", "readme"}
 	result, err := GenerateAll(s, keys)
 	if err != nil {
 		t.Fatalf("GenerateAll returned error: %v", err)

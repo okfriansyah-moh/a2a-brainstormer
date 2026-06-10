@@ -633,3 +633,30 @@ func renderStructuredPhases(s state.CanonicalState) string {
 	}
 	return b.String()
 }
+
+// renderForAIAgentsAppendix appends the dual-audience machine-oriented section (§8.29.6).
+func renderForAIAgentsAppendix(s state.CanonicalState, docKey string) string {
+	var b strings.Builder
+	b.WriteString("## For AI Agents\n\n")
+	b.WriteString("### Stack\n\n")
+	b.WriteString(renderTechStack(s))
+	b.WriteString("### Key Contracts\n\n")
+	b.WriteString("- Module paths follow vertical-slice layout under `backend/internal/modules/`\n")
+	b.WriteString("- Cross-module communication uses exported service interfaces only\n")
+	b.WriteString("- LLM calls go through `LLMProvider`; A2A via platform wrapper\n")
+	b.WriteString(fmt.Sprintf("- Primary artifact: `%s` — preserve heading order when editing\n\n", docKey))
+	b.WriteString("### Implementation Order\n\n")
+	if len(s.ExecutionPlan) > 0 {
+		for i, step := range s.ExecutionPlan {
+			b.WriteString(fmt.Sprintf("%d. %s\n", i+1, step.Title))
+		}
+		b.WriteString("\n")
+	} else {
+		b.WriteString("1. Scaffold project structure\n2. Implement core modules\n3. Wire HTTP handlers and frontend\n\n")
+	}
+	b.WriteString("### Out of Scope\n\n")
+	b.WriteString("- Microservices between modules\n")
+	b.WriteString("- Direct LLM SDK usage in business modules\n")
+	b.WriteString("- Non-deterministic IDs or runtime role alternation\n\n")
+	return b.String()
+}

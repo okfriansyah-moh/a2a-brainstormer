@@ -1,0 +1,1 @@
+Fixed roles at session creation · min 2 agents · ordered by `session_agents.position ASC` · each agent receives previous agent's output · state persisted once per full pass · no runtime role alternation.Full algorithm: `.github/skills/multi-agent-role-orchestration/SKILL.md`

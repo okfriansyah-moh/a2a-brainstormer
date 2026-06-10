@@ -1,0 +1,1 @@
+Modules export service interfaces only — no cross-module internal importsNo `map[string]any` across module boundaries — typed structs`backend/internal/platform/` = shared infra; `backend/internal/shared/` = shared typesEntry: `backend/cmd/server/main.go` — single deployable, no inter-module RPC
