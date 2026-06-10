@@ -43,9 +43,10 @@ func TestGenerateReadme_StructuralSections(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## Overview",
-		"## Quick Start",
+		"## Getting Started",
 		"## Configuration",
 		"## Roadmap",
+		"## For AI Agents",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected output to contain %q", want)

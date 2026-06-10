@@ -1566,7 +1566,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 34 — Guided Onboarding v2, Plan Consolidation, Doc Quality v2, and Artifact Persistence
+### Task 34 — Guided Onboarding v2, Plan Consolidation, Doc Quality v2, and Artifact Persistence <!-- ✅ Task 34 completed -->
 
 **Goal:** Ship the `frontend/mockups/v2.html` onboarding experience and close four product gaps identified in the Ngoding Pake AI competitive review: (1) tech-constraint picker on the new-session flow, (2) user-first discovery questions with optional LLM-generated chip hints, (3) deprecate `roadmap.md` in favour of a single consolidated `plan.md` output, (4) raise the dual-audience quality bar for all generated documents (human-readable **and** AI-coding-agent ready), and (5) persist finalized document bodies in PostgreSQL so history and revisit views load instantly without re-running the generator. See §8.29 for the full contract.
 

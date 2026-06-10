@@ -19,6 +19,8 @@ import {
   iterate,
   finalizeSession,
   listSessions,
+  fetchDiscoveryHints,
+  listSessionArtifacts,
   getAgents,
   createAgent,
   updateAgent,
@@ -169,9 +171,9 @@ describe("finalizeSession", () => {
           content: "# Architecture\n\nDetails here.",
           line_count: 3,
         },
-        roadmap: {
-          filename: "roadmap.md",
-          content: "# Roadmap\n\nPhase 1: ...",
+        plan: {
+          filename: "plan.md",
+          content: "# Plan\n\nMilestones here.",
           line_count: 3,
         },
       },
@@ -183,7 +185,7 @@ describe("finalizeSession", () => {
     expect(result.documents["architecture"].content).toContain(
       "# Architecture",
     );
-    expect(result.documents["roadmap"].content).toContain("# Roadmap");
+    expect(result.documents["plan"].content).toContain("# Plan");
     expect(result.status).toBe("approved");
   });
 
@@ -250,6 +252,36 @@ describe("listSessions", () => {
       status: 500,
       name: "ApiError",
     });
+  });
+});
+
+describe("fetchDiscoveryHints", () => {
+  it("returns chip hints on 200", async () => {
+    mockFetch(200, { q2: ["Auth"], q3: ["Latency"], q4: ["Saves time"] });
+    const result = await fetchDiscoveryHints("A long enough product idea here");
+    expect(result.q2).toEqual(["Auth"]);
+  });
+});
+
+describe("listSessionArtifacts", () => {
+  it("returns artifacts list on 200", async () => {
+    mockFetch(200, {
+      artifacts: [
+        {
+          id: "a1",
+          session_id: "s1",
+          doc_key: "plan",
+          filename: "x_plan.md",
+          content: "# Plan",
+          line_count: 2,
+          source: "ai",
+          generated_at: "2024-01-01T00:00:00Z",
+        },
+      ],
+    });
+    const result = await listSessionArtifacts("s1");
+    expect(result.artifacts).toHaveLength(1);
+    expect(result.artifacts[0].doc_key).toBe("plan");
   });
 });
 

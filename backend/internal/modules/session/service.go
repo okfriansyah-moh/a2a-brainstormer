@@ -17,6 +17,7 @@ import (
 	"a2a-brainstorm/backend/internal/modules/agent"
 	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/sse"
+	"a2a-brainstorm/backend/internal/shared"
 )
 
 // ErrStateNotReady is returned by FinalizeSession when the canonical state
@@ -155,11 +156,31 @@ func (s *Service) CreateSession(ctx context.Context, req CreateSessionRequest) (
 	}
 
 	// Build the session row to be persisted transactionally with session_agents.
+	discovery := DiscoveryAnswers{}
+	if req.DiscoveryAnswers != nil {
+		discovery = *req.DiscoveryAnswers
+	}
+	constraints := shared.DefaultTechConstraints()
+	if req.TechConstraints != nil {
+		constraints = *req.TechConstraints
+	}
+
+	seedState := SeedInitialState(req.Idea, discovery, constraints)
+	if err := state.Validate(seedState); err != nil {
+		return Session{}, fmt.Errorf("invalid seeded canonical state: %w", err)
+	}
+
+	enrichedIdea := CompileEnrichedIdea(req.Idea, discovery, constraints)
+
 	sessionInput := Session{
-		Idea:          req.Idea,
-		Status:        StatusActive,
-		MaxIterations: maxIter,
-		OutputDocs:    outputDocs,
+		Idea:             req.Idea,
+		Status:           StatusActive,
+		MaxIterations:    maxIter,
+		OutputDocs:       outputDocs,
+		DiscoveryAnswers: discovery,
+		TechConstraints:  constraints,
+		EnrichedIdea:     enrichedIdea,
+		CurrentState:     &seedState,
 	}
 
 	// Assign roles: use overrides when present, otherwise DefaultRoles distribution.
@@ -344,6 +365,29 @@ func (s *Service) UpdateOutputDocs(ctx context.Context, id string, docs []string
 	return nil
 }
 
+// PersistArtifacts stores generated documents after finalize (§8.29.7).
+func (s *Service) PersistArtifacts(ctx context.Context, sessionID string, docs map[string]shared.GeneratedDocument) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	if err := s.repo.UpsertArtifacts(ctx, sessionID, docs); err != nil {
+		return fmt.Errorf("persist artifacts: %w", err)
+	}
+	return nil
+}
+
+// GetArtifacts returns persisted finalized documents for a session.
+func (s *Service) GetArtifacts(ctx context.Context, sessionID string) (ListArtifactsResponse, error) {
+	artifacts, err := s.repo.ListArtifacts(ctx, sessionID)
+	if err != nil {
+		return ListArtifactsResponse{}, fmt.Errorf("get artifacts: %w", err)
+	}
+	if artifacts == nil {
+		artifacts = []SessionArtifact{}
+	}
+	return ListArtifactsResponse{Artifacts: artifacts}, nil
+}
+
 // validateOutputDocs enforces the shared rules:
 //   - at least one key
 //   - every key is in AllowedOutputDocs
@@ -355,7 +399,7 @@ func validateOutputDocs(docs []string) error {
 	seen := make(map[string]struct{}, len(docs))
 	for _, key := range docs {
 		if !AllowedOutputDocs[key] {
-			return fmt.Errorf("invalid output doc key %q: must be one of architecture, roadmap, plan, readme", key)
+			return fmt.Errorf("invalid output doc key %q: must be one of architecture, plan, readme", key)
 		}
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("duplicate output doc key %q", key)

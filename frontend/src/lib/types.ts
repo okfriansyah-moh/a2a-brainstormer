@@ -73,6 +73,44 @@ export interface PreviewResult {
 
 // ── Canonical state model (§8.1) ─────────────────────────────────────────────
 
+/** Tech constraint tiers from guided onboarding (§8.29.3). */
+export interface TechConstraints {
+  agents_decide: boolean;
+  must_use?: string[];
+  comfortable_with?: string[];
+  avoid_if_possible?: string[];
+}
+
+/** Optional discovery clarify answers (§8.29.2). */
+export interface DiscoveryAnswers {
+  q1?: string;
+  q2?: string[];
+  q3?: string[];
+  q4?: string[];
+}
+
+/** One persisted finalized document row. */
+export interface SessionArtifact {
+  id: string;
+  session_id: string;
+  doc_key: string;
+  filename: string;
+  content: string;
+  line_count: number;
+  source: "deterministic" | "hybrid" | "ai";
+  generated_at: string;
+}
+
+export interface ListArtifactsResponse {
+  artifacts: SessionArtifact[];
+}
+
+export interface DiscoveryHintsResponse {
+  q2: string[];
+  q3: string[];
+  q4: string[];
+}
+
 /** Idea captured at session creation. */
 export interface Idea {
   text?: string;
@@ -162,6 +200,9 @@ export interface Session {
   status: "active" | "running" | "converged" | "approved" | "failed";
   max_iterations: number;
   output_docs: string[];
+  discovery_answers?: DiscoveryAnswers;
+  tech_constraints?: TechConstraints;
+  enriched_idea?: string;
   current_state: CanonicalState | null;
   created_at: string;
   updated_at: string;
@@ -177,6 +218,8 @@ export interface CreateSessionRequest {
   agent_ids: string[]; // min 2 required
   max_iterations?: number;
   output_docs?: string[];
+  discovery_answers?: DiscoveryAnswers;
+  tech_constraints?: TechConstraints;
   role_overrides?: Record<string, string>;
   llm_overrides?: Record<string, Partial<LLMConfig>>;
   skill_overrides?: Record<string, string[]>;
@@ -254,7 +297,7 @@ export interface UpdateOutputDocsRequest {
 
 /**
  * Response from POST /sessions/{id}/finalize.
- * Documents is a map keyed by output doc key ("architecture", "roadmap", etc.).
+ * Documents is a map keyed by output doc key ("architecture", "plan", etc.).
  */
 export interface FinalizeResponse {
   session_id: string;

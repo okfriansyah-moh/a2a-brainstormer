@@ -51,7 +51,7 @@ func TestWriteArtifacts_CreatesFiles(t *testing.T) {
 		t.Fatalf("WriteArtifacts returned error: %v", err)
 	}
 
-	for _, suffix := range []string{"architecture.md", "roadmap.md"} {
+	for _, suffix := range []string{"architecture.md", "plan.md"} {
 		name := expectedSlug() + "_" + suffix
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)

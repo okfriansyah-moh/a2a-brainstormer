@@ -33,31 +33,34 @@ const (
 // Task 29 will register generator implementations for each key.
 var AllowedOutputDocs = map[string]bool{
 	"architecture": true,
-	"roadmap":      true,
 	"plan":         true,
 	"readme":       true,
 }
 
 // DefaultOutputDocs is the default document selection applied when
 // CreateSessionRequest.OutputDocs is nil or empty.
-var DefaultOutputDocs = []string{"architecture", "roadmap"}
+var DefaultOutputDocs = []string{"architecture", "plan"}
 
 // Session is the top-level aggregate for a brainstorm run.
-// CurrentState is nil until the first iteration pipeline pass completes.
+// CurrentState is seeded at CreateSession (iteration 0) from discovery answers,
+// then updated after each full iteration pipeline pass.
 // Agents is populated on single-session GET requests; it is omitted on list responses.
 // AgentCount is populated only by ListSessions (via a subquery COUNT); it is
 // zero on single-session GET responses (use len(Agents) there instead).
 type Session struct {
-	ID            string                `json:"id"`
-	Idea          string                `json:"idea"`
-	Status        string                `json:"status"`
-	MaxIterations int                   `json:"max_iterations"`
-	OutputDocs    []string              `json:"output_docs"`
-	CurrentState  *state.CanonicalState `json:"current_state,omitempty"`
-	CreatedAt     time.Time             `json:"created_at"`
-	UpdatedAt     time.Time             `json:"updated_at"`
-	Agents        []SessionAgent        `json:"agents,omitempty"`
-	AgentCount    int                   `json:"-"` // list-only, not serialised
+	ID               string                `json:"id"`
+	Idea             string                `json:"idea"`
+	Status           string                `json:"status"`
+	MaxIterations    int                   `json:"max_iterations"`
+	OutputDocs       []string              `json:"output_docs"`
+	DiscoveryAnswers DiscoveryAnswers      `json:"discovery_answers,omitempty"`
+	TechConstraints  shared.TechConstraints `json:"tech_constraints,omitempty"`
+	EnrichedIdea     string                `json:"enriched_idea,omitempty"`
+	CurrentState     *state.CanonicalState `json:"current_state,omitempty"`
+	CreatedAt        time.Time             `json:"created_at"`
+	UpdatedAt        time.Time             `json:"updated_at"`
+	Agents           []SessionAgent        `json:"agents,omitempty"`
+	AgentCount       int                   `json:"-"` // list-only, not serialised
 }
 
 // SessionAgent represents one agent binding within a session.
@@ -93,16 +96,18 @@ type SessionAgent struct {
 // defaults. Explicit empty slice = disable all. Non-empty = use those IDs.
 //
 // OutputDocs: optional list of document keys to generate at finalize time.
-// Valid keys: architecture, roadmap, plan, readme.
-// When nil or empty, defaults to ["architecture","roadmap"].
+// Valid keys: architecture, plan, readme.
+// When nil or empty, defaults to ["architecture","plan"].
 type CreateSessionRequest struct {
-	Idea           string                    `json:"idea"`
-	AgentIDs       []string                  `json:"agent_ids"`
-	MaxIterations  int                       `json:"max_iterations,omitempty"`
-	OutputDocs     []string                  `json:"output_docs,omitempty"`
-	RoleOverrides  map[string]string         `json:"role_overrides,omitempty"`
-	LLMOverrides   map[string]*llm.LLMConfig `json:"llm_overrides,omitempty"`
-	SkillOverrides map[string]*[]string      `json:"skill_overrides,omitempty"`
+	Idea             string                    `json:"idea"`
+	AgentIDs         []string                  `json:"agent_ids"`
+	MaxIterations    int                       `json:"max_iterations,omitempty"`
+	OutputDocs         []string                  `json:"output_docs,omitempty"`
+	DiscoveryAnswers   *DiscoveryAnswers         `json:"discovery_answers,omitempty"`
+	TechConstraints    *shared.TechConstraints   `json:"tech_constraints,omitempty"`
+	RoleOverrides      map[string]string         `json:"role_overrides,omitempty"`
+	LLMOverrides       map[string]*llm.LLMConfig `json:"llm_overrides,omitempty"`
+	SkillOverrides     map[string]*[]string      `json:"skill_overrides,omitempty"`
 }
 
 // UpdateOutputDocsRequest is the body for PATCH /sessions/{id}/output-docs.
@@ -145,9 +150,26 @@ type ListSessionsResponse struct {
 // working with FinalizeResponse.
 type GeneratedDocument = shared.GeneratedDocument
 
+// SessionArtifact is one persisted finalized document row.
+type SessionArtifact struct {
+	ID          string    `json:"id"`
+	SessionID   string    `json:"session_id"`
+	DocKey      string    `json:"doc_key"`
+	Filename    string    `json:"filename"`
+	Content     string    `json:"content"`
+	LineCount   int       `json:"line_count"`
+	Source      string    `json:"source"`
+	GeneratedAt time.Time `json:"generated_at"`
+}
+
+// ListArtifactsResponse is returned by GET /sessions/{id}/artifacts.
+type ListArtifactsResponse struct {
+	Artifacts []SessionArtifact `json:"artifacts"`
+}
+
 // FinalizeResponse is the response body for POST /sessions/{id}/finalize.
-// Documents is a map keyed by output doc key ("architecture", "roadmap",
-// "plan", "readme") to the generated artifact. Only the keys that were
+// Documents is a map keyed by output doc key ("architecture", "plan",
+// "readme") to the generated artifact. Only the keys that were
 // requested for the session are present.
 type FinalizeResponse struct {
 	SessionID string                              `json:"session_id"`

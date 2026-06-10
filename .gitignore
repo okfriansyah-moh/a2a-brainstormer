@@ -176,6 +176,9 @@ playwright-report/
 .copilot/
 .promptfoo/
 .llm/
+.agents/
+.codex/
+CLAUDE.md
 
 # Ignore local chat transcript/debug artifacts (user machine paths)
 transcripts/

@@ -1,0 +1,1 @@
+See `.github/skills/coding-standards/SKILL.md` — name files after domain concept (`convergence_engine.go` not `phase4.go`).

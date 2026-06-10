@@ -1,0 +1,1 @@
+See `AGENTS.md` § Always-Active Skills: `brainstorming`, `writing-plans`, `subagent-driven-development`, `test-driven-development`, `caveman`, `rtk`.Load via `#file:.github/skills/<name>/SKILL.md` or task-specific set from `index.json`.

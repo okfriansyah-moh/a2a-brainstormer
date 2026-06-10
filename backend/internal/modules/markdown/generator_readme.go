@@ -51,11 +51,12 @@ func GenerateReadme(s state.CanonicalState) (string, error) {
 	b.WriteString("## Project Structure\n\n")
 	b.WriteString(renderDirectoryTree(s))
 
-	// ── Quick Start ─────────────────────────────────────────────────────────
-	b.WriteString("## Quick Start\n\n")
+	// ── Quick Start / Getting Started ─────────────────────────────────────────
+	b.WriteString("## Getting Started\n\n")
 	b.WriteString("```bash\n")
 	b.WriteString("# Clone, install dependencies, run.\n")
 	b.WriteString("git clone <repository-url> && cd <project>\n")
+	b.WriteString("make dev\n")
 	b.WriteString("```\n\n")
 
 	// ── Configuration ───────────────────────────────────────────────────────
@@ -80,7 +81,7 @@ func GenerateReadme(s state.CanonicalState) (string, error) {
 			}
 		}
 		if len(s.ExecutionPlan) > limit {
-			b.WriteString(fmt.Sprintf("- _… and %d more phase(s) — see the full roadmap document._\n",
+			b.WriteString(fmt.Sprintf("- _… and %d more phase(s) — see the full plan document._\n",
 				len(s.ExecutionPlan)-limit))
 		}
 		b.WriteString("\n")
@@ -93,6 +94,9 @@ func GenerateReadme(s state.CanonicalState) (string, error) {
 	// ── Status footer ───────────────────────────────────────────────────────
 	b.WriteString(fmt.Sprintf("---\n_Iteration %d · Confidence %.4f_\n",
 		s.Meta.Iteration, s.Metrics.Confidence))
+
+	b.WriteString("\n")
+	b.WriteString(renderForAIAgentsAppendix(s, "readme"))
 
 	return b.String(), nil
 }

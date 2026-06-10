@@ -80,10 +80,11 @@ func run(ctx context.Context, log *logger.Logger) error {
 	// ── Markdown writer ─────────────────────────────────────────────────────
 	outputDir := config.GetOutputDir()
 	mdWriter := buildMarkdownWriter(ctx, log.Slog())
+	hintsSvc := buildDiscoveryHintsService(log.Slog())
 
 	// ── Handlers ────────────────────────────────────────────────────────────
 	agentHandler := agentmod.NewHandler(agentSvc, log.Slog())
-	sessHandler := sessmod.NewHandler(sessSvc, mdWriter, outputDir, log.Slog())
+	sessHandler := sessmod.NewHandler(sessSvc, mdWriter, hintsSvc, outputDir, log.Slog())
 	iterHandler := itermod.NewHandler(iterSvc, broadcaster, log.Slog())
 
 	// ── Router ──────────────────────────────────────────────────────────────
@@ -238,6 +239,25 @@ func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.Markdown
 	)
 	_ = ctx // reserved for future cancellation wiring
 	return markdown.NewOrchestrator(mode, gen)
+}
+
+// buildDiscoveryHintsService constructs the optional LLM-backed discovery hints
+// service. Falls back to static-only hints when no LLM credential is available.
+func buildDiscoveryHintsService(log *slog.Logger) *sessmod.DiscoveryHintsService {
+	credRef := config.GetGlobalLLMCredentialRef()
+	if credRef == "" {
+		return sessmod.NewDiscoveryHintsService(nil, log)
+	}
+	if _, err := config.GetLLMAPIKey(credRef); err != nil {
+		return sessmod.NewDiscoveryHintsService(nil, log)
+	}
+	llmCfg := llm.LLMConfig{
+		Provider:      config.GetGlobalLLMProvider(),
+		Model:         config.GetGlobalLLMModel(),
+		CredentialRef: credRef,
+	}
+	provider := llm.NewCopilotProvider(llmCfg, "", nil)
+	return sessmod.NewDiscoveryHintsService(provider, log)
 }
 
 // splitOpenCodeModel splits a "providerID/modelID" string into its two parts.

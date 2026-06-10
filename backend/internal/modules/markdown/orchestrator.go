@@ -95,7 +95,7 @@ func (o *Orchestrator) GenerateAll(ctx context.Context, s state.CanonicalState, 
 // are written (defaults to architecture + roadmap when nil/empty).
 func (o *Orchestrator) WriteArtifacts(ctx context.Context, s state.CanonicalState, outputDir string, keys []string) error {
 	if len(keys) == 0 {
-		keys = []string{"architecture", "roadmap"}
+		keys = []string{"architecture", "plan"}
 	}
 	docs, err := o.GenerateAll(ctx, s, keys)
 	if err != nil {
