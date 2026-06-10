@@ -67,3 +67,19 @@ func TestSeedInitialState_MapsDiscoveryFields(t *testing.T) {
 		t.Fatalf("assumptions = %v", cs.Assumptions)
 	}
 }
+
+func TestSeedInitialState_WhitespaceOnlyQ2DoesNotPanic(t *testing.T) {
+	answers := DiscoveryAnswers{Q2: []string{"  ", "\t", ""}}
+	constraints := shared.TechConstraints{AgentsDecide: true}
+
+	cs := SeedInitialState("Idea text", answers, constraints)
+	if err := state.Validate(cs); err != nil {
+		t.Fatalf("seeded state invalid: %v", err)
+	}
+	if _, ok := cs.Idea["mvp_must_haves"]; ok {
+		t.Fatalf("expected no mvp_must_haves for whitespace-only Q2, got %v", cs.Idea["mvp_must_haves"])
+	}
+	if len(cs.ExecutionPlan) != 0 {
+		t.Fatalf("expected empty execution_plan, got %+v", cs.ExecutionPlan)
+	}
+}

@@ -156,7 +156,17 @@
     user-select: none;
     flex-shrink: 0;
   }
-  .toggle-wrap input { display: none; }
+  .toggle-wrap input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .toggle-track {
     position: relative;
     width: 40px;

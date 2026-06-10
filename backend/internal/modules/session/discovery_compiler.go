@@ -92,12 +92,14 @@ func SeedInitialState(idea string, answers DiscoveryAnswers, constraints shared.
 
 	if len(answers.Q2) > 0 {
 		mvp := dedupeStrings(answers.Q2)
-		cs.Idea["mvp_must_haves"] = mvp
-		first := mvp[0]
-		cs.ExecutionPlan = []state.Step{{
-			Title:       first,
-			Description: fmt.Sprintf("MVP must-have from discovery: %s", first),
-		}}
+		if len(mvp) > 0 {
+			cs.Idea["mvp_must_haves"] = mvp
+			first := mvp[0]
+			cs.ExecutionPlan = []state.Step{{
+				Title:       first,
+				Description: fmt.Sprintf("MVP must-have from discovery: %s", first),
+			}}
+		}
 	}
 
 	for _, item := range dedupeStrings(answers.Q3) {

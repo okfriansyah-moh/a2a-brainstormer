@@ -23,7 +23,6 @@
   let maxIterations = 5;
   let selectedDocs: string[] = ["architecture", "plan"];
   let techConstraints: TechConstraintsType = { agents_decide: true };
-  let discoveryAnswers: DiscoveryAnswers = {};
   let submitting = false;
   let error = "";
 
@@ -66,7 +65,6 @@
     if (!canProceed) return;
     submitting = true;
     error = "";
-    discoveryAnswers = answers;
     try {
       const llmOverrides: Record<string, Partial<LLMConfig>> = {};
       for (const [agentId, model] of Object.entries(modelOverrides)) {

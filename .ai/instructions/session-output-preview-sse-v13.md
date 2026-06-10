@@ -1,1 +1,7 @@
-`POST /sessions`: `agent_ids` ≥ 2 (400 otherwise); `skill_overrides` / `role_overrides` / `output_docs` per `§8` and Task 28Output docs: `GenerateAll(state, keys)` registry in `markdown/generator.go` — keys: `architecture`, `roadmap`, `plan`, `readme`Preview/apply: `iteration/preview.go` — `POST/GET /sessions/{id}/preview/{agentID}`, `POST .../apply`SSE: `platform/sse/broadcaster.go` — `GET /sessions/{id}/events`; native `EventSource` in frontend; fire-and-forget
+`POST /sessions`: `agent_ids` ≥ 2 (400 otherwise); `skill_overrides` / `role_overrides` / `output_docs` per `§8` and Task 28.
+
+Output docs: `GenerateAll(state, keys)` registry in `markdown/generator.go` — keys: `architecture`, `plan`, `readme`.
+
+Preview/apply: `iteration/preview.go` — `POST/GET /sessions/{id}/preview/{agentID}`, `POST .../apply`.
+
+SSE: `platform/sse/broadcaster.go` — `GET /sessions/{id}/events`; native `EventSource` in frontend; fire-and-forget.

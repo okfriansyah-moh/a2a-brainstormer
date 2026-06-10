@@ -42,7 +42,8 @@ var AllowedOutputDocs = map[string]bool{
 var DefaultOutputDocs = []string{"architecture", "plan"}
 
 // Session is the top-level aggregate for a brainstorm run.
-// CurrentState is nil until the first iteration pipeline pass completes.
+// CurrentState is seeded at CreateSession (iteration 0) from discovery answers,
+// then updated after each full iteration pipeline pass.
 // Agents is populated on single-session GET requests; it is omitted on list responses.
 // AgentCount is populated only by ListSessions (via a subquery COUNT); it is
 // zero on single-session GET responses (use len(Agents) there instead).
