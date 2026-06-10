@@ -32,7 +32,8 @@
       };
       const skill = await createSkill(req);
       agentRegistryStore.addSkill(skill);
-      await goto("/settings?tab=skills");
+      const toastMessage = encodeURIComponent(`Skill "${skill.name}" created.`);
+      await goto(`/settings?tab=skills&toast=${toastMessage}`);
     } catch (err) {
       error = err instanceof Error ? err.message : "Failed to create skill.";
     } finally {

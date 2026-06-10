@@ -37,7 +37,6 @@
   let submitting = false;
   let deleting = false;
   let error = "";
-  let successMessage = "";
 
   // ── Validation ───────────────────────────────────────────────────────────
 
@@ -56,7 +55,6 @@
     if (!skillId || !formValid || submitting) return;
     submitting = true;
     error = "";
-    successMessage = "";
     try {
       const req: UpdateSkillRequest = {
         name: name.trim(),
@@ -65,7 +63,8 @@
       };
       const updated = await updateSkill(skillId, req);
       agentRegistryStore.updateSkill(updated);
-      successMessage = `Skill "${updated.name}" saved.`;
+      const toastMessage = encodeURIComponent(`Skill "${updated.name}" saved.`);
+      await goto(`/settings?tab=skills&toast=${toastMessage}`);
     } catch (err) {
       error = err instanceof Error ? err.message : "Failed to update skill.";
     } finally {
@@ -150,9 +149,6 @@
     {:else}
       {#if error}
         <div class="feedback-error" role="alert">{error}</div>
-      {/if}
-      {#if successMessage}
-        <div class="feedback-success" role="status">{successMessage}</div>
       {/if}
 
       <!-- Skill Name -->
@@ -405,16 +401,6 @@
     border-radius: 8px;
     padding: 10px 14px;
     color: var(--danger);
-    font-size: 0.875rem;
-    margin-bottom: 20px;
-  }
-
-  .feedback-success {
-    background: rgba(27, 159, 102, 0.08);
-    border: 1px solid rgba(27, 159, 102, 0.25);
-    border-radius: 8px;
-    padding: 10px 14px;
-    color: var(--ok);
     font-size: 0.875rem;
     margin-bottom: 20px;
   }

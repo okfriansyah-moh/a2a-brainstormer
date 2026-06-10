@@ -71,7 +71,8 @@
         selectedSkillIds.has(s.id),
       );
       agentRegistryStore.addAgent({ ...agent, skills: attachedSkills });
-      await goto("/settings?tab=agents");
+      const toastMessage = encodeURIComponent(`Agent "${agent.name}" created.`);
+      await goto(`/settings?tab=agents&toast=${toastMessage}`);
     } catch (err) {
       error = err instanceof Error ? err.message : "Failed to create agent.";
     } finally {

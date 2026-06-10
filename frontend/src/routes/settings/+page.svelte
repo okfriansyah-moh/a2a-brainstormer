@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { agentRegistryStore } from "$lib/stores/agentRegistryStore";
@@ -21,6 +21,33 @@
 
   let error = "";
   let successMessage = "";
+  let toastMessage = "";
+  let toastTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function clearToastQueryParam(): Promise<void> {
+    const params = new URLSearchParams($page.url.searchParams);
+    params.delete("toast");
+    const query = params.toString();
+    await goto(query ? `?${query}` : "?tab=agents", {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true,
+    });
+  }
+
+  $: {
+    const queryToast = $page.url.searchParams.get("toast") ?? "";
+    if (queryToast && queryToast !== toastMessage) {
+      toastMessage = queryToast;
+      if (toastTimeout) {
+        clearTimeout(toastTimeout);
+      }
+      toastTimeout = setTimeout(() => {
+        toastMessage = "";
+        void clearToastQueryParam();
+      }, 2800);
+    }
+  }
 
   // ── Agent actions ─────────────────────────────────────────────────────────
 
@@ -109,6 +136,12 @@
       error = err instanceof Error ? err.message : "Failed to load data.";
     } finally {
       agentRegistryStore.setLoading(false);
+    }
+  });
+
+  onDestroy(() => {
+    if (toastTimeout) {
+      clearTimeout(toastTimeout);
     }
   });
 </script>
@@ -390,6 +423,10 @@
       {/if}
     {/if}
   </div>
+
+  {#if toastMessage}
+    <div class="toast-ok" role="status" aria-live="polite">{toastMessage}</div>
+  {/if}
 </div>
 
 <style>
@@ -574,6 +611,21 @@
     font-size: 13px;
   }
 
+  .toast-ok {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    max-width: min(460px, calc(100vw - 32px));
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--ok) 86%, black);
+    color: #fff;
+    border: 1px solid color-mix(in oklab, var(--ok) 70%, black);
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
+    font-size: 13px;
+    z-index: 35;
+  }
+
   /* ─── Loading / empty ───────────────────────────────────────────── */
   .loading-msg {
     color: var(--ink-300);
@@ -624,5 +676,14 @@
     color: var(--ink-500);
     margin-top: 14px;
     margin-bottom: 0;
+  }
+
+  @media (max-width: 640px) {
+    .toast-ok {
+      left: 16px;
+      right: 16px;
+      bottom: 16px;
+      max-width: none;
+    }
   }
 </style>
