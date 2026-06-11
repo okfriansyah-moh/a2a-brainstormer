@@ -57,9 +57,9 @@ func GetMinConfidenceFloor() float64 {
 // ── Global LLM defaults ───────────────────────────────────────────────────────
 
 // GetGlobalLLMProvider returns the default LLM provider name.
-// Allowed values: "copilot" | "claude". Defaults to "copilot".
+// Allowed values: "copilot" | "opencode". Defaults to "opencode".
 func GetGlobalLLMProvider() string {
-	return envString("GLOBAL_LLM_PROVIDER", "copilot")
+	return envString("GLOBAL_LLM_PROVIDER", "opencode")
 }
 
 // GetGlobalLLMModel returns the default LLM model name. Defaults to "gpt-4o".

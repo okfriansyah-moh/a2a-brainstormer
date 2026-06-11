@@ -56,7 +56,9 @@ Each step SHOULD include these structured fields when applicable:
 
 ## Style rules
 
+- Return plain JSON only — no Markdown fences, no commentary, no prose outside the object.
 - DO NOT repeat the project idea text inside any field other than ` + "`idea`" + `.
 - DO NOT pad lists with placeholder filler entries; only include real items.
 - Keep ` + "`risks`" + ` array entries concrete, with severity and resolved flag.
+- Verify the final answer parses as valid JSON before you send it.
 `

@@ -24,6 +24,7 @@
   let selectedDocs: string[] = ["architecture", "plan"];
   let techConstraints: TechConstraintsType = { agents_decide: true };
   let submitting = false;
+  let preparingClarify = false;
   let error = "";
 
   onMount(async () => {
@@ -45,7 +46,8 @@
     selectedAgentIds.length >= 2 &&
     maxIterations >= 1 &&
     maxIterations <= 20 &&
-    !submitting;
+    !submitting &&
+    !preparingClarify;
 
   $: estimatedRuntime = (() => {
     const secs = selectedAgentIds.length * maxIterations * 8;
@@ -55,10 +57,16 @@
     return s > 0 ? `~${m}m ${s}s` : `~${m}m`;
   })();
 
-  function goToClarify() {
+  async function goToClarify() {
     if (!canProceed) return;
-    step = "clarify";
+
+    preparingClarify = true;
     error = "";
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    step = "clarify";
+    preparingClarify = false;
   }
 
   async function startSession(answers: DiscoveryAnswers) {
@@ -95,10 +103,27 @@
 
 <div class="artboard">
   <div class="panel" style="max-width:920px;margin:0 auto;padding:28px;">
-    {#if step === "home"}
-      <h2 style="font-size:1.4rem;margin-bottom:6px;">Start New Design Session</h2>
+    {#if preparingClarify}
+      <div class="pre-clarify-card" aria-live="polite">
+        <div class="pre-clarify-icon">⏳</div>
+        <h2 style="font-size:1.35rem;margin:0 0 8px;">
+          Preparing discovery hints…
+        </h2>
+        <p class="pre-clarify-copy">
+          We are giving the AI a moment to generate the clarification prompts
+          for this idea.
+        </p>
+        <p class="pre-clarify-copy subtle">
+          This helps the follow-up hints load more reliably.
+        </p>
+      </div>
+    {:else if step === "home"}
+      <h2 style="font-size:1.4rem;margin-bottom:6px;">
+        Start New Design Session
+      </h2>
       <p style="color:var(--ink-500);font-size:0.875rem;margin:0 0 22px;">
-        Turn a raw idea into architecture and plan through controlled agent iterations.
+        Turn a raw idea into architecture and plan through controlled agent
+        iterations.
       </p>
 
       {#if error}
@@ -141,7 +166,9 @@
             poolMode={true}
           />
           {#if tooFewAgents}
-            <p class="hint-error">Select at least one more agent (minimum 2 required).</p>
+            <p class="hint-error">
+              Select at least one more agent (minimum 2 required).
+            </p>
           {/if}
         </div>
       </div>
@@ -151,8 +178,10 @@
       <div class="info-box">
         <div class="info-box-title">How iterations work</div>
         <p class="info-box-body">
-          Each session runs up to <strong>{maxIterations}</strong> iteration passes through
-          {selectedAgentIds.length || "selected"} agents until convergence or max iterations.
+          Each session runs up to <strong>{maxIterations}</strong> iteration
+          passes through
+          {selectedAgentIds.length || "selected"} agents until convergence or max
+          iterations.
         </p>
       </div>
 
@@ -180,7 +209,12 @@
       </div>
 
       <div class="btn-row">
-        <button type="button" class="btn-primary" disabled={!canProceed} on:click={goToClarify}>
+        <button
+          type="button"
+          class="btn-primary"
+          disabled={!canProceed}
+          on:click={goToClarify}
+        >
           Next: Clarify Idea →
         </button>
         <span class="runtime-hint">Estimated runtime: {estimatedRuntime}</span>
@@ -274,6 +308,35 @@
     justify-content: space-between;
     align-items: center;
     margin-top: 4px;
+  }
+  .pre-clarify-card {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: 28px 18px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+  }
+  .pre-clarify-icon {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    background: rgba(31, 122, 224, 0.12);
+    font-size: 1.4rem;
+  }
+  .pre-clarify-copy {
+    margin: 0;
+    color: var(--ink-600);
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+  .pre-clarify-copy.subtle {
+    color: var(--ink-500);
+    font-size: 0.85rem;
   }
   .runtime-hint {
     color: var(--ink-500);

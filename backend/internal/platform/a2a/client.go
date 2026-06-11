@@ -33,9 +33,14 @@ const (
 	retryBaseDelay = 100 * time.Millisecond
 )
 
-// cardResolver is the default AgentCard resolver with a 30-second HTTP timeout.
-// Exposed as a package-level var so tests can substitute it.
-var cardResolver = agentcard.DefaultResolver
+// cardResolver resolves AgentCards for A2A clients.
+// It is kept behind an interface so tests can swap in a flaky resolver for
+// retry-path verification without depending on real network I/O.
+type agentCardResolver interface {
+	Resolve(ctx context.Context, baseURL string, opts ...agentcard.ResolveOption) (*a2a.AgentCard, error)
+}
+
+var cardResolver agentCardResolver = agentcard.DefaultResolver
 
 // NewClient resolves the AgentCard from {agentEndpoint}/.well-known/agent-card.json
 // and constructs an a2aclient.Client using the negotiated transport.
@@ -47,24 +52,55 @@ var cardResolver = agentcard.DefaultResolver
 // The caller owns the returned *Client and must not share it across goroutines
 // without synchronisation.
 func NewClient(ctx context.Context, agentEndpoint string) (*a2aclient.Client, error) {
-	card, err := cardResolver.Resolve(ctx, agentEndpoint)
-	if err != nil {
-		return nil, fmt.Errorf("resolve agent card for %q: %w", agentEndpoint, err)
+	var lastErr error
+	delay := retryBaseDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			slog.Default().WarnContext(ctx, "A2A card resolution failed, retrying",
+				slog.Int("attempt", attempt),
+				slog.Int("max_retries", maxRetries),
+				slog.String("error", lastErr.Error()),
+				slog.String("next_delay", delay.String()),
+			)
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled while retrying A2A client setup: %w", ctx.Err())
+			case <-time.After(delay):
+			}
+			delay *= 2
+		}
+
+		card, err := cardResolver.Resolve(ctx, agentEndpoint)
+		if err != nil {
+			lastErr = err
+			if !isTransientError(err) {
+				return nil, fmt.Errorf("resolve agent card for %q: %w", agentEndpoint, err)
+			}
+			continue
+		}
+
+		// Override the SDK default 3-minute HTTP timeout with a longer,
+		// configurable value so that large LLM inference calls don't time out
+		// prematurely. The same client is reused for JSON-RPC and REST calls.
+		httpClient := &http.Client{Timeout: config.GetAgentCallTimeout()}
+
+		client, err := a2aclient.NewFromCard(ctx, card,
+			a2aclient.WithJSONRPCTransport(httpClient),
+			a2aclient.WithRESTTransport(httpClient),
+		)
+		if err != nil {
+			lastErr = err
+			if !isTransientError(err) {
+				return nil, fmt.Errorf("create a2a client for %q: %w", agentEndpoint, err)
+			}
+			continue
+		}
+
+		return client, nil
 	}
 
-	// Override the SDK default 3-minute HTTP timeout with a longer, configurable
-	// value so that large LLM inference calls don't time out prematurely.
-	httpClient := &http.Client{Timeout: config.GetAgentCallTimeout()}
-
-	client, err := a2aclient.NewFromCard(ctx, card,
-		a2aclient.WithJSONRPCTransport(httpClient),
-		a2aclient.WithRESTTransport(httpClient),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create a2a client for %q: %w", agentEndpoint, err)
-	}
-
-	return client, nil
+	return nil, fmt.Errorf("resolve agent card for %q after %d retries: %w", agentEndpoint, maxRetries, lastErr)
 }
 
 // SendPayload packs payload as a DataPart inside an A2A message and sends it
@@ -186,8 +222,10 @@ func isTransientError(err error) bool {
 		return false
 	}
 
-	// Context errors are not transient — caller cancelled the operation.
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	// Explicit cancellation is not transient. Transient deadline expiry
+	// (for example from a slow first contact with the agent) is still worth
+	// retrying when the caller context is still alive.
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 

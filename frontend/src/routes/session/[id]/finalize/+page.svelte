@@ -10,9 +10,6 @@
   } from "$lib/services/api";
   import type { Session, GeneratedDocument } from "$lib/types";
 
-  // ── Route param ─────────────────────────────────────────────────────────
-  $: sessionId = $page.params.id;
-
   // ── Component state ─────────────────────────────────────────────────────
   let session: Session | null = null;
   let pageLoading = true;
@@ -196,9 +193,7 @@
         if (cached.artifacts.length > 0) {
           documents = artifactsToDocuments(cached.artifacts);
           queuedKeys = Object.keys(documents);
-          perDocStatus = Object.fromEntries(
-            queuedKeys.map((k) => [k, "done"]),
-          );
+          perDocStatus = Object.fromEntries(queuedKeys.map((k) => [k, "done"]));
           generated = true;
           loadedFromCache = true;
           logBadgeDone = true;
@@ -284,16 +279,6 @@
         <span class="chip-ok fin-status-chip">Already finalized</span>
       {:else if loadedFromCache}
         <span class="chip-ok fin-status-chip">Cached artifacts</span>
-      {/if}
-      {#if session?.status !== "approved"}
-        <a
-          href={`/session/${sessionId}`}
-          class="topbar-link"
-          on:click={(e) => {
-            e.preventDefault();
-            goto(`/session/${sessionId}`);
-          }}>← Back to Session</a
-        >
       {/if}
     </div>
   </div>
