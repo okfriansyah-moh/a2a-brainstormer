@@ -1,7 +1,9 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 1.8
-> **Date:** 2026-06-09 (updated with Guided Onboarding v2 + doc consolidation + artifact persistence)
+> **Version:** 3.0
+> **Date:** 2026-06-12 (inserted Task 37 — README.md Generation Quality Overhaul; renumbered original Tasks 37–47 to Tasks 38–48)
+> **Change in v3.0:** Inserted Task 37 — README.md: Generation Quality Overhaul (Enricher + Correct Section Structure). Rewrites `generator_readme.go` to produce all 13 required sections (title, tagline, description paragraph, golden rule, "What it is NOT", "When to use" with Mermaid flowchart + numbered scenarios + code, Prerequisites/Installation, Quick Start, Architecture with ASCII and Mermaid, Command Reference table, Tech Stack, Repository Format, Contributing); removes wrong sections (Known Risks top-level, For AI Agents appendix, Phase-N roadmap). Adds `markdown/aigen/readme_enricher.go` (Approach B) LLM post-pass with `ReadmeEnrichmentOverlay` schema filling golden_rule, when_to_use scenarios, Mermaid flowcharts, quick_start_commands, command_reference, contributing_note, prerequisites. Adds `agent/internal/executor/prompts/readme_format.go` (Approach C) agent prompt constant injected when `readme` is in `output_docs`. Updates rubric ForbiddenStrings + RequiredPatterns. Original Tasks 37–47 renumbered 38–48. New §8.32 documents the README quality standard, enricher schema, enricher LLM prompt, Approach C fragment, and rubric assertions.
+> **Change in v2.0:** Inserted Task 36 — PLAN.md Generation Quality Overhaul (Enricher + Correct Task Format). Adds a new `markdown/aigen/plan_enricher.go` single-call LLM post-pass (Approach B) that restructures generated PLAN.md: merges §3 Phase Breakdown into properly-formatted §5 Implementation Tasks, rewrites thin "see phase deliverables" stubs into full `**Goal:**`/`**Files to create:**`/`**Validation:**`/`**Prompt context needed:**` specs, adds `**Invariant check:**` and `**Layer(s) affected:**` per task, deduplicates the Risks section, auto-generates §8 Deep Knowledge from canonical state, and emits an ASCII dependency graph. Adds a new `agent/internal/executor/prompts/plan_format.go` constant (Approach C) injected into agent system prompts when `plan` is in `output_docs`, directing agents to write tasks in the correct spec format (not "Phase N") with runnable validation commands. Fixes §1 Goals always-empty bug. Original Tasks 36–46 renumbered 37–47. New §8.31 documents the plan quality standard, enricher schema, and Approach C prompt spec.
 > **Author:** Core, Data and AI Team
 > **Status:** Ready for Implementation
 > **Source of Truth:** `docs/A2A-agent-Brainstorm.md`
@@ -12,6 +14,7 @@
 > **Change in v1.5:** Inserted Task 32 — Generated Document Quality Overhaul. Fixes title bug (full idea text used as H1), eliminates idea duplication, deletes `enforceMinLines` padding, blocks finalize when state is sparse (HTTP 422), introduces deterministic `{slug}_{kind}.md` filename pattern (e.g. `match-point_architecture.md`), and enriches the canonical state schema + agent role prompts so generators produce depth from real content instead of boilerplate. Original v1.4 MCP tasks renumbered 32–37 → 33–38; deep knowledge sections renumbered §8.23 → §8.24, §8.24 → §8.25, §8.25 → §8.26. New §8.23 documents the doc-quality standard.
 > **Change in v1.6:** Inserted Task 33 — AI-Driven Hybrid Document Generator with skill bundle injection. Adds a new `markdown/aigen/` sub-package that wraps the deterministic generators with per-document AI passes orchestrated by an injectable `LLMProvider` and a `SkillBundle` (modular monolith skill, vertical-slice skill, api-design skill, roadmap-spec skill, plan-management skill — each loaded as a prompt fragment). Introduces a section-level rubric validator with auto-repair loop and a `finalize_mode` config switch (`deterministic` | `hybrid` | `ai`) that defaults to `hybrid`. Deterministic generators retained as fallback. Original v1.5 MCP tasks renumbered 33–38 → 34–39. New §8.27 documents the AI-doc-gen contract.
 > **Change in v1.8:** Inserted Task 34 — Guided Onboarding v2 (tech constraints + discovery clarify flow per `frontend/mockups/v2.html`), roadmap→plan output consolidation, dual-audience document quality standard v2, and DB-backed artifact persistence for finalized sessions + history UX. Original v1.7 attachment tasks renumbered 34–44 → 35–45; attachment migrations shifted to `009`/`010`; MCP migrations shifted to `011`/`012`. New §8.29 documents the onboarding flow, discovery-hints contract, tech-constraint injection, plan-only output model, and artifact cache schema.
+> **Change in v1.9:** Inserted Task 35 — Architecture.md State Enricher + High-Quality Section Generator. Adds a 16-section deterministic generator rewrite for `architecture.md` (Problem Statement, Solution, Scope, Layers, Tech Stack, Data Flows, Module Boundaries, Architecture Decisions, Extension Points, Security Considerations, Quality Targets, System Guarantees, Risks, Assumptions, Open Questions, Definition of Done) plus a new `aigen/enricher.go` single-call LLM pre-pass that populates optional narrative state fields before the deterministic render. Fixes `strings.ToTitle` severity bug. Adds document metadata block and Table of Contents. Original Tasks 35–45 renumbered 36–46. New §8.30 documents the section contract, `ArchEnrichmentOverlay` schema, enricher LLM prompt, rubric targets, and fallback specification.
 > **Change in v1.7:** Inserted Tasks 34–38 — Hierarchical Attachment Context system (ChatGPT-style `+` upload UX). Adds a new `modules/attachment/` vertical slice + `platform/extractor/`, `platform/embeddings/`, and `platform/blobstore/` (MinIO) infrastructure. Supports four input types — file (PDF/DOCX/MD/TXT), image (vision-described), URL (server-fetched), raw text paste. Hybrid scope model (session / iteration / agent) drives lifecycle. RAG-lite retrieval via pgvector cosine similarity injects top-K chunks into each agent dispatch through a new `AttachmentRetriever` interface threaded into the iteration engine. `BrainstormPayload` gains an optional `Attachments []AttachmentChunk` field. Frontend: ChatGPT-style attachment menu mounted on home page, session page, and `PipelineStage`. Original v1.6 MCP tasks renumbered 34–39 → 39–44; their migration numbers shift 006/007 → 008/009. New §8.28 documents the attachment system contract.
 
 ---
@@ -260,37 +263,46 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
                                           Task 34 (Guided Onboarding v2 + Plan Consolidation + Artifact Persistence)
                                                      │
                                                      ▼
-                                          Task 35 (DB: Attachments + Chunks Schema — pgvector)
+                                          Task 35 (Architecture.md: State Enricher + High-Quality Section Generator)
                                                      │
                                                      ▼
-                                          Task 36 (Platform: Extractor + Embeddings + Blobstore)
+                                          Task 36 (PLAN.md: Generation Quality Overhaul — Enricher + Correct Task Format)
                                                      │
                                                      ▼
-                                          Task 37 (Backend: Attachment Module — CRUD + Upload Pipeline)
+                                          Task 37 (README.md: Generation Quality Overhaul — Enricher + Correct Section Structure)
                                                      │
                                                      ▼
-                                          Task 38 (Backend: AttachmentRetriever + Payload Extension + Engine Wiring)
+                                          Task 38 (DB: Attachments + Chunks Schema — pgvector)
                                                      │
                                                      ▼
-                                          Task 39 (Frontend: Attachment Menu + Upload Modal + Scope UX)
+                                          Task 39 (Platform: Extractor + Embeddings + Blobstore)
                                                      │
                                                      ▼
-                                          Task 40 (DB: MCP Server Registry Schema)
+                                          Task 40 (Backend: Attachment Module — CRUD + Upload Pipeline)
                                                      │
                                                      ▼
-                                          Task 41 (Backend: MCP Server Module — CRUD)
+                                          Task 41 (Backend: AttachmentRetriever + Payload Extension + Engine Wiring)
+                                                     │
+                                                     ▼
+                                          Task 42 (Frontend: Attachment Menu + Upload Modal + Scope UX)
+                                                     │
+                                                     ▼
+                                          Task 43 (DB: MCP Server Registry Schema)
+                                                     │
+                                                     ▼
+                                          Task 44 (Backend: MCP Server Module — CRUD)
                                                      │
                               ┌──────────────────────┴──────────────────────┐
                               ▼                                              ▼
-                  Task 42 (Backend: Agent–MCP                    Task 43 (Agent: MCP
+                  Task 45 (Backend: Agent–MCP                    Task 46 (Agent: MCP
                   Association + Payload Extension)                Client Package)
                               │                                              │
                               └──────────────────────┬──────────────────────┘
                                                      ▼
-                                          Task 44 (Agent: LLM Tool-Use + Executor Loop)
+                                          Task 47 (Agent: LLM Tool-Use + Executor Loop)
                                                      │
                                                      ▼
-                                          Task 45 (Frontend: MCP Settings + Smart Import)
+                                          Task 48 (Frontend: MCP Settings + Smart Import)
 ```
 
 ---
@@ -1637,7 +1649,309 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 35 — DB: Attachments + Chunks Schema (pgvector)
+### Task 35 — Architecture.md: State Enricher + High-Quality Section Generator
+
+**Goal:** Produce a publication-quality `architecture.md` with 16 ordered sections (plus document metadata block, Table of Contents, and an AI agents appendix) by implementing two complementary layers: (A) a full rewrite of `generator_architecture.go` that renders all 16 sections from the canonical state with graceful deterministic fallbacks for each section, and (B) a new `aigen/enricher.go` pre-pass that makes a single targeted LLM call to populate optional narrative state fields (`problem_statement`, `solution_summary`, `scope`, `extension_points`, `security`, `guarantees`, decision alternatives/tradeoffs, risk mitigations, tech stack rationale) before the deterministic render runs. When the enricher is disabled or the LLM call fails, each section renders from raw state or a generic stub. See §8.30 for the full section contract, enricher input/output schema, and rubric targets.
+
+**Files to create / modify:**
+
+- `backend/internal/modules/markdown/generator_architecture.go` — **rewrite** — 16-section generator (see §8.30.1 for the section sequence and heading constants):
+  - `renderMetadataBlock(s)` — deterministic; outputs `> **Status:** Draft | Converged` based on `s.Meta.Iteration`, `> **Iteration:** N`, `> **Confidence:** X.XXXX`, `> **Generated:** {current date stub from build-time constant}`; no external calls
+  - `renderTableOfContents()` — deterministic; 16 numbered TOC entries hardcoded to match section heading constants; always identical
+  - `renderProblemStatement(s)` — reads `s.Idea["problem_statement"]` (string from enricher); falls back to first sentence of `s.Idea["context"]` ≤200 chars, then `s.Idea["text"]`; renders as paragraph under `## 1. Problem Statement`
+  - `renderSolution(s)` — reads `s.Idea["solution_summary"]` (string from enricher); falls back to `s.Idea["summary"]` then first 300 chars of `s.Idea["text"]`; renders as paragraph + optional 3-bullet approach list if `s.Architecture["approach"]` is present
+  - `renderScope(s)` — reads `s.Architecture["scope"]` map with keys `"in"` ([]string) and `"out"` ([]string) from enricher; renders two markdown tables under **In Scope** / **Out of Scope** headings; fallback: In-scope = first 3 goals from `s.Idea["goals"]`, Out-of-scope = "Further feature scope — defined in future iterations"
+  - `renderArchitectureLayers(s)` — existing function retained; passes `layer.description` (string) through if present in the enricher overlay
+  - `renderEnrichedTechStack(s)` — 4-column table: Technology | Role | Rationale | Version/Notes; reads `s.Architecture["tech_stack_rationale"]` map (key=tech name, value=rationale string) from enricher; falls back to 2-column table (technology, role) when rationale absent; adds a **Not Used (and Why)** sub-table if `s.Architecture["tech_stack_not_used"]` is present
+  - `renderDataFlowsWithProse(s)` — renders numbered prose walkthrough paragraph before the Mermaid diagram; prose text from `s.Architecture["data_flow_prose"]` (enricher); falls back to generic "See diagram below" line; Mermaid diagram unchanged from existing `renderDataFlowsMermaid`
+  - `renderDirectoryTree(s)` — existing function, kept
+  - `renderEnrichedDecisionsTable(s)` — 6-column table: # | Decision | Choice | Alternatives | Tradeoff | Status; `Alternatives` and `Tradeoff` columns populated from `s.Architecture["decision_enrichments"]` array (see §8.30.2); existing decisions show "—" when enrichment absent
+  - `renderExtensionPoints(s)` — reads `s.Architecture["extension_points"]` array from enricher (each entry: `name` string + `steps` []string); renders as `### N. Name` sub-sections with numbered steps; generic stub fallback: "Add a new LLM provider" and "Add a new output document format" each with 3 placeholder steps
+  - `renderSecurityConsiderations(s)` — reads `s.Architecture["security"]` array from enricher (each entry: `surface`, `risk`, `mitigation` strings); renders as 3-column table; generic stub fallback: authentication surface + prompt injection surface
+  - `renderQualityTargets(s)` — existing logic expanded; second table for non-functional targets (`TestCoverageTarget`, `LatencyBudgetMs`) always rendered with "—" for unset values; adds a "Coding Standards" row pointing to AGENTS.md module boundary rules
+  - `renderSystemGuarantees(s)` — reads `s.Architecture["guarantees"]` array ([]string from enricher); renders as numbered list; fallback: 3 derived generic guarantees — "Deterministic output: same state input produces identical generated documents", "Isolated modules: no cross-module direct imports", "LLM abstracted: all model calls routed through LLMProvider interface"
+  - `renderEnrichedRisksTable(s)` — 6-column table: # | Risk | Likelihood | Impact | Mitigation | Status; reads `s.Risks[].Likelihood`, `s.Risks[].Impact`, `s.Risks[].Mitigation` fields (see §8.23 enriched schema); fixes `strings.ToTitle` bug (replace with `strings.ToUpper(s[:1]) + strings.ToLower(s[1:])` with empty-string guard)
+  - `renderDefinitionOfDone(s)` — reads `s.Architecture["exit_criteria"]` ([]string from enricher); renders as GitHub-flavour `- [ ]` checklist; always appends "All open questions resolved" and "Confidence ≥ 0.85" items unconditionally; fallback: 5 generic architectural DoD items
+  - `renderForAIAgentsAppendix(s, "architecture")` — rewritten to derive forbidden patterns from `s.Architecture["forbidden_patterns"]` ([]string from enricher) OR hardcoded canonical list from package-level constants; canonical LLM interface name from `s.Architecture["llm_interface_name"]` (fallback: `"LLMProvider"`); layer names from actual `s.Architecture["layers"]` layer names rather than hardcoded strings
+
+- `backend/internal/modules/markdown/templates.go` — **modify**:
+  - Add `renderMetadataBlock`, `renderTableOfContents`, `renderProblemStatement`, `renderSolution`, `renderScope`, `renderEnrichedTechStack`, `renderDataFlowsWithProse`, `renderEnrichedDecisionsTable`, `renderExtensionPoints`, `renderSecurityConsiderations`, `renderSystemGuarantees`, `renderEnrichedRisksTable`, `renderDefinitionOfDone` helper functions
+  - Fix `strings.ToTitle(r.Severity)` bug in `renderRisksTable` — replace with `strings.ToUpper(r.Severity[:1]) + strings.ToLower(r.Severity[1:])` (guard for empty string)
+  - Clamp `oneLineDescription` output to 150 chars + ellipsis to prevent paragraph-length blockquotes
+  - Pass `description` field through from enricher overlay in `renderArchitectureLayers`
+
+- `backend/internal/modules/markdown/aigen/enricher.go` — **new**:
+  - `ArchEnricher` struct with `llm LLMProvider` dependency
+  - `NewArchEnricher(llm LLMProvider) *ArchEnricher`
+  - `Enrich(ctx context.Context, s state.CanonicalState) (state.CanonicalState, error)`:
+    - Returns original `s` unchanged on any error (LLM failure, invalid JSON, timeout) — non-fatal by design; logs at `slog.Warn`
+    - Builds a compact prompt input JSON: `{idea_text, idea_context, idea_goals, tech_stack_keys, layer_names, decision_titles, risk_texts}` — strips raw long text to minimize token count (see §8.30.2 for exact input schema)
+    - Single `llm.Generate` call with `GetArchEnricherTimeoutSec()` deadline and the enricher system prompt from §8.30.5
+    - Parses response as `ArchEnrichmentOverlay` struct (see §8.30.2 for full field list)
+    - Merges overlay into a shallow copy of `s`: only writes fields where the existing value is nil/empty (enricher fills gaps only; never overwrites human-curated state)
+    - Returns enriched copy; does not mutate the input `s`
+  - `ArchEnrichmentOverlay` struct (see §8.30.2): all fields optional/pointer; JSON-unmarshal from LLM response; validated with `validateOverlay()` (rejects empty strings, rejects slices with >20 items)
+
+- `backend/internal/modules/markdown/aigen/enricher_test.go` — **new**:
+  - Test: `Enrich` with mock LLM returning valid overlay JSON → all new fields set on returned state; original `s` untouched
+  - Test: `Enrich` with empty canonical state → returns same zero-value state; no panic
+  - Test: `Enrich` with LLM returning malformed JSON → returns original state unchanged; no error propagated to caller
+  - Test: `Enrich` with LLM returning partial overlay (only `problem_statement`) → only that field set; all other new fields absent
+
+- `backend/internal/modules/markdown/aigen/generator.go` — **modify**:
+  - In `GenerateDocument` for key `"architecture"`: when `mode != "deterministic"` and `GetArchEnricherEnabled()` is true, call `enricher.Enrich(ctx, s)` before the deterministic scaffold and replace `s` with the enriched copy
+  - Log result: `slog.Info("arch enricher", "enriched_fields", countNonEmpty(overlay))`
+  - Handle nil enricher gracefully (enricher is optional; nil = enrichment skipped silently)
+  - Constructor `New(...)` gains an optional `enricher *ArchEnricher` parameter (match existing constructor style)
+
+- `backend/internal/modules/markdown/aigen/rubric.go` — **modify**:
+  - Update `architecture` rubric entry: 16 required sections per §8.30.3; new `RequiredKeywords` for sections Problem Statement, Solution, Scope, Extension Points, Security Considerations, System Guarantees, Definition of Done; update `MinChars` targets per §8.30.3; total document `MinChars` raised to 1500
+
+- `backend/internal/platform/config/config.go` — **modify**:
+  - `GetArchEnricherEnabled() bool` — reads `ARCH_ENRICHER_ENABLED` env var; default `true`
+  - `GetArchEnricherTimeoutSec() int` — reads `ARCH_ENRICHER_TIMEOUT_SEC` env var; default `30`; clamp `[5, 120]`
+
+- `backend/internal/modules/markdown/generator_architecture_test.go` — **rewrite**:
+  - Test with sparse state (empty maps): all 16 sections rendered; no panic; fallback content present for each section
+  - Test with fully populated state (including enricher overlay fields): each section contains the enriched content
+  - Test metadata block: contains `s.Meta.Iteration` number and `s.Metrics.Confidence`
+  - Test TOC: always has exactly 16 entries matching section headings
+  - Test problem statement: falls back through `context` → `text` when `problem_statement` absent
+  - Test enriched risks table: `strings.ToTitle` bug absent; "Medium" renders as "Medium" not "MEDIUM"
+  - Test enriched decisions table: 6-column output with Alternatives and Tradeoff columns
+  - Test extension points: generic stub fallback present when `extension_points` absent
+  - Test security considerations: generic stub fallback present when `security` absent
+  - Test definition of done: always contains "All open questions resolved" and "Confidence ≥ 0.85" items
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero build errors
+- `cd backend && go vet ./...`: zero vet issues
+- `cd backend && go test ./internal/modules/markdown/...`: all existing tests pass + all new enricher and generator tests pass; zero failures
+- `cd backend && go test ./internal/platform/config/...`: new config getters covered
+- Manual smoke: create a brainstorming session, run 2 iterations, call `POST /sessions/{id}/finalize`; download `architecture.md` → file contains exactly 16 numbered sections, a metadata blockquote, and a Table of Contents; Risks table has Mitigation column; no UPPERCASE severity from `strings.ToTitle` bug
+- Manual smoke with `ARCH_ENRICHER_ENABLED=false`: same finalize → `architecture.md` contains all 16 sections with deterministic fallback content; no LLM call made for enrichment
+
+**Prompt context needed:** §8.30 (Architecture.md Enrichment — section contract, `ArchEnrichmentOverlay` schema, enricher LLM prompt, rubric targets, fallback specification — new in this task), §8.23 (Generated Document Quality Standard — `shortTitle`, `oneLineDescription`, `slugify`, `buildFilename`), §8.27 (AI-Driven Hybrid Generator — `finalize_mode`, rubric validator, auto-repair loop — enricher wires into this flow), `backend/internal/modules/markdown/generator_architecture.go` (current 10-section implementation to be replaced), `backend/internal/modules/markdown/templates.go` (all helper functions to be extended), `backend/internal/modules/markdown/aigen/` (rubric + generator to be modified)
+
+---
+
+### Task 36 — PLAN.md: Generation Quality Overhaul — Enricher + Correct Task Format
+
+**Goal:** Produce a publication-quality, AI-agent-executable `plan.md` by combining two complementary layers: (A) a full rewrite of `generator_plan.go` that renders §5 Implementation Tasks in the canonical `**Goal:**`/`**Layer(s) affected:**`/`**Files to create:**`/`**Coding standards:**`/`**Validation:**`/`**Invariant check:**`/`**Prompt context needed:**` format — eliminating the thin "see phase deliverables" stubs and the redundant §3 Phase Breakdown split — plus a deterministic ASCII dependency graph and a §8 Deep Knowledge section assembled from canonical state; and (B) a new `markdown/aigen/plan_enricher.go` single-call LLM post-pass that populates the per-task quality fields (`coding_standards`, `invariant_checks`, `layer_tags`, `deep_knowledge_entries`) before the deterministic render runs. Additionally, a new `agent/internal/executor/prompts/plan_format.go` constant (Approach C) is injected into agent system prompts when `plan` is in `output_docs`, directing agents to write tasks using the correct spec format — not "Phase N" — with explicit runnable validation commands and Go function signatures per file. See §8.31 for the full section contract, enricher schema, Approach C prompt spec, and quality assertion rules.
+
+**Layer(s) affected:** `backend/internal/modules/markdown/`, `backend/internal/modules/markdown/aigen/`, `backend/internal/platform/config/`, `agent/internal/executor/prompts/`
+
+**Files to create / modify:**
+
+- `backend/internal/modules/markdown/generator_plan.go` — **rewrite** (see §8.31.1 for full section sequence and field constants):
+  - Remove §3 Phase Breakdown and §5 Module Tasks thin-stub sections entirely
+  - Introduce single `## 5. Implementation Tasks` section with one `### Task N — {Name}` block per plan phase in canonical state, using these per-task helper functions:
+    - `renderTaskGoal(phase)` — reads `phase.Objective` (first sentence ≤ 120 chars); falls back to first sentence of `phase.Description`; renders as `**Goal:** {text}`
+    - `renderLayersAffected(phase)` — derives module paths from `phase.Deliverables` file paths (extracts unique `backend/internal/modules/X/`, `agent/internal/Y/`, `frontend/src/...` prefixes); renders as `**Layer(s) affected:** \`path1\`, \`path2\``; falls back to `backend/internal/modules/` if derivation returns empty
+    - `renderFilesToCreate(phase)` — converts `phase.Deliverables` list into markdown bullet tree; each deliverable bullet annotated with its `FunctionContracts` entries as nested sub-bullets; includes `phase.FailureHandling` as a sub-bullet under the primary service file with label `**Failure handling:**`
+    - `renderCodingStandards(phase)` — renders only for `phase.Complexity` = `"Medium"` or `"High"`; reads `phase.CodingStandards` slice from enricher overlay (§8.31.2); fallback: 3 generic standards (SRP per file, DIP where interfaces exist, no `os.Getenv` outside config)
+    - `renderValidation(phase)` — converts `phase.ExitCriteria` checkboxes into `go build`/`go vet`/`go test`/`pnpm check` runnable commands; always appends `cd backend && go build ./...` and `cd backend && go vet ./...` for any Go-touching task; appends `cd frontend && pnpm check && pnpm build` for any frontend-touching task; never emits "per module test suite" string
+    - `renderInvariantCheck(phase)` — reads `phase.InvariantChecks` slice from enricher overlay (§8.31.2); appends 4 canonical non-negotiable items unconditionally: `- [ ] No file modified outside "Files to create/modify" list`, `- [ ] No cross-module import introduced`, `- [ ] No \`os.Getenv\` outside \`config.go\``, `- [ ] All SQL via parameterized queries only (if DB-touching)`; falls back to these 4 items only when enricher produces nothing
+    - `renderPromptContext(phase)` — reads `phase.PromptContextRefs` slice from enricher overlay; appends standard refs: §8.1 (canonical state), §8.4 (iteration engine) for engine-touching tasks; falls back to generic `§8.1 (CanonicalState), §8.31 (PLAN.md quality standard)`
+  - Introduce `## 2. Milestones` table from `s.Plan["milestones"]` (short phase-name + one-sentence summary); remove `## 3. Phase Breakdown` section
+  - Fix `## 1. Goals` section: read from `s.Idea["goals"]` ([]string); render as bullet list; fallback: `_Goals not populated — run at least one iteration before finalizing_`; never emit `_Goals not yet defined by the agents._`
+  - Add `## 8. Deep Knowledge Reference` section assembled deterministically from canonical state fields: §8.1 inlined from `s` canonical state shape (Go struct skeleton), §8.N entries for each tech stack item with rationale from `s.Architecture["tech_stack_rationale"]`, module responsibility table from layer names, API endpoint table from `s.Architecture["api_endpoints"]` if present
+  - Add ASCII dependency graph (from `s.Plan["dependency_graph_ascii"]` enricher field; fallback: generate a simple linear chain from `s.Plan["phases"]` order)
+  - Add `## 7. How to Use This Plan` section with Task Execution Protocol block: "A task is NOT complete until: (1) all **Validation** commands produce zero output, (2) all **Invariant check** boxes are ticked, (3) no file outside **Files to create/modify** was touched"
+  - Add `## 6. Task Summary` table (task number, name, primary files, depends-on, complexity) derived from `s.Plan["phases"]`
+  - Risks deduplication: group `s.Risks` by `Title` similarity; keep highest-detail entry per group; emit deduplicated `## 6.N Risks` sub-section
+
+- `backend/internal/modules/markdown/aigen/plan_enricher.go` — **new**:
+  - `PlanEnricher` struct with `llm LLMProvider` dependency
+  - `NewPlanEnricher(llm LLMProvider) *PlanEnricher`
+  - `Enrich(ctx context.Context, s state.CanonicalState) (state.CanonicalState, error)`:
+    - Returns original `s` unchanged on any error (LLM failure, invalid JSON, timeout) — non-fatal; logs at `slog.Warn`
+    - Builds a compact prompt input: `{phases: [{name, complexity, deliverables_summary, exit_criteria_count}], idea_text, tech_stack_keys}` — trims content to minimize tokens (see §8.31.2 for exact input schema)
+    - Single `llm.Generate` call with `GetPlanEnricherTimeoutSec()` deadline and the enricher system prompt from §8.31.4
+    - Parses response as `PlanEnrichmentOverlay` struct (§8.31.2): `Phases []PhaseEnrichment` (indexed by position), `DependencyGraphASCII string`, `DeepKnowledgeSections []DKSection`
+    - Each `PhaseEnrichment`: `CodingStandards []string`, `InvariantChecks []string`, `LayerTags []string`, `PromptContextRefs []string` — all optional; empty slice = use deterministic fallback
+    - Merges overlay into a shallow copy of `s.Plan` phases: only writes fields where existing value is nil/empty; never overwrites human-curated state
+    - Returns enriched copy; does not mutate input `s`
+  - `PlanEnrichmentOverlay`, `PhaseEnrichment`, `DKSection` structs with JSON tags; `validateOverlay()` rejects empty strings, slices with >30 items per phase
+
+- `backend/internal/modules/markdown/aigen/plan_enricher_test.go` — **new**:
+  - Test: `Enrich` with mock LLM returning valid overlay JSON → `CodingStandards` + `InvariantChecks` + `LayerTags` + `DependencyGraphASCII` set on returned state; original `s` untouched
+  - Test: `Enrich` with empty canonical state → returns same zero-value state; no panic
+  - Test: `Enrich` with LLM returning malformed JSON → returns original state unchanged; no error propagated to caller
+  - Test: `Enrich` with LLM returning partial overlay (only `DependencyGraphASCII`) → only that field set; per-phase fields use deterministic fallback
+
+- `backend/internal/modules/markdown/aigen/generator.go` — **modify**:
+  - For key `"plan"`: when `mode != "deterministic"` and `GetPlanEnricherEnabled()` is true, call `planEnricher.Enrich(ctx, s)` before the deterministic scaffold and replace `s` with the enriched copy
+  - Log result: `slog.Info("plan enricher", "phases_enriched", countEnrichedPhases(overlay))`
+  - Handle nil enricher gracefully (nil = enrichment skipped silently)
+  - Constructor `New(...)` gains an optional `planEnricher *PlanEnricher` parameter alongside existing `enricher *ArchEnricher`
+
+- `backend/internal/modules/markdown/aigen/rubric.go` — **modify**:
+  - Update `plan` rubric entry: required sections now include `## 5. Implementation Tasks`, `## 7. How to Use This Plan`, `## 8. Deep Knowledge Reference`
+  - Add `ForbiddenStrings` field to rubric: `["see phase deliverables", "per module test suite", "Phase 0 —", "Phase 1 —"]` — auto-repair loop must flag and reject any generated content containing these strings
+  - Raise `plan` rubric `MinChars` to 3000 (real task specs are substantially longer than thin stubs)
+  - Add `RequiredPatterns` field: `["\*\*Goal:\*\*", "\*\*Validation:\*\*", "\*\*Invariant check:\*\*"]` — at least one occurrence required per `### Task` block
+
+- `backend/internal/platform/config/config.go` — **modify**:
+  - `GetPlanEnricherEnabled() bool` — reads `PLAN_ENRICHER_ENABLED` env var; default `true`
+  - `GetPlanEnricherTimeoutSec() int` — reads `PLAN_ENRICHER_TIMEOUT_SEC` env var; default `45`; clamp `[10, 120]`
+
+- `backend/internal/modules/markdown/generator_plan_test.go` — **new**:
+  - Test with sparse state (1 phase, minimal fields): §5 task block rendered; `**Goal:**` present; `**Validation:**` contains `go build ./...`; `**Invariant check:**` contains 4 canonical items; no "see phase deliverables" string anywhere
+  - Test with fully populated state (3 phases, enricher overlay set): each task has `**Coding standards:**` (for High/Medium), `**Layer(s) affected:**`, `**Invariant check:**` with task-specific items
+  - Test §1 Goals: present and non-empty when `s.Idea["goals"]` is a non-empty slice
+  - Test §1 Goals fallback: emits `_Goals not populated_` message (NOT `_Goals not yet defined by the agents._`)
+  - Test task heading format: all task headings match `### Task [0-9]+ —` regex; no `### Phase` headings present
+  - Test `**Validation:**` field: never contains string `"per module test suite"`; always contains `go build ./...` for Go tasks
+  - Test Risks deduplication: duplicate-title risks collapsed to single entry per group
+  - Test §8 Deep Knowledge: section present and non-empty when `s.Architecture` has content
+
+- `agent/internal/executor/prompts/plan_format.go` — **new** (Approach C — format injection into agent system prompts):
+  - Package `prompts`
+  - `PlanTaskFormat` constant string: the prompt fragment injected into builder/reviewer/refiner agent system prompts whenever `plan` is in the session's `output_docs` list (see §8.31.3 for the full fragment text)
+  - Content of `PlanTaskFormat`:
+    - Instructs agents to write each deliverable as `### Task N — {Name}` (not `### Phase N`)
+    - Requires `**Goal:**` (one sentence, ≤ 120 chars), `**Files to create:**` (explicit file paths with Go function signatures nested), `**Validation:**` (runnable shell commands — `go build ./...`, `go vet ./...`, `go test ./path/...`, `pnpm check`; never "per module test suite"), `**Blocking Dependencies:**` (task numbers only)
+    - Forbids vague language: "see phase deliverables", "per module test suite", "TBD", "as needed"
+    - Instructs agents to include `Function Contracts` as nested sub-bullets under the primary service/handler file (not as a separate top-level section)
+    - Instructs agents to include `Failure Handling` as a sub-bullet under the primary service file (not as a separate top-level section)
+    - Instructs agents to include `Exit Criteria` inline as the `**Validation:**` checkboxes (behavioral assertions) alongside runnable commands
+    - Maximum 2500 chars to stay within agent context budget
+  - `InjectIfPlanOutput(outputDocs []string, basePrompt string) string` — appends `PlanTaskFormat` to `basePrompt` when `"plan"` is in `outputDocs`; otherwise returns `basePrompt` unchanged
+
+- `agent/internal/executor/executor.go` — **modify**:
+  - In `Execute`, when assembling the system prompt, call `prompts.InjectIfPlanOutput(payload.OutputDocs, basePrompt)` before passing to `llm.Generate`
+  - `BrainstormPayload` gains `OutputDocs []string \`json:"output_docs,omitempty"\`` field (backward-compatible, omitempty); backend `DispatchFunc` populates it from `session.output_docs`
+  - No other changes to executor logic
+
+**Coding standards:**
+
+- SRP: `PlanEnricher` has exactly one job — post-pass enrichment; `generator_plan.go` has exactly one job — deterministic render from state
+- DIP: `PlanEnricher` depends on `LLMProvider` interface, not on any concrete LLM implementation
+- OCP: new per-task render helpers (`renderCodingStandards`, `renderInvariantCheck`) are additive; existing `renderValidation` is extended, not replaced
+- YAGNI: no caching layer for enrichment — plan generation is a one-time finalize call; no per-phase LLM calls — single batch call covers all phases
+- No `fmt.Println`, no `os.Getenv` outside `config.go`, no cross-module imports
+
+**Validation:**
+
+- `cd backend && go build ./...`: zero build errors
+- `cd backend && go vet ./...`: zero vet issues
+- `cd agent && go build ./...`: zero build errors (executor + prompts package)
+- `cd backend && go test ./internal/modules/markdown/...`: all existing tests pass + all new plan generator and enricher tests pass; zero failures
+- `cd backend && go test ./internal/platform/config/...`: new `GetPlanEnricherEnabled` and `GetPlanEnricherTimeoutSec` getters covered
+- `cd agent && go test ./internal/executor/...`: `InjectIfPlanOutput` tests pass
+- Manual smoke — generate plan with `PLAN_ENRICHER_ENABLED=true`: finalize → download `*_plan.md`; verify §5 contains `### Task N —` headings (not `### Phase N`); verify `**Goal:**`, `**Validation:**` with `go build ./...`, `**Invariant check:**` with canonical items; verify §1 Goals non-empty; verify no "see phase deliverables" or "per module test suite" strings in output
+- Manual smoke — generate plan with `PLAN_ENRICHER_ENABLED=false`: same assertions hold (deterministic fallbacks); no LLM call made for enrichment
+- Manual smoke — `OutputDocs` containing `"plan"`: agent system prompt includes `PlanTaskFormat` fragment; agent output written in task spec format
+
+**Invariant check:**
+
+- [ ] No file modified outside the "Files to create/modify" list above
+- [ ] No cross-module import introduced (`markdown/` does not import `modules/attachment/` or any other feature module)
+- [ ] No `os.Getenv` outside `config.go`
+- [ ] `PlanEnricher` returns original state unchanged on any LLM error — non-fatal contract never broken
+- [ ] `generator_plan.go` never emits `"see phase deliverables"` or `"per module test suite"` strings — enforced by `TestPlanGeneratorForbiddenStrings` unit test
+- [ ] `agent/internal/executor/prompts/` does not import any `backend/internal/` packages
+- [ ] `BrainstormPayload.OutputDocs` field is `omitempty` — no breaking change to existing agent wire format
+
+**Prompt context needed:** §8.31 (PLAN.md quality standard, `PlanEnrichmentOverlay` schema, enricher LLM prompt, Approach C prompt fragment spec, rubric assertions — new in this task), §8.27 (AI-Driven Hybrid Generator — `finalize_mode`, rubric validator, auto-repair loop — enricher wires into this flow), §8.23 (Generated Document Quality Standard), §8.30 (Architecture.md enricher — same pattern reused here), Task 35 (arch enricher — structural model for plan enricher), Task 34 (`generator_plan.go` current baseline this task rewrites)
+
+---
+
+### Task 37 — README.md: Generation Quality Overhaul — Enricher + Correct Section Structure
+
+**Goal:** Rewrite `generator_readme.go` to produce all 13 required README sections, add a new `ReadmeEnricher` LLM post-pass (Approach B) that fills content-heavy sections (golden rule, "When to use" scenarios with code examples, Mermaid flowcharts, Quick Start commands, Command Reference table, Contributing note, Prerequisites), and add a `ReadmeFormat` agent prompt constant (Approach C) that directs the LLM agent to write README-appropriate content — not roadmap phases — when `readme` is in `output_docs`. Removes the three incorrect sections currently hard-coded in the generator (`## Known Risks` top-level, `## Roadmap` with "Phase N —" bullets, For AI Agents appendix).
+
+**Files to create:**
+
+- `backend/internal/modules/markdown/generator_readme.go` — full rewrite; see §8.32.1 for the 13-section contract:
+  - Section 1 `# {ShortTitle}` — no `— README` suffix; same `shortTitle(s)` helper as arch generator
+  - Section 2 `> {tagline}` — from `s.Architecture["tagline"]` (enricher) → `oneLineDescription(s)` fallback
+  - Section 3 **Description paragraph** — from `s.Architecture["description_paragraph"]` (enricher) → `s.Idea["context"]` fallback; always 2-3 sentences
+  - Section 4 **Golden Rule** — from `s.Architecture["golden_rule"]` (enricher); `**Golden rule:** {text}` format; fallback: `_No golden rule defined._`
+  - Section 5 **What it is NOT** — from `s.Architecture["is_not"]` (enricher); bullet list of 3-5 scope boundaries; fallback: 3 generic anti-patterns based on tech stack
+  - Section 6 **When to use** — Mermaid flowchart from `s.Architecture["when_to_use_mermaid"]` (enricher); numbered scenario list from `s.Architecture["when_to_use"]` (enricher); each scenario: `### N. {title}` + description + fenced code block; fallback: 3 generic "use when building X" scenarios without code
+  - Section 7 **Installation / Prerequisites** — prerequisites table from `s.Architecture["prerequisites"]` (enricher); setup steps from `s.Architecture["quick_start_commands"]` (enricher) first item; fallback: generic `go install` + `docker compose up` steps
+  - Section 8 **Quick Start** — fenced bash block, commands from `s.Architecture["quick_start_commands"]` (enricher); fallback: 3 generic make commands
+  - Section 9 **Architecture** — ASCII diagram from `s.Architecture["architecture_ascii"]` (enricher) → `renderASCIIComponents(s)` fallback; Mermaid architecture diagram from `s.Architecture["architecture_mermaid"]` (enricher) → `renderDataFlowsMermaid(s)` fallback; both always rendered if available
+  - Section 10 **Command Reference** — table (`| Command | Description |`) from `s.Architecture["command_reference"]` (enricher); fallback: single row placeholder
+  - Section 11 **Tech Stack** — from `renderTechStack(s)` (existing helper); enricher does not override, deterministic only
+  - Section 12 **Repository Format** — directory tree from `renderDirectoryTree(s)` (existing helper) with enriched per-entry description from `s.Architecture["repo_format_notes"]` (enricher); fallback: tree with generic notes
+  - Section 13 **Contributing** — from `s.Architecture["contributing_note"]` (enricher); fallback: "Read `AGENTS.md` and `.github/skills/` before changing this codebase."
+  - **Remove**: `## Known Risks` section, For AI Agents appendix (`renderForAIAgentsAppendix`), `## Roadmap` Phase-N bullets; status footer `_Iteration N · Confidence N_` moves to HTML comment
+  - `go build ./...` zero errors; no `renderForAIAgentsAppendix` call for readme doc type
+
+- `backend/internal/modules/markdown/aigen/readme_enricher.go` — new `ReadmeEnricher` struct; see §8.32.2 for `ReadmeEnrichmentOverlay` schema:
+  - `type ReadmeEnricher struct { llm platform_llm.LLMProvider; timeoutSec int }`
+  - `func NewReadmeEnricher(llm platform_llm.LLMProvider, timeoutSec int) *ReadmeEnricher`
+  - `func (e *ReadmeEnricher) Enrich(ctx context.Context, s state.CanonicalState) (state.CanonicalState, error)`:
+    - Builds a single LLM prompt from `s` (see §8.32.3 for the enricher LLM system prompt); requests JSON response conforming to `ReadmeEnrichmentOverlay`
+    - Merges overlay fields into `s.Architecture` map using the key names in §8.32.2 (`tagline`, `description_paragraph`, `golden_rule`, `is_not`, `when_to_use`, `when_to_use_mermaid`, `quick_start_commands`, `command_reference`, `architecture_ascii`, `architecture_mermaid`, `repo_format_notes`, `contributing_note`, `prerequisites`)
+    - On any LLM error: returns original `s` unchanged — non-fatal, generator falls back to deterministic stubs
+    - Timeout from `ctx` + `e.timeoutSec` deadline; no retry (single call)
+    - Structured `slog` logging on success and failure; never logs API keys
+
+- `backend/internal/modules/markdown/aigen/readme_enricher_test.go` — four test cases:
+  - `TestReadmeEnricher_EnrichPopulatesOverlay`: golden rule, when_to_use, Mermaid flowchart, quick_start_commands, command_reference all present in returned state after a successful mock LLM call
+  - `TestReadmeEnricher_EnrichFallsBackOnLLMError`: LLM provider returns error → `Enrich` returns original state unchanged, no error propagated
+  - `TestReadmeEnricher_OverlayMergeNoOverwrite`: if `s.Architecture["golden_rule"]` was already set before enrichment, enricher MUST overwrite it with the LLM value (enricher always wins over pre-existing deterministic values)
+  - `TestReadmeEnricher_NilLLM`: `NewReadmeEnricher(nil, 30)` then `Enrich` returns original state, no panic
+
+- `backend/internal/modules/markdown/aigen/generator.go` — modified to wire `ReadmeEnricher`:
+  - Add `ReadmeEnricher *ReadmeEnricher` field to `Generator` struct (alongside existing `Enricher` and `PlanEnricher`)
+  - In `Generate(ctx, s, docKey)`: when `docKey == "readme"` and `g.ReadmeEnricher != nil`, call `g.ReadmeEnricher.Enrich(ctx, s)` and replace `s` before passing to `markdown.GenerateReadme(enrichedState)`
+  - Rubric repair loop (existing) runs AFTER enricher, on the generated markdown string
+  - No change to existing `architecture` or `plan` enricher paths
+
+- `backend/internal/modules/markdown/aigen/rubric.go` — add README rubric entry:
+  - `"readme"` key in the rubric map (same `DocRubric` struct used by `architecture` and `plan`)
+  - `MinChars: 1500`
+  - `ForbiddenStrings: []string{"<repository-url>", "Phase 1 —", "Phase 2 —", "Phase 3 —", "## Known Risks\n", "For AI Agents", "## Roadmap\n\n_Roadmap"}`
+  - `RequiredPatterns: []string{"` + "```" + `mermaid", "## When to use", "## Contributing", "Golden rule"}`
+  - `MaxRepairPasses: 3` — auto-repair loop retries up to 3 times with a correction prompt that lists which required patterns are missing or which forbidden strings are present
+
+- `backend/internal/platform/config/config.go` — add two new getters (modified):
+  - `GetReadmeEnricherEnabled() bool` — env `README_ENRICHER_ENABLED`, default `true`; returns false when `FINALIZE_MODE=deterministic`
+  - `GetReadmeEnricherTimeoutSec() int` — env `README_ENRICHER_TIMEOUT_SEC`, default `45`, clamped `[10, 120]`
+  - See §8.32.4 for the full config table entry
+
+- `backend/internal/modules/markdown/generator_readme_test.go` — eight test cases:
+  - `TestGenerateReadme_AllThirteenSectionsPresent`: state with rich `Architecture` map → output contains all 13 H2 headings
+  - `TestGenerateReadme_TitleNoReadmeSuffix`: `# {ShortTitle}` — never contains `— README`
+  - `TestGenerateReadme_ForbiddenStringsAbsent`: output never contains `"<repository-url>"`, `"Phase 1 —"`, `"## Known Risks\n"`, `"For AI Agents"`, `"renderForAIAgentsAppendix"` output sentinel
+  - `TestGenerateReadme_GoldenRuleRendered`: `s.Architecture["golden_rule"] = "…"` → `**Golden rule:**` line present in output
+  - `TestGenerateReadme_WhenToUseWithMermaid`: `s.Architecture["when_to_use_mermaid"]` set → output contains ` ``` mermaid` fence
+  - `TestGenerateReadme_WhenToUseScenariosWithCode`: `s.Architecture["when_to_use"]` with 3 scenarios each having `"code"` field → 3 fenced code blocks present
+  - `TestGenerateReadme_QuickStartRealCommands`: `s.Architecture["quick_start_commands"] = ["make dev", "open http://localhost:5173"]` → exact strings in output, not `git clone <repository-url>`
+  - `TestGenerateReadme_FallbacksForEmptyState`: `CanonicalState{}` with minimal idea → output ≥ 800 chars, all 13 headings present, no panics
+
+- `agent/internal/executor/prompts/readme_format.go` — new file (Approach C); see §8.32.5 for the full constant text:
+  - `const ReadmeFormat = "..."` — multi-line string that instructs the LLM agent to write README-appropriate content when `readme` is in `output_docs`: include golden rule as a one-sentence invariant, write `## When to use` with numbered scenarios and code examples (not roadmap phases), never use `"Phase N —"` bullets, write `## Contributing` section, Quick Start must use real runnable commands specific to the described tech stack
+  - `func InjectIfReadmeOutput(base string, outputDocs []string) string` — appends `ReadmeFormat` to `base` when `"readme"` is in `outputDocs`; no-op otherwise; same pattern as `InjectIfPlanOutput` from Task 36
+
+**Validation:**
+
+- [ ] `go build ./...`: zero build errors in both `backend/` and `agent/`
+- [ ] `go vet ./...`: zero vet issues in both `backend/` and `agent/`
+- [ ] `go test ./backend/internal/modules/markdown/...`: all 8 generator tests pass, all 4 enricher tests pass
+- [ ] `go test ./backend/internal/modules/markdown/aigen/...`: rubric test for `"readme"` key passes; `TestRubricReadme_RequiredPatternsEnforced` confirms repair triggers when `## When to use` is missing
+- [ ] `go test ./agent/internal/executor/...`: `TestInjectIfReadmeOutput_InjectsWhenPresent` and `TestInjectIfReadmeOutput_NoopWhenAbsent` pass
+- [ ] Manual spot-check: `GenerateReadme(richState)` output contains `**Golden rule:**`, ` ``` mermaid` fence, `## When to use`, `## Contributing`; does NOT contain `<repository-url>`, `## Known Risks`, `For AI Agents`
+
+**Invariant check:**
+
+- [ ] `generator_readme.go` never calls `renderForAIAgentsAppendix` — README is human-facing; use `grep -r "renderForAIAgentsAppendix" backend/internal/modules/markdown/generator_readme.go` → zero results
+- [ ] `readme_enricher.go` never imports `os` or calls `os.Getenv` — config access only via `platform/config`
+- [ ] `readme_format.go` in `agent/internal/executor/prompts/` does not import any `backend/internal/` package — zero cross-binary imports
+
+**Layer(s) affected:** `backend/internal/modules/markdown/` (generator + enricher + rubric + aigen wiring), `backend/internal/platform/config/` (two new getters), `agent/internal/executor/prompts/` (Approach C constant)
+
+**Prompt context needed:** §8.32 (README quality standard, `ReadmeEnrichmentOverlay` schema, enricher LLM prompt, Approach C prompt fragment, rubric assertions — new in this task), §8.27 (AI-Driven Hybrid Generator — `finalize_mode`, rubric validator, auto-repair loop — enricher wires into this flow), §8.23 (Generated Document Quality Standard), §8.30 (Architecture.md enricher — structural model for readme enricher), §8.31 (PLAN.md enricher — Approach C pattern reused here), Task 36 (plan enricher + `InjectIfPlanOutput` — README enricher mirrors this), Task 35 (arch enricher — `ReadmeEnricher` reuses the same Enrich/merge pattern)
+
+---
+
+### Task 38 — DB: Attachments + Chunks Schema (pgvector)
 
 **Goal:** Create the two database migrations that introduce the `attachments` table (per-upload metadata) and the `attachment_chunks` table (RAG-lite chunks with pgvector embeddings). Defines the `attachment_scope` and `attachment_kind` enums used by all subsequent attachment tasks. No Go or frontend code in this task — schema + enum only.
 
@@ -1668,7 +1982,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 36 — Platform: Extractor + Embeddings + Blobstore Infrastructure
+### Task 39 — Platform: Extractor + Embeddings + Blobstore Infrastructure
 
 **Goal:** Build the three platform-layer infrastructure packages every attachment upload depends on: `extractor/` (turns any input modality into clean UTF-8 text), `embeddings/` (turns text into vectors via `LLMProvider`-style interface), and `blobstore/` (MinIO/S3 object storage for original file bytes). These are pure infrastructure — they own no domain logic and are reused only by `modules/attachment/`. Also extends `docker-compose.yml` with the MinIO service and the `config/` package with all related env getters.
 
@@ -1727,7 +2041,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 37 — Backend: Attachment Module (CRUD + Upload Pipeline)
+### Task 40 — Backend: Attachment Module (CRUD + Upload Pipeline)
 
 **Goal:** Implement the full `modules/attachment/` vertical slice — `model.go`, `repository.go`, `service.go`, `handler.go`. The service orchestrates the upload pipeline: extract text → chunk → embed → persist blob (if applicable) → persist attachment + chunks atomically. Exposes REST endpoints for creating attachments via all four input kinds (file multipart, image multipart, URL JSON, raw-text JSON), listing by scope, deleting, and an internal-only retrieval endpoint used by the iteration engine.
 
@@ -1745,7 +2059,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
   - `GetByID(ctx, id) (Attachment, error)`
   - `ListBySession(ctx, sessionID uuid.UUID, scopeFilter *Scope, scopeRefFilter *string) ([]Attachment, error)` — ordered by `created_at ASC`
   - `Delete(ctx, id uuid.UUID) error` — cascade removes chunks
-  - `DeleteByScope(ctx, sessionID uuid.UUID, scope Scope, scopeRef string) error` — used by lifecycle cleanup (Task 38)
+  - `DeleteByScope(ctx, sessionID uuid.UUID, scope Scope, scopeRef string) error` — used by lifecycle cleanup (Task 40)
   - `SearchChunks(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryEmbedding []float32, topK int) ([]AttachmentChunk, error)` — pgvector cosine similarity (`embedding <=> $1::vector`) filtered to attachments whose `(scope, scope_ref)` matches any entry in `scopes`; returns top-K ordered by ascending distance with `Score = 1 - distance`
   - `ScopeMatch` struct: `Scope Scope`, `ScopeRef *string` (NULL for session-scope match)
 - `backend/internal/modules/attachment/service.go`:
@@ -1761,7 +2075,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
     8. Wrap insert in a single transaction: `repo.Create(tx, attachment)` → `repo.CreateChunks(tx, attachmentID, chunks)` → commit; on rollback, also delete the blob (best-effort cleanup; log warn on failure)
     9. Emit log: `slog.Info("attachment created", attachment_id, scope, scope_ref, kind, chunk_count, byte_size)`
   - `List(ctx, sessionID, filter)`, `GetByID`, `Delete` — straight repository delegation; `Delete` also removes blob best-effort
-  - `Retrieve(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryText string, topK int) ([]AttachmentChunk, error)` — embeds queryText (single call), delegates to `repo.SearchChunks`; used by iteration engine in Task 38
+  - `Retrieve(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryText string, topK int) ([]AttachmentChunk, error)` — embeds queryText (single call), delegates to `repo.SearchChunks`; used by iteration engine in Task 40
 - `backend/internal/modules/attachment/handler.go`:
   - `POST   /sessions/{sessionID}/attachments` — Content-Type-driven multiplexer:
     - `multipart/form-data` (fields `scope`, `scope_ref`, `kind`, `file`, `display_name?`) → file or image upload
@@ -1787,11 +2101,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
   - `curl -d '{"scope":"agent","kind":"text","text":"x","display_name":"y"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 400 (missing scope_ref)
   - SSRF: URL `file:///etc/passwd` → 400
 
-**Prompt context needed:** §8.28 (attachment domain model + upload pipeline algorithm + chunking algorithm), Task 36 (extractor / embeddings / blobstore interfaces), AGENTS.md vertical-slice rules, security invariants 5/6 (parameterized queries, input validation)
+**Prompt context needed:** §8.28 (attachment domain model + upload pipeline algorithm + chunking algorithm), Task 39 (extractor / embeddings / blobstore interfaces), AGENTS.md vertical-slice rules, security invariants 5/6 (parameterized queries, input validation)
 
 ---
 
-### Task 38 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
+### Task 41 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
 
 **Goal:** Thread attachments into the dispatch path. Introduce a narrow `AttachmentRetriever` interface owned by the iteration engine (same pattern as `agentProvider` and `sessionStore`). Before dispatching each agent, the engine resolves the active scope set (session ∪ current iteration ∪ current agent), retrieves top-K chunks via cosine similarity against the canonical state's `idea + open_questions`, and appends them to `BrainstormPayload` as a new `Attachments []AttachmentChunkRef` field. The agent executor injects the chunks into the assembled system prompt under a dedicated `# Attached Context` section. Iteration- and agent-scoped attachments are deleted after their owning iteration completes via a lifecycle cleanup pass.
 
@@ -1855,11 +2169,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - Manual smoke: create session, attach a Markdown doc at session scope, run iterate → agent logs show `dispatch with attachments chunk_count=N>0`; converged state cites attachment content
 - Manual smoke: attach a text snippet at iteration scope (`scope_ref=1`), run 2 iterations → after iteration 1 the snippet is deleted; iteration 2 dispatch has chunk_count for that snippet = 0
 
-**Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 37 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
+**Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 40 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
 
 ---
 
-### Task 39 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
+### Task 42 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
 
 **Goal:** Build the ChatGPT-style `+` attachment menu UX and mount it at three scope-bound locations: home page (session-scope, set during creation), session page (iteration-scope, added between iterations), and `PipelineStage` per-agent header (agent-scope, narrows the next dispatch). Includes the modal with four input kinds (file picker, image picker, URL paste, raw text paste), a sticky list of active attachments per scope, and the API client layer.
 
@@ -1926,17 +2240,17 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `cd frontend && pnpm build`: clean production build
 - Manual:
   - Home page: click `+` → menu opens with four items; "Paste text" opens modal with textarea; submit before session exists → upload deferred until session ID known; both upload after `createSession`
-  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 38 lifecycle cleanup)
+  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 40 lifecycle cleanup)
   - PipelineStage: attach a text snippet to agent A → agent B's stage shows no chips; agent A's stage shows the snippet
   - Keyboard: `⌘U` while focused in the home page opens file picker directly
   - Large file (> 10 MB) → modal shows "File too large" before sending
   - PDF upload → after 1-2s shows summary tooltip on the chip; deletion removes both the chip and the blob (verified by re-listing attachments)
 
-**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 37 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
+**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 40 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
 
 ---
 
-### Task 40 — DB: MCP Server Registry Schema
+### Task 43 — DB: MCP Server Registry Schema
 
 **Goal:** Create the two database migrations that introduce the `mcp_servers` table (MCP server registry) and the `agent_mcp_servers` join table (agent ↔ MCP server many-to-many). No Go or frontend code changes in this task — schema only.
 
@@ -1960,7 +2274,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 41 — Backend: MCP Server Module (CRUD)
+### Task 44 — Backend: MCP Server Module (CRUD)
 
 **Goal:** Implement the full vertical slice for the MCP server registry — `model.go`, `repository.go`, `service.go`, `handler.go`. Expose five REST endpoints (`GET /mcp-servers`, `POST /mcp-servers`, `GET /mcp-servers/{id}`, `PUT /mcp-servers/{id}`, `DELETE /mcp-servers/{id}`). Validation enforces transport-type field consistency and rejects raw secret values in `env_refs`.
 
@@ -1998,7 +2312,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 42 — Backend: Agent–MCP Association + Payload Extension
+### Task 45 — Backend: Agent–MCP Association + Payload Extension
 
 **Goal:** Extend the agent module to load and persist `agent_mcp_servers` join rows. Extend `BrainstormPayload` with `MCPServers []MCPServerRef` so the iteration engine includes each agent's configured MCP servers in the dispatch payload, giving the agent binary the connection details it needs to dial those servers at runtime.
 
@@ -2034,11 +2348,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `go test ./backend/internal/modules/agent/...`: `SetMCPServers` transaction test (assign 2 servers, update to 1 — first server removed; update to nil — associations unchanged)
 - `go test ./backend/internal/modules/iteration/...`: mock `agentSvc.GetMCPServersForAgent` returns 1 server → dispatch payload includes 1 `MCPServerRef`; agent with no assignments → `MCPServers` is empty slice (not nil)
 
-**Prompt context needed:** §8.24 (MCPServerRef wire format + security rules), §8.3 (BrainstormPayload contract), Task 41 (MCPServer model + service), Task 7 (agent repository patterns), Task 9 (iteration engine dispatch path)
+**Prompt context needed:** §8.24 (MCPServerRef wire format + security rules), §8.3 (BrainstormPayload contract), Task 44 (MCPServer model + service), Task 7 (agent repository patterns), Task 9 (iteration engine dispatch path)
 
 ---
 
-### Task 43 — Agent: MCP Client Package
+### Task 46 — Agent: MCP Client Package
 
 **Goal:** Build `agent/internal/mcp/` — the package that dials MCP servers, lists their tools, and executes tool calls. Two transports: `stdio` (spawn subprocess, JSON-RPC 2.0 over stdin/stdout) and `http` (POST JSON-RPC 2.0 to a URL). `MCPPool` fans out across all servers assigned to an agent, deduplicates tools, and routes `Call` to the correct server.
 
@@ -2082,7 +2396,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 44 — Agent: LLM Tool-Use Interface + Executor Loop
+### Task 47 — Agent: LLM Tool-Use Interface + Executor Loop
 
 **Goal:** Add `GenerateWithTools` to the `LLMProvider` interface and implement it in `CopilotProvider` and `OpenCodeProvider` using OpenAI function-calling format. Replace the single-shot `llm.Generate` call in `BrainstormExecutor.Execute` with a configurable multi-turn tool-use loop: build MCP pool → list tools → call LLM with tools → execute any tool calls via pool → re-call LLM with results → repeat until no tool calls or max rounds reached.
 
@@ -2122,11 +2436,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `cd agent && go test ./internal/...`: all existing tests still pass; 3 new tool-use tests pass
 - Smoke: start agent binary with `AGENT_MCP_MAX_TOOL_ROUNDS=3`; no panic; config getter returns 3
 
-**Prompt context needed:** §8.25 (tool-use loop algorithm + `GenerateWithTools` OpenAI wire format + OpenCode adaptation + message history threading), §8.2 (LLMProvider interface), §8.24 (MCPServerRef), Task 43 (MCPPool API), §8.12 (credential security)
+**Prompt context needed:** §8.25 (tool-use loop algorithm + `GenerateWithTools` OpenAI wire format + OpenCode adaptation + message history threading), §8.2 (LLMProvider interface), §8.24 (MCPServerRef), Task 46 (MCPPool API), §8.12 (credential security)
 
 ---
 
-### Task 45 — Frontend: MCP Server Settings + Agent Assignment + Smart Import
+### Task 48 — Frontend: MCP Server Settings + Agent Assignment + Smart Import
 
 **Goal:** Add the "MCP Servers" tab to `/settings`, build new/edit forms for MCP servers with a "Test Connection" flow, implement the smart JSON config import modal that normalises Claude Desktop / VS Code / Cursor / Zed / Windsurf / canonical JSON formats, and extend the agent edit form with an MCP server multi-select section.
 
@@ -2178,7 +2492,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - Agent edit: assign 2 MCP servers → save → reload → both remain checked
 - Test Connection: mock backend returns 3 tools → chip shows "3 tools"; mock error → chip shows error message
 
-**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 41 (MCP server REST endpoints), Task 42 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
+**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 44 (MCP server REST endpoints), Task 45 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
 
 ---
 
@@ -2220,17 +2534,20 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 | 32   | Generated Document Quality Overhaul           | `markdown/templates.go`, `generator.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, `state/model.go`, `session/service.go`, `session/handler.go`, `executor/executor.go` | Tasks 28, 29           | High       |
 | 33   | AI-Driven Hybrid Doc Generator + Skill Bundle | `markdown/aigen/skills.go`, `rubric.go`, `generator.go`, `aigen_test.go`, `markdown/generator.go` (modified), `session/service.go` (modified), `platform/config/config.go` (modified), `cmd/server/main.go` (modified)         | Task 32                | High       |
 | 34   | Guided Onboarding v2 + Plan + Artifacts       | `007_session_discovery.sql`, `008_session_artifacts.sql`, `TechConstraints.svelte`, `DiscoveryClarify.svelte`, `discovery_compiler.go`, `generator_plan.go`, `finalize/+page.svelte`                                           | Task 33                | High       |
-| 35   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                       | Task 34                | Low        |
-| 36   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 35                | High       |
-| 37   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 36                | High       |
-| 38   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 37, 9, 11        | High       |
-| 39   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 37, 18, 30       | High       |
-| 40   | DB: MCP Server Registry Schema                | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                       | Task 35                | Low        |
-| 41   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 40                | Medium     |
-| 42   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 41, 9            | Medium     |
-| 43   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 40                | High       |
-| 44   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 42, 43           | High       |
-| 45   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 41, 42, 21       | High       |
+| 35   | Architecture.md: State Enricher + Section Generator | `markdown/generator_architecture.go` (rewrite), `markdown/templates.go` (modified), `markdown/aigen/enricher.go` (new), `markdown/aigen/enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_architecture_test.go` (rewrite) | Task 34                | High       |
+| 36   | PLAN.md: Generation Quality Overhaul          | `markdown/generator_plan.go` (rewrite), `markdown/aigen/plan_enricher.go` (new), `markdown/aigen/plan_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_plan_test.go` (new), `agent/internal/executor/prompts/plan_format.go` (new) | Task 35                | High       |
+| 37   | README.md: Generation Quality Overhaul        | `markdown/generator_readme.go` (rewrite), `markdown/aigen/readme_enricher.go` (new), `markdown/aigen/readme_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_readme_test.go` (new), `agent/internal/executor/prompts/readme_format.go` (new) | Task 36                | High       |
+| 38   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                       | Task 34                | Low        |
+| 39   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 38                | High       |
+| 40   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 39                | High       |
+| 41   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 40, 9, 11        | High       |
+| 42   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 40, 18, 30       | High       |
+| 43   | DB: MCP Server Registry Schema                | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                       | Task 38                | Low        |
+| 44   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 43                | Medium     |
+| 45   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 44, 9            | Medium     |
+| 46   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 43                | High       |
+| 47   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 45, 46           | High       |
+| 48   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 44, 45, 21       | High       |
 
 ---
 
@@ -4331,7 +4648,7 @@ chunkText(text, sizeTokens, overlapTokens):
 
 #### 8.28.5 Retrieval & Dispatch Algorithm
 
-Called inside `iteration/engine.go` before each agent dispatch (Task 38):
+Called inside `iteration/engine.go` before each agent dispatch (Task 40):
 
 ```
 for agent in sess.OrderedAgents:
@@ -4481,20 +4798,20 @@ file=<binary>
 
 | Env var                          | Default                  | Range / format              | Owner   |
 | -------------------------------- | ------------------------ | --------------------------- | ------- |
-| `EMBEDDINGS_PROVIDER`            | `openai`                 | `openai` \| `ollama`        | Task 36 |
-| `EMBEDDINGS_MODEL`               | `text-embedding-3-small` | provider-specific           | Task 36 |
-| `EMBEDDINGS_CREDENTIAL_REF`      | `OPENAI_API_KEY`         | env var name only           | Task 36 |
-| `EMBEDDINGS_DIMENSION`           | `1536`                   | `[64, 4096]`                | Task 36 |
-| `BLOBSTORE_ENDPOINT`             | `http://minio:9000`      | URL                         | Task 36 |
-| `BLOBSTORE_ACCESS_KEY_REF`       | `MINIO_ROOT_USER`        | env var name only           | Task 36 |
-| `BLOBSTORE_SECRET_KEY_REF`       | `MINIO_ROOT_PASSWORD`    | env var name only           | Task 36 |
-| `BLOBSTORE_BUCKET`               | `a2a-attachments`        | DNS-safe                    | Task 36 |
-| `BLOBSTORE_USE_SSL`              | `false`                  | bool                        | Task 36 |
-| `ATTACHMENT_MAX_BYTES`           | `10485760` (10 MB)       | `[1024, 104857600]`         | Task 36 |
-| `ATTACHMENT_CHUNK_SIZE`          | `1000`                   | tokens, `[100, 4000]`       | Task 36 |
-| `ATTACHMENT_CHUNK_OVERLAP`       | `150`                    | tokens, `[0, chunk_size/2]` | Task 36 |
-| `ATTACHMENT_RETRIEVAL_TOP_K`     | `5`                      | `[1, 20]`                   | Task 36 |
-| `ATTACHMENT_MIN_EXTRACTED_CHARS` | `16`                     | `[1, 1000]`                 | Task 37 |
+| `EMBEDDINGS_PROVIDER`            | `openai`                 | `openai` \| `ollama`        | Task 38 |
+| `EMBEDDINGS_MODEL`               | `text-embedding-3-small` | provider-specific           | Task 38 |
+| `EMBEDDINGS_CREDENTIAL_REF`      | `OPENAI_API_KEY`         | env var name only           | Task 38 |
+| `EMBEDDINGS_DIMENSION`           | `1536`                   | `[64, 4096]`                | Task 38 |
+| `BLOBSTORE_ENDPOINT`             | `http://minio:9000`      | URL                         | Task 38 |
+| `BLOBSTORE_ACCESS_KEY_REF`       | `MINIO_ROOT_USER`        | env var name only           | Task 38 |
+| `BLOBSTORE_SECRET_KEY_REF`       | `MINIO_ROOT_PASSWORD`    | env var name only           | Task 38 |
+| `BLOBSTORE_BUCKET`               | `a2a-attachments`        | DNS-safe                    | Task 38 |
+| `BLOBSTORE_USE_SSL`              | `false`                  | bool                        | Task 38 |
+| `ATTACHMENT_MAX_BYTES`           | `10485760` (10 MB)       | `[1024, 104857600]`         | Task 38 |
+| `ATTACHMENT_CHUNK_SIZE`          | `1000`                   | tokens, `[100, 4000]`       | Task 38 |
+| `ATTACHMENT_CHUNK_OVERLAP`       | `150`                    | tokens, `[0, chunk_size/2]` | Task 38 |
+| `ATTACHMENT_RETRIEVAL_TOP_K`     | `5`                      | `[1, 20]`                   | Task 38 |
+| `ATTACHMENT_MIN_EXTRACTED_CHARS` | `16`                     | `[1, 1000]`                 | Task 39 |
 
 All getters live in `backend/internal/platform/config/config.go` — no `os.Getenv` calls elsewhere.
 
@@ -4699,3 +5016,557 @@ CREATE TABLE session_artifacts (
 - `discovery-hints` is advisory UI only — not part of canonical state merge
 - Artifact cache stores generator output; re-fetch is deterministic per cached row
 - Removing `roadmap` does not change iteration engine determinism
+
+---
+
+### 8.30 Architecture.md Enrichment — Section Contract + LLM Enricher (v1.9)
+
+Added by Task 35. This section documents the full 16-section architecture document contract, the `ArchEnricher` pre-pass that populates optional state fields before the deterministic render, and the updated rubric for the `architecture` key.
+
+---
+
+#### 8.30.1 Section Sequence (architecture.md)
+
+The generator renders sections in this exact order. Heading constants live in `generator_architecture.go`. Sections without a number (metadata block, TOC, appendix) use no `##` heading.
+
+| # | Heading | Primary Source | Fallback |
+|---|---------|----------------|---------|
+| — | Metadata block (blockquote) | Deterministic: `s.Meta.Iteration`, `s.Metrics.Confidence` | Always present |
+| — | Table of Contents | Deterministic: hardcoded 16 entries | Always present |
+| 1 | Problem Statement | `s.Idea["problem_statement"]` (enricher) | First sentence of `s.Idea["context"]` ≤200 chars → `s.Idea["text"]` ≤200 chars |
+| 2 | Solution | `s.Idea["solution_summary"]` (enricher) | `s.Idea["summary"]` → first 300 chars of `s.Idea["text"]` |
+| 3 | Scope | `s.Architecture["scope"]["in"]` + `["out"]` (enricher) | In: first 3 goals from `s.Idea["goals"]`; Out: "Further feature scope — defined in future iterations" |
+| 4 | Layers | `s.Architecture["layers"]` (existing) | `_Architecture details not yet defined._` |
+| 5 | Tech Stack | `s.Architecture["tech_stack"]` + `s.Architecture["tech_stack_rationale"]` (enricher) | 2-column table from `tech_stack` keys when rationale absent |
+| 6 | Data Flows | `s.Architecture["data_flows"]` + `s.Architecture["data_flow_prose"]` (enricher) | ASCII component diagram fallback |
+| 7 | Module Boundaries | `s.Architecture["directory_layout"]` (existing) | Generic module listing |
+| 8 | Architecture Decisions | `s.Architecture["decisions"]` + `s.Architecture["decision_enrichments"]` (enricher) | 4-column table without Alternatives/Tradeoff when enrichment absent |
+| 9 | Extension Points | `s.Architecture["extension_points"]` (enricher) | Generic stub: "Add a new LLM provider" + "Add a new output document format" each with 3 placeholder steps |
+| 10 | Security Considerations | `s.Architecture["security"]` (enricher) | Generic stub: authentication + prompt injection rows |
+| 11 | Quality Targets | `s.Metrics` (deterministic) | Always present |
+| 12 | System Guarantees | `s.Architecture["guarantees"]` (enricher) | 3 derived guarantees from architecture map (see §8.30.6) |
+| 13 | Risks | `s.Risks[]` + Likelihood/Impact/Mitigation (enricher overlay) | Existing 4-column table; new columns show "—" when absent |
+| 14 | Assumptions | `s.Assumptions` (deterministic) | `_No assumptions recorded._` |
+| 15 | Open Questions | `s.OpenQuestions` (deterministic) | `_No open questions at this time._` |
+| 16 | Definition of Done | `s.Architecture["exit_criteria"]` (enricher) + always-appended items | 5 generic DoD items; "All open questions resolved"; "Confidence ≥ 0.85" |
+| — | Appendix: For AI Agents | Real layer names + LLM interface name from state | Hardcoded canonical list |
+
+---
+
+#### 8.30.2 ArchEnrichmentOverlay Schema
+
+The LLM enricher call returns a JSON object matching this schema. All fields are optional — the enricher merges only non-empty fields into the state copy. Defined in `backend/internal/modules/markdown/aigen/enricher.go`.
+
+```go
+type ArchEnrichmentOverlay struct {
+    ProblemStatement    string               `json:"problem_statement"`    // ≤400 chars
+    SolutionSummary     string               `json:"solution_summary"`     // ≤400 chars
+    ScopeIn             []string             `json:"scope_in"`             // ≤8 items, each ≤80 chars
+    ScopeOut            []string             `json:"scope_out"`            // ≤8 items, each ≤80 chars
+    ExtensionPoints     []OverlayExtPoint    `json:"extension_points"`     // ≤4 items
+    Security            []OverlaySecEntry    `json:"security"`             // ≤6 items
+    Guarantees          []string             `json:"guarantees"`           // ≤6 items, each ≤120 chars
+    DecisionEnrichments []OverlayDecEnrich   `json:"decision_enrichments"` // ≤N items (N = decisions count)
+    TechStackRationale  map[string]string    `json:"tech_stack_rationale"` // key = tech name; value ≤100 chars
+    DataFlowProse       string               `json:"data_flow_prose"`      // ≤300 chars
+    ExitCriteria        []string             `json:"exit_criteria"`        // ≤8 items, each ≤100 chars
+}
+
+type OverlayExtPoint struct {
+    Name  string   `json:"name"`  // ≤60 chars
+    Steps []string `json:"steps"` // 2–5 items, each ≤100 chars
+}
+
+type OverlaySecEntry struct {
+    Surface    string `json:"surface"`    // ≤60 chars
+    Risk       string `json:"risk"`       // ≤120 chars
+    Mitigation string `json:"mitigation"` // ≤120 chars
+}
+
+type OverlayDecEnrich struct {
+    Title        string `json:"title"`        // must match an existing decision title exactly
+    Alternatives string `json:"alternatives"` // ≤150 chars
+    Tradeoff     string `json:"tradeoff"`     // ≤150 chars
+}
+```
+
+**Enricher merge rule:** For each field, if `s.Idea[key]` or `s.Architecture[key]` is already non-nil and non-empty, skip — do not overwrite. Enricher fills gaps only; human-curated state always takes precedence.
+
+**Enricher error contract:** On any error (LLM failure, timeout, JSON parse error, validation failure), `Enrich` returns the original `s` unchanged and logs at `slog.Warn`. No error is propagated to the caller. The generator always has valid state to render from.
+
+**Enricher LLM input JSON** (compact — only surface info, not full text bodies):
+
+```json
+{
+  "idea_text": "<first 300 chars of s.Idea[\"text\"]>",
+  "idea_context": "<first 300 chars of s.Idea[\"context\"]>",
+  "idea_goals": ["<goal1>", "..."],
+  "tech_stack_keys": ["Go", "SvelteKit", "..."],
+  "layer_names": ["frontend", "backend", "..."],
+  "decision_titles": ["Use modular monolith", "..."],
+  "risk_texts": ["<risk1.text>", "..."]
+}
+```
+
+---
+
+#### 8.30.3 Updated Architecture Rubric
+
+These targets are enforced by the rubric validator in `aigen/rubric.go` during the AI-hybrid pass (Task 33 infrastructure). Sections are validated by substring search for `RequiredKeywords` and total document `MinChars`.
+
+| Section heading | RequiredKeywords | Section MinChars |
+|----------------|-----------------|-----------------|
+| Problem Statement | — | 80 |
+| Solution | — | 80 |
+| Scope | `"In Scope"`, `"Out of Scope"` | 60 |
+| Layers | — | 100 |
+| Tech Stack | — | 80 |
+| Data Flows | `"graph"` or `"→"` | 100 |
+| Module Boundaries | — | 60 |
+| Architecture Decisions | `"Decision"`, `"Status"` | 80 |
+| Extension Points | — | 60 |
+| Security Considerations | `"Surface"`, `"Mitigation"` | 60 |
+| Quality Targets | `"Confidence"` | 40 |
+| System Guarantees | — | 60 |
+| Risks | `"Risk"`, `"Status"` | 60 |
+| Assumptions | — | 20 |
+| Open Questions | — | 20 |
+| Definition of Done | `"- [ ]"` | 60 |
+
+**Total document MinChars:** 1500 (raised from previous 500).
+
+---
+
+#### 8.30.4 New Optional State Fields
+
+These fields are set inside `s.Idea` and `s.Architecture` maps by the enricher. They are advisory — the generator renders all 16 sections without them (using fallbacks from §8.30.6).
+
+| Field key | Map | Go type after JSON decode | Used by section |
+|-----------|-----|--------------------------|----------------|
+| `problem_statement` | `s.Idea` | `string` | §1 Problem Statement |
+| `solution_summary` | `s.Idea` | `string` | §2 Solution |
+| `scope` | `s.Architecture` | `map[string]any` — keys `"in"` ([]string), `"out"` ([]string) | §3 Scope |
+| `extension_points` | `s.Architecture` | `[]any` — each `{name: string, steps: []string}` | §9 Extension Points |
+| `security` | `s.Architecture` | `[]any` — each `{surface, risk, mitigation: string}` | §10 Security |
+| `guarantees` | `s.Architecture` | `[]string` | §12 System Guarantees |
+| `decision_enrichments` | `s.Architecture` | `[]any` — each `{title, alternatives, tradeoff: string}` | §8 Architecture Decisions |
+| `tech_stack_rationale` | `s.Architecture` | `map[string]string` | §5 Tech Stack |
+| `data_flow_prose` | `s.Architecture` | `string` | §6 Data Flows |
+| `exit_criteria` | `s.Architecture` | `[]string` | §16 Definition of Done |
+
+---
+
+#### 8.30.5 Enricher LLM System Prompt (canonical)
+
+The system prompt sent by `ArchEnricher.Enrich`. Stored here so it can be reviewed and updated independently of Go code.
+
+```
+You are an architecture documentation assistant. Given a compact JSON description of a software project's current brainstorm state, return a JSON object that fills in the gaps needed to render a high-quality architecture.md document.
+
+Rules:
+- Return ONLY valid JSON matching the output schema. No markdown fencing. No prose outside the JSON.
+- Keep all strings concise — respect the per-field character limits in the schema.
+- Do NOT invent technical facts not implied by the input. Infer from what is present.
+- If a field cannot be meaningfully populated from the input, omit it entirely.
+- `decision_enrichments[].title` must EXACTLY match one of the decision titles in the input.
+
+Output schema (all fields optional):
+{
+  "problem_statement": "string ≤400 chars",
+  "solution_summary": "string ≤400 chars",
+  "scope_in": ["string ≤80 chars"],
+  "scope_out": ["string ≤80 chars"],
+  "extension_points": [{"name": "string ≤60 chars", "steps": ["string ≤100 chars"]}],
+  "security": [{"surface": "≤60", "risk": "≤120", "mitigation": "≤120"}],
+  "guarantees": ["string ≤120 chars"],
+  "decision_enrichments": [{"title": "exact match", "alternatives": "≤150", "tradeoff": "≤150"}],
+  "tech_stack_rationale": {"tech_name": "rationale ≤100 chars"},
+  "data_flow_prose": "string ≤300 chars",
+  "exit_criteria": ["string ≤100 chars"]
+}
+```
+
+---
+
+#### 8.30.6 Fallback Specification per Section
+
+Each section's deterministic fallback content when enricher fields are absent:
+
+| Section | Fallback behaviour |
+|---------|-------------------|
+| Problem Statement | `firstSentence(s.Idea["context"])` truncated to 200 chars; if absent, `truncate(s.Idea["text"], 200)` |
+| Solution | `s.Idea["summary"]` if non-empty; else `truncate(s.Idea["text"], 300)` |
+| Scope | In: first 3 items of `s.Idea["goals"]` (or "Core feature" if goals empty); Out: single row "Further feature scope — defined in future iterations" |
+| Extension Points | 2 stub entries: (1) "Add a new LLM provider" with steps — "Implement the `LLMProvider` interface", "Register in `platform/llm/resolver.go`", "Add env var to `config.go`"; (2) "Add a new output document format" with steps — "Implement `Generate<DocType>(s CanonicalState) (string, error)`", "Register key in `markdown/generator.go` `GenerateAll`", "Add key to session `output_docs` allowed values" |
+| Security Considerations | 2 stub rows: `{Surface: "Authentication", Risk: "Unauthorized access to session data", Mitigation: "Validate all session IDs against DB on every request"}`, `{Surface: "Prompt Injection", Risk: "Malicious user input manipulates LLM output", Mitigation: "Validate and sanitise all user-controlled input before LLM prompt assembly"}` |
+| System Guarantees | 3 hardcoded strings: "Deterministic output: same canonical state input produces identical generated documents", "Isolated modules: no cross-module direct imports between `internal/modules/` packages", "LLM abstracted: all model calls routed through the `LLMProvider` interface — no direct SDK usage in business logic" |
+| Definition of Done | 5 generic items: "Core feature implemented and manually tested end-to-end", "All unit and integration tests passing (0 failures)", "`go build ./...` and `go vet ./...` clean", "No hardcoded credentials, ports, or model names outside config files", "Architecture document generated, reviewed, and committed"; plus always-appended: "All open questions resolved", "Confidence ≥ 0.85" |
+| Risks Mitigation / Likelihood / Impact | Render "—" in table cells; preserve existing `Severity` value |
+| Architecture Decisions Alternatives / Tradeoff | Render "—" in Alternatives and Tradeoff columns |
+| Tech Stack Rationale column | Omit Rationale column entirely; render 2-column table (Technology, Role/Version) |
+| Data Flow Prose paragraph | Omit prose paragraph entirely; render Mermaid diagram directly without preamble |
+
+---
+
+### 8.31 PLAN.md Generation Quality Standard (v2.0)
+
+This section documents the canonical task section format, the `PlanEnrichmentOverlay` schema, the Approach C agent prompt fragment, and the quality assertion rules that `generator_plan.go` and `plan_enricher.go` (Task 36) must satisfy. Every task session implementing Task 36 must include this section.
+
+---
+
+#### 8.31.1 Canonical Task Section Format
+
+Each `### Task N — {Name}` block in a generated `plan.md` **must** contain the following fields in this order:
+
+```markdown
+### Task N — {Name}
+
+**Goal:** {One sentence ≤ 120 chars: what this task produces.}
+
+**Layer(s) affected:** `backend/internal/modules/X/`, `agent/internal/Y/`
+
+**Files to create:**
+
+- `path/to/file.go` — {description}
+  - {key export, interface, or Go function signature}
+  - **Failure handling:** {error paths, retry logic, non-fatal contract}
+
+**Coding standards:** _(Medium/High complexity tasks only)_
+- SRP: {what has a single responsibility in this task}
+- DIP: {what depends on abstraction rather than concrete}
+- YAGNI: {what is intentionally NOT implemented}
+- No `fmt.Println`, no `os.Getenv` outside `config.go`
+
+**Validation:**
+- `cd backend && go build ./...`: zero build errors
+- `cd backend && go vet ./...`: zero vet issues
+- `cd backend && go test ./path/...`: {specific test target} — all pass
+- {Behavioral assertion checkpoint — e.g. manual smoke test}
+
+**Invariant check:**
+- [ ] No file modified outside the "Files to create/modify" list
+- [ ] No cross-module import introduced
+- [ ] No `os.Getenv` outside `config.go`
+- [ ] All SQL via parameterized queries only (if DB-touching)
+- [ ] {1–2 task-specific invariants derived from the task's domain}
+
+**Prompt context needed:** §8.X (description), Task N (dependency name)
+
+---
+```
+
+**Forbidden strings** — the generator must reject any output containing:
+- `"see phase deliverables"` — stub placeholder that provides zero actionable information
+- `"per module test suite"` — not a runnable command
+- `"Phase 0 —"`, `"Phase 1 —"`, ..., `"Phase N —"` — wrong heading format (must be `"Task N —"`)
+- `"TBD"`, `"TODO"`, `"placeholder"` — incomplete spec
+
+**Required patterns** per `### Task` block (validator asserts at least one occurrence of each):
+- `\*\*Goal:\*\*`
+- `\*\*Validation:\*\*`
+- `\*\*Invariant check:\*\*`
+- `go build ./...` (in Validation for any Go-touching task)
+
+---
+
+#### 8.31.2 PlanEnrichmentOverlay Schema
+
+The LLM enricher returns a single JSON object matching this schema. All fields are optional; empty/missing = use deterministic fallback.
+
+```json
+{
+  "phases": [
+    {
+      "position": 0,
+      "coding_standards": [
+        "SRP: {specific responsibility of primary file}",
+        "DIP: {what depends on abstraction}",
+        "YAGNI: {what is not implemented}"
+      ],
+      "invariant_checks": [
+        "{task-specific invariant check text — starts with verb, ≤ 80 chars}"
+      ],
+      "layer_tags": [
+        "backend/internal/modules/X/",
+        "agent/internal/Y/"
+      ],
+      "prompt_context_refs": [
+        "§8.N (description of what to load from this section)"
+      ]
+    }
+  ],
+  "dependency_graph_ascii": "Task 1 ─► Task 2 ─► Task 3\n              │\n              ▼\n         Task 4",
+  "deep_knowledge_sections": [
+    {
+      "heading": "8.N {Title}",
+      "content": "{Markdown content — schemas, algorithms, contracts relevant to task sessions}"
+    }
+  ]
+}
+```
+
+**Validation rules for `validateOverlay()`:**
+- `phases` length must match `s.Plan["phases"]` length exactly; extra/missing entries → reject whole overlay
+- Each `coding_standards` item: non-empty string, ≤ 200 chars
+- Each `invariant_checks` item: non-empty string, starts with a capital letter, ≤ 80 chars
+- Each `layer_tags` item: must match `^(backend|agent|frontend)/` prefix
+- `dependency_graph_ascii`: non-empty string, ≤ 3000 chars
+- Any `deep_knowledge_sections[*].content`: non-empty, ≤ 5000 chars per entry
+- Reject slices with > 30 items (prevents runaway enrichment)
+
+---
+
+#### 8.31.3 Approach C — Agent Prompt Fragment (PlanTaskFormat)
+
+The full constant text injected into agent system prompts when `"plan"` is in `output_docs`:
+
+```
+## PLAN.md Output Format Requirements
+
+When writing tasks for the implementation plan (plan.md output document), use ONLY the following format. Do NOT use "Phase N" headings.
+
+### Task N — {Short Task Name}
+
+**Goal:** {One sentence, ≤ 120 chars, starting with a verb: what this task produces.}
+
+**Files to create:**
+- `path/to/file.go` — {description}
+  - `func FunctionName(params) (ReturnType, error)` — exported function signature
+  - `type TypeName struct { ... }` — key exported type
+  - **Failure handling:** {how errors are returned/logged; which are fatal vs non-fatal}
+
+**Validation:**
+- `cd backend && go build ./...`: zero build errors
+- `cd backend && go vet ./...`: zero vet issues
+- `cd backend && go test ./internal/modules/X/...`: all pass
+- Manual smoke: {one behavioral assertion}
+
+**Blocking Dependencies:** Task N, Task M
+
+---
+
+FORBIDDEN in Validation field: "per module test suite", "run tests", "validate implementation"
+FORBIDDEN in Files field: "see phase deliverables", "TBD", "as needed"
+REQUIRED in every task: at least one runnable shell command in Validation
+REQUIRED for Go tasks: `go build ./...` in Validation
+REQUIRED for frontend tasks: `pnpm check` in Validation
+```
+
+---
+
+#### 8.31.4 Plan Enricher LLM System Prompt
+
+The system prompt passed to `llm.Generate` in `PlanEnricher.Enrich`:
+
+```
+You are a software architecture assistant. You receive a summary of implementation plan phases
+and return a structured JSON enrichment that improves the AI-agent readability of each task.
+
+For each phase, produce:
+- coding_standards: 3-5 SOLID/YAGNI/DRY principles applied to THIS specific phase's code
+- invariant_checks: 2-4 task-specific architectural invariants (in addition to the canonical 4)
+- layer_tags: module paths affected (backend/internal/modules/X/, agent/internal/Y/, frontend/src/...)
+- prompt_context_refs: §8.N references an agent needs to execute this task
+
+Also produce:
+- dependency_graph_ascii: ASCII art showing task order and parallelism (use ─►, │, ▼, ┌, ┐, └, ┘)
+- deep_knowledge_sections: 2-4 §8 entries (schemas, algorithms, contracts) needed across the task sessions
+
+Return ONLY valid JSON matching the schema. No prose. No markdown fences.
+
+Respond in under 4000 tokens. Prefer concrete specifics over generic platitudes.
+For coding_standards: name the actual function/struct, not "SRP: keep it focused".
+For invariant_checks: start with a verb ("No X outside Y", "All Z via W only").
+```
+
+---
+
+#### 8.31.5 Quality Assertions (Auto-Repair Loop Integration)
+
+The rubric validator in `markdown/aigen/rubric.go` for key `"plan"` enforces:
+
+| Assertion | Type | Action on Failure |
+|---|---|---|
+| No `"see phase deliverables"` in output | `ForbiddenString` | Trigger auto-repair LLM pass: "Replace all 'see phase deliverables' stubs with explicit file paths from the canonical state" |
+| No `"per module test suite"` in output | `ForbiddenString` | Trigger auto-repair: "Replace with specific `go build ./...` and `go test ./path/...` commands" |
+| No `"Phase [0-9]+"` in `### ` headings | `ForbiddenPattern` | Trigger auto-repair: "Rename all 'Phase N' headings to 'Task N'" |
+| `\*\*Goal:\*\*` present in each `### Task` block | `RequiredPattern` | Trigger auto-repair: "Add missing **Goal:** field to each task section" |
+| `\*\*Validation:\*\*` present in each `### Task` block | `RequiredPattern` | Trigger auto-repair: "Add missing **Validation:** field" |
+| `\*\*Invariant check:\*\*` present in each `### Task` block | `RequiredPattern` | Trigger auto-repair: "Add missing **Invariant check:** field with at least the 4 canonical items" |
+| `## 1. Goals` is not `_Goals not yet defined_` | `ForbiddenString` | Trigger auto-repair: "Populate Goals from `s.Idea['goals']` list" |
+| `## 8. Deep Knowledge` section present | `RequiredSection` | Trigger auto-repair: "Add §8 Deep Knowledge section derived from canonical state schema" |
+| Document `MinChars` ≥ 3000 | `MinLength` | Trigger auto-repair: "Expand task file specs with explicit function signatures and failure handling" |
+
+Maximum 3 auto-repair attempts before falling back to deterministic-only output with a warning log.
+
+---
+
+### 8.32 README.md Generation Quality Standard (v3.0)
+
+Added by Task 37. This section documents the full 13-section README document contract, the `ReadmeEnricher` post-pass that LLM-fills content-heavy sections after the deterministic render, the Approach C agent prompt fragment that steers upstream LLM agents to write README-appropriate content, and the rubric assertions with auto-repair loop.
+
+---
+
+#### 8.32.1 README Section Contract
+
+Every generated `readme.md` must contain exactly these 13 sections in this order. Sections with a **Deterministic fallback** column will render content from `CanonicalState` even when the enricher is disabled or unavailable.
+
+| § | Heading | Primary data source (enricher key) | Deterministic fallback |
+|---|---|---|---|
+| 1 | `# {ShortTitle}` | `shortTitle(s)` — deterministic | Title from `s.Idea["text"]` truncated + slug-cased |
+| 2 | `> {tagline}` | `s.Architecture["tagline"]` | `oneLineDescription(s)` |
+| 3 | **Description paragraph** | `s.Architecture["description_paragraph"]` | First 300 chars of `s.Idea["context"]` |
+| 4 | **Golden rule** | `s.Architecture["golden_rule"]` | `_No golden rule defined._` |
+| 5 | **What it is NOT** | `s.Architecture["is_not"]` ([]string) | 3 generic anti-patterns derived from tech stack |
+| 6 | **When to use** | `s.Architecture["when_to_use"]` ([]WhenToUseScenario) + `s.Architecture["when_to_use_mermaid"]` | 3 generic "use when building X" scenarios; no Mermaid |
+| 7 | **Installation / Prerequisites** | `s.Architecture["prerequisites"]` ([]Prerequisite) | Generic `go install` + `docker compose up` steps |
+| 8 | **Quick Start** | `s.Architecture["quick_start_commands"]` ([]string) | 3 generic `make` commands |
+| 9 | **Architecture** | `s.Architecture["architecture_ascii"]` + `s.Architecture["architecture_mermaid"]` | `renderASCIIComponents(s)` + `renderDataFlowsMermaid(s)` |
+| 10 | **Command Reference** | `s.Architecture["command_reference"]` ([]CommandRef) | Single placeholder row |
+| 11 | **Tech Stack** | `renderTechStack(s)` — deterministic | Same |
+| 12 | **Repository Format** | `renderDirectoryTree(s)` + `s.Architecture["repo_format_notes"]` | Tree only, no per-entry notes |
+| 13 | **Contributing** | `s.Architecture["contributing_note"]` | Generic `Read AGENTS.md first` line |
+
+**Removed from the old generator (must never appear in v3.0+ output):**
+- `## Known Risks` as a top-level README section — risks belong in `architecture.md` only
+- `## Roadmap` with "Phase N —" bullets — belongs in `roadmap.md` only
+- `renderForAIAgentsAppendix` output — README is human-facing; the For AI Agents block must never appear
+- `— README` suffix on the H1 title
+
+---
+
+#### 8.32.2 ReadmeEnrichmentOverlay Schema
+
+The enricher receives `CanonicalState` as JSON and returns a single structured JSON object. All fields are optional — missing fields leave the deterministic fallback in place.
+
+```json
+{
+  "tagline": "string ≤ 120 chars — punchy one-sentence product tagline",
+  "description_paragraph": "string — 2-3 sentences: what it does, who uses it, what problem it solves",
+  "golden_rule": "string — one-sentence core invariant (e.g. 'same input + same config = identical output')",
+  "is_not": ["string", "string", "string"],
+  "when_to_use": [
+    {
+      "title": "string — short scenario name (e.g. 'Rapid API prototyping')",
+      "description": "string — 1-2 sentence explanation",
+      "code": "string — bash/shell command or config snippet demonstrating this scenario"
+    }
+  ],
+  "when_to_use_mermaid": "string — complete mermaid flowchart source starting with 'flowchart LR' or 'flowchart TD'",
+  "quick_start_commands": ["string", "string"],
+  "command_reference": [
+    {
+      "command": "string — exact CLI/make/curl command",
+      "description": "string — one-line explanation"
+    }
+  ],
+  "architecture_ascii": "string — multi-line ASCII diagram (no code fences, caller wraps in ```)",
+  "architecture_mermaid": "string — complete mermaid flowchart/graph source",
+  "prerequisites": [
+    {
+      "tool": "string — e.g. Go, Docker, Node.js",
+      "version": "string — e.g. 1.26+",
+      "required": true
+    }
+  ],
+  "repo_format_notes": {
+    "backend/": "string — one-line description of what this directory contains",
+    "frontend/": "string"
+  },
+  "contributing_note": "string — 1-3 sentences: what to read before contributing"
+}
+```
+
+**Merge rules:**
+- Every overlay key that is non-empty overwrites the corresponding `s.Architecture[key]` entry.
+- Keys absent or null in the overlay leave the existing state value untouched.
+- The enricher must NEVER overwrite `s.Metrics`, `s.Risks`, `s.Assumptions`, `s.OpenQuestions`, or `s.ExecutionPlan`.
+
+---
+
+#### 8.32.3 Enricher LLM System Prompt
+
+```
+You are an expert technical writer generating a README enrichment overlay for a software project.
+
+INPUT: A CanonicalState JSON object describing a project being designed: its idea, architecture decisions, tech stack, modules, and metrics.
+
+OUTPUT: A single JSON object conforming to ReadmeEnrichmentOverlay (all fields optional).
+
+RULES:
+1. tagline: ≤ 120 chars. One punchy sentence. No marketing fluff. Should complete: "{ProductName} is a ..."
+2. golden_rule: One sentence stating the single most important invariant — the property that must always hold. Example: "same input + same config = identical output, always."
+3. is_not: 3-5 short bullets clarifying what the product is NOT (scope boundaries, common misconceptions). Start each with "Not a ..." or "Not designed to ...".
+4. when_to_use: 3-6 numbered scenarios. Each must have a realistic `code` example — a real command or config snippet, not pseudo-code. Scenarios must be distinct (different use cases, not variations of the same thing).
+5. when_to_use_mermaid: A mermaid flowchart (flowchart LR or TD) showing the decision path for when to use this product vs alternatives. 5-9 nodes. Use `-->` for arrows and `[text]` for rectangles, `{text}` for diamonds.
+6. quick_start_commands: 2-5 commands. Real commands for the tech stack described in the state (e.g., `make dev`, `docker compose up`, `go run ./cmd/server`). Never use `<repository-url>` or `<project>` placeholders.
+7. command_reference: 3-10 entries. Cover the most important developer-facing commands (build, test, run, deploy, migrate).
+8. architecture_ascii: A clean ASCII diagram showing the major system components and their connections. Use box-drawing chars (─ │ ┌ └ ┐ ┘ ├ ┤ ┬ ┴ ┼) for clarity. 8-15 lines.
+9. architecture_mermaid: A mermaid diagram (flowchart or graph) of the architecture. Match the ASCII above.
+10. prerequisites: List only tools actually required by the tech stack. Include versions where known.
+11. contributing_note: 2-3 sentences. What to read before contributing (docs, skill files, test commands).
+
+QUALITY BAR: Content must be specific to THIS project (based on its idea, architecture, tech stack). Generic placeholder text is forbidden.
+```
+
+---
+
+#### 8.32.4 Config Table (additions to §8.28)
+
+| Env var | Default | Valid values | Added by |
+|---|---|---|---|
+| `README_ENRICHER_ENABLED` | `true` | `true` \| `false` | Task 37 |
+| `README_ENRICHER_TIMEOUT_SEC` | `45` | `[10, 120]` | Task 37 |
+
+When `FINALIZE_MODE=deterministic`, `GetReadmeEnricherEnabled()` must return `false` regardless of `README_ENRICHER_ENABLED`. This ensures the deterministic mode flag is a global override.
+
+---
+
+#### 8.32.5 Approach C — ReadmeFormat Agent Prompt Fragment
+
+Constant in `agent/internal/executor/prompts/readme_format.go`. Appended to the agent system prompt via `InjectIfReadmeOutput(base, outputDocs)` when `"readme"` is in `outputDocs`. Mirrors the `InjectIfPlanOutput` pattern from §8.31.3.
+
+```
+=== README OUTPUT FORMAT ===
+
+When generating content for the readme.md document, write every section in README format (not roadmap or plan format):
+
+REQUIRED SECTIONS (in this order):
+1. Golden rule — one sentence stating the single most important system invariant. Format: "**Golden rule:** {sentence}"
+2. What it is NOT — 3-5 bullet points clarifying scope boundaries. Start each with "Not a ..." or "Not designed to ...".
+3. When to use — numbered scenarios (3-6), each with: title, 1-2 sentence description, fenced code example showing a real command or config snippet.
+4. Installation / Prerequisites — a table with | Tool | Version | Required | columns followed by setup steps.
+5. Quick Start — a fenced bash block with 2-5 REAL runnable commands for THIS project's tech stack. NEVER write: git clone <repository-url>, make dev (unless Makefile is confirmed), placeholder commands.
+6. Command Reference — a markdown table with | Command | Description | columns. Include build, test, run, and the 3-5 most important project-specific commands.
+7. Architecture — first an ASCII diagram (box-drawing chars), then a mermaid flowchart. Both must show the actual components described in the architecture state.
+8. Contributing — 2-3 sentences: what documentation to read first, how to run tests before submitting.
+
+FORBIDDEN:
+- "Phase N —" bullets anywhere in README output
+- "## Known Risks" as a top-level section
+- "## Roadmap" section with milestone bullets
+- Placeholder text: <repository-url>, <project>, TODO, TBD
+- Generic filler: "Add your description here", "Coming soon"
+
+The README must be specific to THIS project. Use the actual project name, tech stack, and module structure from the conversation context.
+=== END README FORMAT ===
+```
+
+---
+
+#### 8.32.6 README Rubric Assertions
+
+| Assertion | Type | Auto-repair trigger |
+|---|---|---|
+| `**Golden rule:**` present | `RequiredPattern` | "Add a **Golden rule:** line — one-sentence core invariant of this system" |
+| ` ``` mermaid` fence present | `RequiredPattern` | "Add a mermaid flowchart to the When to use section showing the decision path for this product" |
+| `## When to use` heading present | `RequiredSection` | "Add a '## When to use' section with 3-6 numbered scenarios each containing a code example" |
+| `## Contributing` heading present | `RequiredSection` | "Add a '## Contributing' section explaining what to read before making changes" |
+| `<repository-url>` absent | `ForbiddenString` | "Replace `<repository-url>` with the real project repository URL or `https://github.com/your-org/{project-slug}`" |
+| `Phase 1 —` absent | `ForbiddenString` | "Remove all 'Phase N —' bullets from README — this is a README, not a roadmap" |
+| `## Known Risks` absent | `ForbiddenString` | "Remove '## Known Risks' section from README — risks belong in architecture.md" |
+| `For AI Agents` absent | `ForbiddenString` | "Remove the For AI Agents appendix — README is human-facing only" |
+| Document `MinChars` ≥ 1500 | `MinLength` | "Expand each section with more specific content derived from the project's architecture and tech stack" |
+
+Maximum 3 auto-repair attempts before falling back to deterministic-only output with a warning log.
+
