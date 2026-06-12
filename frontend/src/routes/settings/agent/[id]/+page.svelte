@@ -22,7 +22,7 @@
   let name = "";
   let description = "";
   let defaultRole = "build";
-  let provider = "copilot";
+  let provider = "opencode";
   let model = "";
   let endpoint = "";
   let credentialRef = "";
@@ -37,7 +37,7 @@
   let error = "";
 
   const roleOptions = ["build", "review", "refine", "devils_advocate"];
-  const providerOptions = ["copilot", "claude"];
+  const providerOptions = ["copilot", "opencode", "claude"];
 
   // ── Validation ───────────────────────────────────────────────────────────
 
@@ -151,10 +151,15 @@
       }
 
       // Populate form
+      const configuredProvider = (agent.llm_config.provider ?? "")
+        .trim()
+        .toLowerCase();
       name = agent.name;
       description = agent.description ?? "";
       defaultRole = agent.default_role;
-      provider = agent.llm_config.provider;
+      provider = providerOptions.includes(configuredProvider)
+        ? configuredProvider
+        : "opencode";
       model = agent.llm_config.model;
       credentialRef = agent.llm_config.credential_ref;
       endpoint = agent.endpoint;
@@ -234,7 +239,7 @@
           <input
             class="form-input"
             type="text"
-            placeholder="e.g. gpt-4o"
+            placeholder="e.g. github-copilot/claude-sonnet-4.6 or gpt-4.1"
             bind:value={model}
           />
         </div>
@@ -268,12 +273,13 @@
       <div class="field">
         <div class="field-label">Credential Reference</div>
         <div class="field-hint">
-          Env var name only — never the raw key value (e.g. COPILOT_API_KEY)
+          Env var name only — never the raw key value (for example
+          COPILOT_API_KEY or OPENCODE_SERVER_PASSWORD)
         </div>
         <input
           class="form-input"
           type="text"
-          placeholder="e.g. COPILOT_API_KEY"
+          placeholder="e.g. COPILOT_API_KEY or OPENCODE_SERVER_PASSWORD"
           bind:value={credentialRef}
           autocomplete="off"
         />

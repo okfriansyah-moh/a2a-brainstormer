@@ -168,10 +168,11 @@ func (e *BrainstormExecutor) Execute(
 			)
 		}
 		userMessage := fmt.Sprintf(
-			"CRITICAL INSTRUCTION: You MUST respond with ONLY a valid JSON object.\n"+
-				"Do NOT include any explanation, commentary, markdown, or text outside the JSON.\n"+
+			"CRITICAL INSTRUCTION: You MUST respond with ONLY one valid JSON object.\n"+
+				"Do NOT include any explanation, commentary, markdown, code fences, or text outside the JSON.\n"+
 				"Your entire response must start with { and end with }.\n"+
-				"No prose before or after. No ```json fences. Pure JSON only.\n%s\n"+
+				"No prose before or after. No ```json fences. No trailing commas. Pure JSON only.\n"+
+				"Before sending your answer, verify that it parses as JSON and contains no markdown wrappers.\n%s\n"+
 				"Current brainstorm state (JSON):\n%s\n\n"+
 				"Return the complete updated canonical state as a single JSON object.",
 			feedbackSection,
@@ -349,6 +350,9 @@ func truncate(s string, n int) string {
 // jsonCodeFenceRE matches a ```json ... ``` or ``` ... ``` fenced code block.
 var jsonCodeFenceRE = regexp.MustCompile(`(?s)` + "```" + `(?:json)?\s*([\s\S]*?)` + "```")
 
+// trailingCommaRE removes trailing commas before closing braces/brackets.
+var trailingCommaRE = regexp.MustCompile(`,\s*([}\]])`)
+
 // extractJSON attempts to parse a valid JSON object from raw, which may be:
 //  1. Pure JSON (the expected case).
 //  2. JSON wrapped in ```json … ``` or ``` … ``` markdown fences.
@@ -358,29 +362,42 @@ var jsonCodeFenceRE = regexp.MustCompile(`(?s)` + "```" + `(?:json)?\s*([\s\S]*?
 func extractJSON(raw string) (any, error) {
 	raw = strings.TrimSpace(raw)
 
-	// Fast path: raw content is already valid JSON.
 	var out any
-	if err := json.Unmarshal([]byte(raw), &out); err == nil {
-		return out, nil
-	}
-
-	// Try extracting from a ```json … ``` or ``` … ``` code fence.
-	if m := jsonCodeFenceRE.FindStringSubmatch(raw); len(m) == 2 {
-		candidate := strings.TrimSpace(m[1])
-		if err := json.Unmarshal([]byte(candidate), &out); err == nil {
-			return out, nil
+	for _, candidate := range candidatesForJSON(raw) {
+		candidate = normalizeJSONCandidate(candidate)
+		if candidate == "" {
+			continue
 		}
-	}
-
-	// Last resort: find the first '{' and the last '}' and try that substring.
-	start := strings.Index(raw, "{")
-	end := strings.LastIndex(raw, "}")
-	if start >= 0 && end > start {
-		candidate := raw[start : end+1]
 		if err := json.Unmarshal([]byte(candidate), &out); err == nil {
 			return out, nil
 		}
 	}
 
 	return nil, fmt.Errorf("response contains no valid JSON object (first 200 bytes: %s)", truncate(raw, 200))
+}
+
+func candidatesForJSON(raw string) []string {
+	candidates := make([]string, 0, 3)
+
+	if err := json.Unmarshal([]byte(raw), &struct{}{}); err == nil {
+		return []string{raw}
+	}
+
+	if m := jsonCodeFenceRE.FindStringSubmatch(raw); len(m) == 2 {
+		candidates = append(candidates, strings.TrimSpace(m[1]))
+	}
+
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		candidates = append(candidates, raw[start:end+1])
+	}
+
+	return candidates
+}
+
+func normalizeJSONCandidate(raw string) string {
+	candidate := strings.TrimSpace(raw)
+	candidate = trailingCommaRE.ReplaceAllString(candidate, "$1")
+	return strings.TrimSpace(candidate)
 }

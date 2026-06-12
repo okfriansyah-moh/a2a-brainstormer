@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -127,8 +128,8 @@ Do not include explanations or markdown.`
 		return DiscoveryHintsResponse{}, err
 	}
 
-	var parsed DiscoveryHintsResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(llmResp.Content)), &parsed); err != nil {
+	parsed, err := parseHintsJSON(llmResp.Content)
+	if err != nil {
 		return DiscoveryHintsResponse{}, fmt.Errorf("parse hints json: %w", err)
 	}
 	if len(parsed.Q2) == 0 && len(parsed.Q3) == 0 && len(parsed.Q4) == 0 {
@@ -138,6 +139,54 @@ Do not include explanations or markdown.`
 }
 
 // mergeHints fills empty tiers from static defaults (never overwrites non-empty tiers).
+func parseHintsJSON(raw string) (DiscoveryHintsResponse, error) {
+	raw = strings.TrimSpace(raw)
+
+	for _, candidate := range candidatesForHintsJSON(raw) {
+		candidate = normalizeHintsJSONCandidate(candidate)
+		if candidate == "" {
+			continue
+		}
+
+		var parsed DiscoveryHintsResponse
+		if err := json.Unmarshal([]byte(candidate), &parsed); err == nil {
+			return parsed, nil
+		}
+	}
+
+	return DiscoveryHintsResponse{}, errors.New("response contains no valid JSON object")
+}
+
+func candidatesForHintsJSON(raw string) []string {
+	candidates := make([]string, 0, 3)
+
+	if err := json.Unmarshal([]byte(raw), &struct{}{}); err == nil {
+		return []string{raw}
+	}
+
+	if m := jsonCodeFenceRE.FindStringSubmatch(raw); len(m) == 2 {
+		candidates = append(candidates, strings.TrimSpace(m[1]))
+	}
+
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		candidates = append(candidates, raw[start:end+1])
+	}
+
+	return candidates
+}
+
+func normalizeHintsJSONCandidate(raw string) string {
+	candidate := strings.TrimSpace(raw)
+	candidate = trailingCommaRE.ReplaceAllString(candidate, "$1")
+	return strings.TrimSpace(candidate)
+}
+
+var jsonCodeFenceRE = regexp.MustCompile("(?s)```(?:json)?\\s*([\\s\\S]*?)```")
+
+var trailingCommaRE = regexp.MustCompile(`,\s*([}\]])`)
+
 func mergeHints(dynamic DiscoveryHintsResponse) DiscoveryHintsResponse {
 	out := dynamic
 	if len(out.Q2) == 0 {

@@ -28,7 +28,7 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/a2a_brainstorm?sslmode=disable
       BACKEND_PORT: ${BACKEND_PORT:-8080}
-      GLOBAL_LLM_PROVIDER: ${GLOBAL_LLM_PROVIDER:-copilot}
+      GLOBAL_LLM_PROVIDER: ${GLOBAL_LLM_PROVIDER:-opencode}
       GLOBAL_LLM_MODEL: ${GLOBAL_LLM_MODEL:-gpt-4o}
       GLOBAL_LLM_CREDENTIAL_REF: ${GLOBAL_LLM_CREDENTIAL_REF:-COPILOT_API_KEY}
       AGENT_ENDPOINTS: ${AGENT_ENDPOINTS:-http://agent:${AGENT_PORT:-9090}}

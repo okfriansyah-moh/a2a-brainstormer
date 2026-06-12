@@ -264,6 +264,60 @@ func TestExtractPayload_ValidPayload_Succeeds(t *testing.T) {
 	}
 }
 
+func TestExtractJSON_StripsCodeFencesAndProse(t *testing.T) {
+	raw := "Here is the updated state:\n```json\n{\n  \"idea\": {\n    \"text\": \"build a platform\"\n  },\n  \"metrics\": {\n    \"confidence\": 0.91\n  }\n}\n```\nDone."
+
+	got, err := extractJSON(raw)
+	if err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+
+	state, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("extractJSON() type = %T, want map[string]any", got)
+	}
+	if state["idea"] == nil {
+		t.Fatal("extractJSON() missing idea field")
+	}
+	if m, ok := state["metrics"].(map[string]any); !ok || m["confidence"] != 0.91 {
+		t.Fatalf("extractJSON() metrics = %#v, want confidence 0.91", state["metrics"])
+	}
+}
+
+func TestExtractJSON_FindsJSONInsideTrailingText(t *testing.T) {
+	raw := "I returned this object:\n{\n  \"idea\": {\n    \"text\": \"rent AI agents\"\n  },\n  \"metrics\": {\n    \"confidence\": 0.88\n  }\n}\nThat should be enough."
+
+	got, err := extractJSON(raw)
+	if err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+
+	state, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("extractJSON() type = %T, want map[string]any", got)
+	}
+	if _, ok := state["idea"]; !ok {
+		t.Fatal("extractJSON() missing idea field")
+	}
+}
+
+func TestExtractJSON_ToleratesTrailingCommasInsideFencedJSON(t *testing.T) {
+	raw := "```json\n{\n  \"idea\": {\n    \"text\": \"rent AI agents\"\n  },\n  \"metrics\": {\n    \"confidence\": 0.88,\n  },\n}\n```"
+
+	got, err := extractJSON(raw)
+	if err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+
+	state, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("extractJSON() type = %T, want map[string]any", got)
+	}
+	if _, ok := state["idea"]; !ok {
+		t.Fatal("extractJSON() missing idea field")
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	cases := []struct {
 		input string

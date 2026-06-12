@@ -33,7 +33,7 @@ func TestMergeHints_FillsEmptyTiers(t *testing.T) {
 func TestDiscoveryHintsService_StaticFallbackOnLLMError(t *testing.T) {
 	svc := NewDiscoveryHintsService(stubLLM{err: context.Canceled}, nil)
 	resp := svc.Generate(context.Background(), stringsIdea())
-	if resp.Q2 == nil || len(resp.Q2) == 0 {
+	if len(resp.Q2) == 0 {
 		t.Fatal("expected static q2 hints")
 	}
 }
@@ -53,6 +53,30 @@ func TestDiscoveryHintsService_CachesLLMResult(t *testing.T) {
 	second := svc.Generate(context.Background(), idea)
 	if second.Q2[0] != "A" {
 		t.Fatalf("unexpected cached response: %+v", second)
+	}
+}
+
+func TestParseHintsJSON_StripsCodeFencesAndTrailingCommas(t *testing.T) {
+	payload := "```json\n{\n  \"q2\": [\"Core MVP\"],\n  \"q3\": [\"Zero data loss\"],\n  \"q4\": [\"Better developer experience\"],\n}\n```"
+
+	got, err := parseHintsJSON(payload)
+	if err != nil {
+		t.Fatalf("parseHintsJSON() error = %v", err)
+	}
+	if len(got.Q2) != 1 || got.Q2[0] != "Core MVP" {
+		t.Fatalf("q2 = %v, want [Core MVP]", got.Q2)
+	}
+}
+
+func TestParseHintsJSON_FindsJSONInsideTrailingText(t *testing.T) {
+	payload := "Sure — here is the payload:\n{\n  \"q2\": [\"Fast onboarding\"],\n  \"q3\": [\"Audit trail\"],\n  \"q4\": [\"Lower cost\"]\n}\nThat should do it."
+
+	got, err := parseHintsJSON(payload)
+	if err != nil {
+		t.Fatalf("parseHintsJSON() error = %v", err)
+	}
+	if len(got.Q4) != 1 || got.Q4[0] != "Lower cost" {
+		t.Fatalf("q4 = %v, want [Lower cost]", got.Q4)
 	}
 }
 

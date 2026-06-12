@@ -198,31 +198,7 @@ func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.Markdown
 		}
 	}
 
-	// Build the LLM provider based on GLOBAL_LLM_PROVIDER.
-	var provider llm.LLMProvider
-	switch llmProviderName {
-	case "opencode":
-		rawModel := config.GetGlobalOpenCodeModel()
-		providerID, modelID := splitOpenCodeModel(rawModel)
-		provider = llm.NewOpenCodeProvider(
-			llm.OpenCodeConfig{
-				BaseURL:     config.GetGlobalOpenCodeBaseURL(),
-				ProviderID:  providerID,
-				ModelID:     modelID,
-				UsernameRef: config.GetOpenCodeServerUsernameRef(),
-				PasswordRef: config.GetOpenCodeServerPasswordRef(),
-			},
-			nil,
-			config.GetLLMAPIKey,
-		)
-	default: // "copilot" and any unrecognised value
-		llmCfg := llm.LLMConfig{
-			Provider:      llmProviderName,
-			Model:         config.GetGlobalLLMModel(),
-			CredentialRef: config.GetGlobalLLMCredentialRef(),
-		}
-		provider = llm.NewCopilotProvider(llmCfg, "", nil)
-	}
+	provider := newGlobalLLMProvider()
 
 	aiMode := aigen.ModeHybrid
 	if mode == markdown.FinalizeModeAI {
@@ -244,20 +220,59 @@ func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.Markdown
 // buildDiscoveryHintsService constructs the optional LLM-backed discovery hints
 // service. Falls back to static-only hints when no LLM credential is available.
 func buildDiscoveryHintsService(log *slog.Logger) *sessmod.DiscoveryHintsService {
+	if !hasDiscoveryHintsCredentials(config.GetGlobalLLMProvider()) {
+		return sessmod.NewDiscoveryHintsService(nil, log)
+	}
+
+	provider := newGlobalLLMProvider()
+	return sessmod.NewDiscoveryHintsService(provider, log)
+}
+
+func hasDiscoveryHintsCredentials(provider string) bool {
+	if provider == "opencode" {
+		if _, err := config.GetLLMAPIKey(config.GetOpenCodeServerUsernameRef()); err != nil {
+			return false
+		}
+		if _, err := config.GetLLMAPIKey(config.GetOpenCodeServerPasswordRef()); err != nil {
+			return false
+		}
+		return true
+	}
+
 	credRef := config.GetGlobalLLMCredentialRef()
 	if credRef == "" {
-		return sessmod.NewDiscoveryHintsService(nil, log)
+		return false
 	}
 	if _, err := config.GetLLMAPIKey(credRef); err != nil {
-		return sessmod.NewDiscoveryHintsService(nil, log)
+		return false
 	}
-	llmCfg := llm.LLMConfig{
-		Provider:      config.GetGlobalLLMProvider(),
-		Model:         config.GetGlobalLLMModel(),
-		CredentialRef: credRef,
+	return true
+}
+
+func newGlobalLLMProvider() llm.LLMProvider {
+	switch config.GetGlobalLLMProvider() {
+	case "opencode":
+		rawModel := config.GetGlobalOpenCodeModel()
+		providerID, modelID := splitOpenCodeModel(rawModel)
+		return llm.NewOpenCodeProvider(
+			llm.OpenCodeConfig{
+				BaseURL:     config.GetGlobalOpenCodeBaseURL(),
+				ProviderID:  providerID,
+				ModelID:     modelID,
+				UsernameRef: config.GetOpenCodeServerUsernameRef(),
+				PasswordRef: config.GetOpenCodeServerPasswordRef(),
+			},
+			nil,
+			config.GetLLMAPIKey,
+		)
+	default:
+		llmCfg := llm.LLMConfig{
+			Provider:      config.GetGlobalLLMProvider(),
+			Model:         config.GetGlobalLLMModel(),
+			CredentialRef: config.GetGlobalLLMCredentialRef(),
+		}
+		return llm.NewCopilotProvider(llmCfg, "", nil)
 	}
-	provider := llm.NewCopilotProvider(llmCfg, "", nil)
-	return sessmod.NewDiscoveryHintsService(provider, log)
 }
 
 // splitOpenCodeModel splits a "providerID/modelID" string into its two parts.
