@@ -216,7 +216,7 @@ func ExtractStateFromResult(result a2a.SendMessageResult) (any, error) {
 //
 // Non-transient (returned immediately):
 //   - Application-level errors (4xx class: invalid params, not found, etc.)
-//   - Context cancellation / deadline exceeded
+//   - Explicit context cancellation (context.Canceled)
 func isTransientError(err error) bool {
 	if err == nil {
 		return false

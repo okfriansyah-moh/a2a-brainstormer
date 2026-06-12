@@ -220,19 +220,33 @@ func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.Markdown
 // buildDiscoveryHintsService constructs the optional LLM-backed discovery hints
 // service. Falls back to static-only hints when no LLM credential is available.
 func buildDiscoveryHintsService(log *slog.Logger) *sessmod.DiscoveryHintsService {
-	llmProviderName := config.GetGlobalLLMProvider()
-	if llmProviderName != "opencode" {
-		credRef := config.GetGlobalLLMCredentialRef()
-		if credRef == "" {
-			return sessmod.NewDiscoveryHintsService(nil, log)
-		}
-		if _, err := config.GetLLMAPIKey(credRef); err != nil {
-			return sessmod.NewDiscoveryHintsService(nil, log)
-		}
+	if !hasDiscoveryHintsCredentials(config.GetGlobalLLMProvider()) {
+		return sessmod.NewDiscoveryHintsService(nil, log)
 	}
 
 	provider := newGlobalLLMProvider()
 	return sessmod.NewDiscoveryHintsService(provider, log)
+}
+
+func hasDiscoveryHintsCredentials(provider string) bool {
+	if provider == "opencode" {
+		if _, err := config.GetLLMAPIKey(config.GetOpenCodeServerUsernameRef()); err != nil {
+			return false
+		}
+		if _, err := config.GetLLMAPIKey(config.GetOpenCodeServerPasswordRef()); err != nil {
+			return false
+		}
+		return true
+	}
+
+	credRef := config.GetGlobalLLMCredentialRef()
+	if credRef == "" {
+		return false
+	}
+	if _, err := config.GetLLMAPIKey(credRef); err != nil {
+		return false
+	}
+	return true
 }
 
 func newGlobalLLMProvider() llm.LLMProvider {

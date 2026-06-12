@@ -109,13 +109,8 @@
         <h2 style="font-size:1.35rem;margin:0 0 8px;">
           Preparing discovery hints…
         </h2>
-        <p class="pre-clarify-copy">
-          We are giving the AI a moment to generate the clarification prompts
-          for this idea.
-        </p>
-        <p class="pre-clarify-copy subtle">
-          This helps the follow-up hints load more reliably.
-        </p>
+        <p class="pre-clarify-copy">Preparing the next step.</p>
+        <p class="pre-clarify-copy subtle">Loading the clarification form.</p>
       </div>
     {:else if step === "home"}
       <h2 style="font-size:1.4rem;margin-bottom:6px;">
