@@ -123,7 +123,7 @@ func renderMilestonesTable(s state.CanonicalState) string {
 			desc,
 		})
 	}
-	return renderTable([]string{"#", "Phase", "Summary"}, rows)
+	return renderTable([]string{"#", "Task", "Summary"}, rows)
 }
 
 // ─── §4 Dependency Graph ──────────────────────────────────────────────────────

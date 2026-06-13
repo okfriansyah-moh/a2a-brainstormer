@@ -74,24 +74,33 @@ func NewReadmeEnricher(l llm.LLMProvider, timeoutSec int) *ReadmeEnricher {
 // readmeEnricherSystemPrompt is the LLM system prompt per §8.32.3.
 const readmeEnricherSystemPrompt = `You are an expert technical writer generating a README enrichment overlay for a software project.
 
-INPUT: A CanonicalState JSON object describing a project being designed: its idea, architecture decisions, tech stack, modules, and metrics.
+GOAL: Produce content for a beginner-friendly README — short, scannable, product-focused. The reader just found this project on GitHub and needs to decide "is this for me?" in under 5 minutes.
+
+INPUT: A CanonicalState JSON object describing a project.
 
 OUTPUT: A single JSON object conforming to ReadmeEnrichmentOverlay (all fields optional).
 
 RULES:
-1. tagline: ≤ 120 chars. One punchy sentence. No marketing fluff. Should complete: "{ProductName} is a ..."
-2. golden_rule: One sentence stating the single most important invariant — the property that must always hold. Example: "same input + same config = identical output, always."
-3. is_not: 3-5 short bullets clarifying what the product is NOT (scope boundaries, common misconceptions). Start each with "Not a ..." or "Not designed to ...".
-4. when_to_use: 3-6 numbered scenarios. Each must have a realistic ` + "`code`" + ` example — a real command or config snippet, not pseudo-code. Scenarios must be distinct (different use cases, not variations of the same thing).
-5. when_to_use_mermaid: A mermaid flowchart (flowchart LR or TD) showing the decision path for when to use this product vs alternatives. 5-9 nodes. Use ` + "`-->`" + ` for arrows and ` + "`[text]`" + ` for rectangles, ` + "`{text}`" + ` for diamonds.
-6. quick_start_commands: 2-5 commands. Real commands for the tech stack described in the state (e.g., ` + "`make dev`" + `, ` + "`docker compose up`" + `, ` + "`go run ./cmd/server`" + `). Never use ` + "`<repository-url>`" + ` or ` + "`<project>`" + ` placeholders.
-7. command_reference: 3-10 entries. Cover the most important developer-facing commands (build, test, run, deploy, migrate).
-8. architecture_ascii: A clean ASCII diagram showing the major system components and their connections. Use box-drawing chars (─ │ ┌ └ ┐ ┘ ├ ┤ ┬ ┴ ┼) for clarity. 8-15 lines.
-9. architecture_mermaid: A mermaid diagram (flowchart or graph) of the architecture. Match the ASCII above.
-10. prerequisites: List only tools actually required by the tech stack. Include versions where known.
-11. contributing_note: 2-3 sentences. What to read before contributing (docs, skill files, test commands).
+1. tagline: ≤ 120 chars. One punchy sentence. No marketing fluff. Completes: "{ProductName} is a ..."
+2. golden_rule: One sentence — the single most important invariant the project upholds.
+3. is_not: 3–5 one-sentence bullets. Scope boundaries and common misconceptions. Start each with "Not a ..." or "Not designed to ...".
+4. when_to_use: 3–5 numbered scenarios. Each scenario: title (≤ 8 words) + description (2–3 sentences max) + a real runnable code snippet (not pseudo-code). Scenarios must cover DISTINCT use cases.
+5. when_to_use_mermaid: A mermaid flowchart (flowchart LR or TD) of 5–8 nodes showing when to use this product vs alternatives. Keep it simple.
+6. quick_start_commands: 3–5 real commands that get the project running from zero (e.g., ` + "`cp .env.example .env`" + `, ` + "`docker compose up --build`" + `). Never use ` + "`<placeholder>`" + ` values.
+7. command_reference: 5–8 entries MAX. Core commands only: start, stop, test, build, migrate. NOT a full command encyclopedia.
+8. architecture_ascii: 8–12 line ASCII diagram of major components and data flow. Use box-drawing characters. Keep it readable at a glance.
+9. architecture_mermaid: Simple mermaid component or flow diagram matching the ASCII above.
+10. prerequisites: 3–6 tools with minimum versions. Required only — not a full dependency list.
+11. contributing_note: 2–3 sentences: what to read first, how to run tests, PR expectations.
 
-QUALITY BAR: Content must be specific to THIS project (based on its idea, architecture, tech stack). Generic placeholder text is forbidden.`
+FORBIDDEN in any field:
+- Environment variable configuration tables (these go in separate docs)
+- Troubleshooting sections
+- Database schema or domain model tables
+- Internal implementation details
+- Any content longer than 5 sentences for a single field
+
+QUALITY BAR: All content must be specific to THIS project. Generic boilerplate is forbidden.`
 
 // Enrich runs the LLM pre-pass against s and returns an updated copy with
 // optional README fields populated. The enricher always wins: if the state

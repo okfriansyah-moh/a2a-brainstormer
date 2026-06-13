@@ -66,8 +66,15 @@ var defaultPlaceholders = []string{"TBD", "TODO", "Lorem ipsum", "placeholder"}
 var defaultRubrics = map[string]Rubric{
 	"architecture": {
 		DocKey:        "architecture",
-		MinTotalLines: 1000,
+		MinTotalLines: 600,
 		MinTotalChars: 1500,
+		// Phase N — and Phase N: naming is forbidden; all steps must be called Task N
+		ForbiddenStrings: []string{
+			"Phase 0 —", "Phase 1 —", "Phase 2 —", "Phase 3 —", "Phase 4 —",
+			"Phase 5 —", "Phase 6 —", "Phase 7 —", "Phase 8 —", "Phase 9 —", "Phase 10 —",
+			"Phase 0:", "Phase 1:", "Phase 2:", "Phase 3:", "Phase 4:",
+			"Phase 5:", "Phase 6:", "Phase 7:", "Phase 8:", "Phase 9:", "Phase 10:",
+		},
 		Sections: []SectionRule{
 			{Heading: "1. Problem Statement", MinChars: 80},
 			{Heading: "2. Solution", MinChars: 80},
@@ -90,13 +97,16 @@ var defaultRubrics = map[string]Rubric{
 	},
 	"plan": {
 		DocKey:        "plan",
-		MinTotalLines: 1000,
+		MinTotalLines: 800,
 		MinTotalChars: 3000,
 		ForbiddenStrings: []string{
 			"see phase deliverables",
 			"per module test suite",
-			"Phase 0 —",
-			"Phase 1 —",
+			// All Phase N — and Phase N: patterns; all steps must be called Task N
+			"Phase 0 —", "Phase 1 —", "Phase 2 —", "Phase 3 —", "Phase 4 —",
+			"Phase 5 —", "Phase 6 —", "Phase 7 —", "Phase 8 —", "Phase 9 —", "Phase 10 —",
+			"Phase 0:", "Phase 1:", "Phase 2:", "Phase 3:", "Phase 4:",
+			"Phase 5:", "Phase 6:", "Phase 7:", "Phase 8:", "Phase 9:", "Phase 10:",
 		},
 		RequiredPatterns: []string{
 			"**Goal:**",
@@ -114,15 +124,16 @@ var defaultRubrics = map[string]Rubric{
 	"readme": {
 		DocKey:        "readme",
 		MinTotalLines: 80,
-		MinTotalChars: 1500,
+		MinTotalChars: 1000,
 		ForbiddenStrings: []string{
 			"<repository-url>",
-			"Phase 1 —",
-			"Phase 2 —",
-			"Phase 3 —",
+			"Phase 1 —", "Phase 2 —", "Phase 3 —",
 			"## Known Risks\n",
 			"For AI Agents",
 			"## Roadmap\n\n_Roadmap",
+			// Sections that indicate over-engineering the README
+			"## Troubleshooting",
+			"## Configuration Reference",
 		},
 		RequiredPatterns: []string{
 			"**Golden rule:**",

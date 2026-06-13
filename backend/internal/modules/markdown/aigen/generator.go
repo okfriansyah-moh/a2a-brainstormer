@@ -224,8 +224,12 @@ func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.
 	if draft == "" {
 		return shared.GeneratedDocument{}, errors.New("initial draft was empty")
 	}
-	if len(draft) < len(strings.TrimSpace(scaffold.Content)) {
-		return shared.GeneratedDocument{}, fmt.Errorf("initial draft (%d chars) shorter than scaffold (%d chars)", len(draft), len(strings.TrimSpace(scaffold.Content)))
+	// Allow the AI to produce a more concise rewrite — only reject if the draft is
+	// less than 50% of the scaffold size, which indicates the LLM stripped content
+	// rather than rewrote it. Raw char count is not the quality gate; the rubric is.
+	scaffoldLen := len(strings.TrimSpace(scaffold.Content))
+	if scaffoldLen > 0 && len(draft) < scaffoldLen/2 {
+		return shared.GeneratedDocument{}, fmt.Errorf("initial draft (%d chars) is less than 50%% of scaffold (%d chars) — likely truncated", len(draft), scaffoldLen)
 	}
 
 	for attempt := 0; attempt <= g.maxRepairs; attempt++ {
@@ -258,21 +262,31 @@ func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.
 
 func (g *Generator) buildSystemPrompt(docKey string) string {
 	var sb strings.Builder
-	sb.WriteString("You are a Principal Software Architect drafting a production-grade engineering document for a real engineering team that will execute against it.\n")
-	sb.WriteString("Document type: ")
-	sb.WriteString(docKey)
-	sb.WriteString(".\n\n")
-	sb.WriteString("## Output rules (non-negotiable)\n")
-	sb.WriteString("1. Output MUST be valid GitHub-Flavored Markdown. Do NOT wrap the output in code fences. Do NOT prefix with 'Here is the document:' or any preamble.\n")
-	sb.WriteString("2. The document MUST be AT LEAST 1000 lines long. Use sub-headings (###, ####), tables, mermaid diagrams, code samples, bulleted lists, and numbered procedures to reach that depth with real content — never filler.\n")
-	sb.WriteString("3. Preserve every `## ` top-level heading present in the seed scaffold and keep them in the same order. You MAY add deeper sub-headings; you MAY NOT delete or rename top-level headings.\n")
-	sb.WriteString("4. Every top-level section must contain at minimum: a 2–3 paragraph narrative introduction, 2+ sub-sections (###), at least one table OR mermaid diagram OR fenced code block, and a closing 'Implications' or 'Trade-offs' paragraph.\n")
-	sb.WriteString("5. Never emit literal placeholder strings such as TBD, TODO, Lorem ipsum, placeholder, '...', 'to be defined', or '<insert ...>'. If a detail is genuinely unknowable, make a reasoned recommendation and label it 'Recommended default:'.\n")
-	sb.WriteString("6. Cite numbers (latencies, sizes, throughput, p95, error budgets) wherever you make performance claims. Round to plausible engineering values; never leave a quantity vague.\n")
-	sb.WriteString("7. Quality bar: write at the level of a senior staff engineer publishing an internal RFC — explicit trade-offs, concrete component boundaries, named interfaces, schemas, error paths.\n")
 	if docKey == "readme" {
-		sb.WriteString("8. This is a human-facing README. Do NOT add a `## For AI Agents` appendix. End with the `## Contributing` section.\n\n")
+		sb.WriteString("You are an expert technical writer creating a beginner-friendly product README. Your audience is a developer who has NEVER seen this project — they are asking 'what is this and should I use it?' not 'how do I implement it'.\n")
+		sb.WriteString("Document type: readme.\n\n")
+		sb.WriteString("## Output rules (non-negotiable)\n")
+		sb.WriteString("1. Output MUST be valid GitHub-Flavored Markdown. Do NOT wrap the output in code fences. Do NOT prefix with 'Here is the document:' or any preamble.\n")
+		sb.WriteString("2. TARGET LENGTH: 250–500 lines. Concise beats exhaustive. A developer should understand the project in 5 minutes of reading.\n")
+		sb.WriteString("3. Preserve every `## ` top-level heading present in the seed scaffold and keep them in the same order.\n")
+		sb.WriteString("4. Every section MUST be short: 1–3 sentences of narrative, then the key content (bullet list, code block, or table). NO 2–3 paragraph introductions. NO 'Implications' paragraphs. NO 'Trade-offs' sub-sections.\n")
+		sb.WriteString("5. Never emit literal placeholder strings such as TBD, TODO, '<insert ...>', or '<repository-url>'.\n")
+		sb.WriteString("6. Write at product-overview level: explain what the project is, why it exists, and how to get started. Do NOT deep-dive into internal implementation details.\n")
+		sb.WriteString("7. FORBIDDEN content: configuration tables with 20+ env vars, troubleshooting sections, domain model tables, sequence diagrams, 'For AI Agents' appendix, per-module technical breakdowns, and detailed API documentation. These belong in separate engineering docs, NOT in the README.\n")
+		sb.WriteString("8. Do NOT add a `## For AI Agents` appendix. End with the `## Contributing` section.\n\n")
 	} else {
+		sb.WriteString("You are a Principal Software Architect drafting a production-grade engineering document for a real engineering team that will execute against it.\n")
+		sb.WriteString("Document type: ")
+		sb.WriteString(docKey)
+		sb.WriteString(".\n\n")
+		sb.WriteString("## Output rules (non-negotiable)\n")
+		sb.WriteString("1. Output MUST be valid GitHub-Flavored Markdown. Do NOT wrap the output in code fences. Do NOT prefix with 'Here is the document:' or any preamble.\n")
+		sb.WriteString("2. The document MUST be AT LEAST 1000 lines long. Use sub-headings (###, ####), tables, mermaid diagrams, code samples, bulleted lists, and numbered procedures to reach that depth with real content — never filler.\n")
+		sb.WriteString("3. Preserve every `## ` top-level heading present in the seed scaffold and keep them in the same order. You MAY add deeper sub-headings; you MAY NOT delete or rename top-level headings.\n")
+		sb.WriteString("4. Every top-level section must contain at minimum: a 2–3 paragraph narrative introduction, 2+ sub-sections (###), at least one table OR mermaid diagram OR fenced code block, and a closing 'Implications' or 'Trade-offs' paragraph.\n")
+		sb.WriteString("5. Never emit literal placeholder strings such as TBD, TODO, Lorem ipsum, placeholder, '...', 'to be defined', or '<insert ...>'. If a detail is genuinely unknowable, make a reasoned recommendation and label it 'Recommended default:'.\n")
+		sb.WriteString("6. Cite numbers (latencies, sizes, throughput, p95, error budgets) wherever you make performance claims. Round to plausible engineering values; never leave a quantity vague.\n")
+		sb.WriteString("7. Quality bar: write at the level of a senior staff engineer publishing an internal RFC — explicit trade-offs, concrete component boundaries, named interfaces, schemas, error paths.\n")
 		sb.WriteString("8. Dual-audience: every document MUST end with a `## For AI Agents` appendix containing `### Stack`, `### Key Contracts`, `### Implementation Order`, and `### Out of Scope` sub-sections with concrete, pasteable guidance for coding agents.\n\n")
 	}
 	sb.WriteString("## Required structural depth for this document type\n")
@@ -291,7 +305,9 @@ func (g *Generator) buildSystemPrompt(docKey string) string {
 func docSkeletonHint(docKey string) string {
 	switch docKey {
 	case "architecture":
-		return `For every top-level section, produce these sub-sections:
+		return `CRITICAL naming rule: Implementation steps are called "Task N" (not "Phase N"). Never emit "Phase 0 —", "Phase 1 —", "Phase 0:", "Phase 1:", or any "Phase N" variant — always say "Task N".
+
+For every top-level section, produce these sub-sections:
 - ### Context & Goals  — why this section matters; success criteria
 - ### Decisions  — numbered list of architectural decisions with rationale and rejected alternatives
 - ### Component breakdown  — table of (Component | Responsibility | Technologies | Dependencies | Owner)
@@ -307,26 +323,42 @@ End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, 
 	case "plan":
 		return `For every top-level section, produce these sub-sections:
 - ### Goals detail  — acceptance criteria and success metrics
-- ### Milestone summary  — per-phase summary with entry/exit conditions
+- ### Milestone summary  — per-task summary with entry/exit conditions
 - ### Dependency graph  — ASCII art showing task order and parallelism
 - ### Task block  — one ### Task N — {name} per execution plan step; each MUST include **Goal:**, **Layer(s) affected:**, **Files to create:**, **Coding standards:**, **Validation:**, **Invariant check:**, **Prompt context needed:**
 - ### Deep knowledge reference  — §8 schemas, algorithms, contracts
+
+CRITICAL naming rule: Every step heading MUST use the format "### Task N — {Name}" (not "Phase N —", not "Phase N:"). If the seed scaffold contains "Phase N" titles, rename them to "Task N" in the output. Never emit "Phase 0", "Phase 1", "Phase 2" or any "Phase N" variant — always say "Task N".
 
 Section 5 (Implementation Tasks) must contain one ### Task N subsection per execution_plan entry with all seven canonical fields.
 Section 7 (How to Use This Plan) must explain the task execution protocol.
 Section 8 (Deep Knowledge Reference) must include the CanonicalState Go struct skeleton.
 End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, Out of Scope).`
 	case "readme":
-		return `For every top-level section, produce these sub-sections:
-- ### What & why  — problem framing, value proposition
-- ### Architecture at a glance  — mermaid component diagram
-- ### Key concepts  — glossary table
-- ### Walkthrough  — worked example with code snippets and CLI output
-- ### Configuration reference  — table of every env var
-- ### Troubleshooting  — numbered failure modes with diagnosis steps
+		return `TARGET: A beginner-friendly product README. Model it after the best open-source project READMEs: clear, scannable, under 500 lines.
 
-Produce a comprehensive Configuration Reference table that includes EVERY env var the system reads.
-End with ## Contributing section. Do NOT add a ## For AI Agents appendix.`
+STRUCTURE (follow exactly — no extra sub-sections):
+- Title + one-line tagline
+- ## Golden Rule — one sentence stating the core invariant
+- ## What it is NOT — 3–5 short bullets (1 sentence each), scope boundaries
+- ## When to use — 3–5 numbered scenarios, each with: 1–2 sentence description + a real shell code snippet (not pseudo-code)
+- ## Installation — prerequisite list (tool | min version) + 3–5 numbered setup steps
+- ## Quick Start — single fenced bash block, 3–5 commands that actually work
+- ## Architecture — 1 ASCII art diagram (8–12 lines) + 1 mermaid diagram, NO prose walls
+- ## Command Reference — single Markdown table: Command | Description (max 10 rows, core commands only)
+- ## Contributing — 2–4 sentences: what to read, how to run tests, PR process
+
+FORBIDDEN (never include these):
+- Configuration tables with 10+ env vars
+- Troubleshooting sections
+- Domain model / database schema tables
+- Detailed sequence diagrams of internal flows
+- Module-by-module technical breakdowns
+- "For AI Agents" appendix
+- Any section titled "Walkthrough", "Key Concepts", "Tech Stack", or "Repository Format"
+- Paragraph introductions longer than 2 sentences in any section
+
+TONE: Write as if explaining the project to a smart developer who just found it on GitHub. They need to know: what it does, whether it fits their problem, and how to get started in under 5 minutes.`
 	default:
 		return `For every top-level section, produce a Context paragraph, 2–4 named sub-sections (###), at least one table or mermaid diagram, concrete code snippets where applicable, and a closing Implications paragraph. Expand each sub-section with worked examples and quantitative detail until total document length reaches 1000+ lines of genuine content.`
 	}
