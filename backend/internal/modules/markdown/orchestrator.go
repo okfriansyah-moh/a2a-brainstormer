@@ -87,6 +87,68 @@ func (o *Orchestrator) GenerateAll(ctx context.Context, s state.CanonicalState, 
 	return enhanced, nil
 }
 
+// GenerateAllWithProgress is GenerateAll with optional SSE phase and token events.
+// When emitter is non-nil, it fires doc.phase events at key generation stages and
+// doc.token events for each streamed LLM token (when the provider supports it).
+// If the underlying markdown writer is not AI-capable the method falls back to
+// GenerateAll silently.
+//
+// The emitter parameter is an anonymous interface so that the method signature
+// matches session/handler.go's progressAwareMarkdownWriter exactly, enabling
+// the type assertion to succeed without a cross-package import.
+func (o *Orchestrator) GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface{ Emit(sessionID, evtType string, data any) }, sessionID string) (map[string]shared.GeneratedDocument, error) {
+	scaffolds, err := GenerateAll(s, keys)
+	if err != nil {
+		return nil, err
+	}
+	if o == nil || o.ai == nil || o.mode == FinalizeModeDeterministic || emitter == nil {
+		return o.aiEnhanceOrPassthrough(ctx, s, scaffolds)
+	}
+
+	progressFn := func(docKey string, step aigen.DocStep, detail string) {
+		emitter.Emit(sessionID, "doc.phase", map[string]any{
+			"doc_key": docKey,
+			"step":    string(step),
+			"detail":  detail,
+		})
+	}
+	tokenFn := func(docKey, token string) {
+		emitter.Emit(sessionID, "doc.token", map[string]any{
+			"doc_key": docKey,
+			"token":   token,
+		})
+	}
+
+	opts := aigen.EnhanceOpts{ProgressFn: progressFn, TokenFn: tokenFn}
+	enhanced, err := o.ai.EnhanceWithProgress(ctx, s, scaffolds, opts)
+	if err != nil {
+		if o.mode == FinalizeModeHybrid {
+			return scaffolds, nil
+		}
+		return nil, fmt.Errorf("orchestrator: ai enhance: %w", err)
+	}
+	for _, key := range keys {
+		emitter.Emit(sessionID, "doc.complete", map[string]any{"doc_key": key})
+	}
+	return enhanced, nil
+}
+
+// aiEnhanceOrPassthrough runs the AI enhance pass when configured, or returns
+// scaffolds as-is. Used as the no-emitter path for GenerateAllWithProgress.
+func (o *Orchestrator) aiEnhanceOrPassthrough(ctx context.Context, s state.CanonicalState, scaffolds map[string]shared.GeneratedDocument) (map[string]shared.GeneratedDocument, error) {
+	if o == nil || o.ai == nil || o.mode == FinalizeModeDeterministic {
+		return scaffolds, nil
+	}
+	enhanced, err := o.ai.Enhance(ctx, s, scaffolds)
+	if err != nil {
+		if o.mode == FinalizeModeHybrid {
+			return scaffolds, nil
+		}
+		return nil, fmt.Errorf("orchestrator: ai enhance: %w", err)
+	}
+	return enhanced, nil
+}
+
 // WriteArtifacts generates the requested documents via the orchestrator's
 // GenerateAll (so they include any AI enhancement) and writes each atomically
 // into outputDir. This mirrors the package-level WriteArtifacts contract for

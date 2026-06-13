@@ -34,6 +34,7 @@ import (
 
 	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/config"
+	"a2a-brainstorm/backend/internal/platform/sse"
 	"a2a-brainstorm/backend/internal/shared"
 )
 
@@ -66,6 +67,18 @@ type markdownWriter interface {
 // name used internally.
 type MarkdownWriter = markdownWriter
 
+// progressAwareMarkdownWriter is the optional extension of markdownWriter that
+// supports SSE phase and token events during document generation. The Orchestrator
+// implements this; plain *markdown.Writer does not.
+//
+// The emitter parameter uses an anonymous interface so that markdown.Orchestrator
+// (which declares its own package-local emitter type) satisfies this interface
+// without a cross-package import. *sse.Broadcaster and sse.NoopEmitter both
+// satisfy the anonymous interface structurally.
+type progressAwareMarkdownWriter interface {
+	GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface{ Emit(sessionID, evtType string, data any) }, sessionID string) (map[string]shared.GeneratedDocument, error)
+}
+
 // Handler implements the HTTP layer for the session API.
 type Handler struct {
 	svc       sessionService
@@ -73,6 +86,7 @@ type Handler struct {
 	hints     *DiscoveryHintsService
 	outputDir string
 	logger    *slog.Logger
+	emitter   sse.EventEmitter // optional; nil = no SSE progress events
 }
 
 // NewHandler constructs a Handler backed by the given Service.
@@ -82,6 +96,10 @@ type Handler struct {
 func NewHandler(svc *Service, md markdownWriter, hints *DiscoveryHintsService, outputDir string, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, markdown: md, hints: hints, outputDir: outputDir, logger: logger}
 }
+
+// SetEmitter wires an SSE broadcaster into the handler so generate-document
+// requests emit doc.phase and doc.token progress events.
+func (h *Handler) SetEmitter(e sse.EventEmitter) { h.emitter = e }
 
 // NewHandlerWithService constructs a Handler from any sessionService implementation.
 // This is used in tests to inject a stub.
@@ -354,7 +372,16 @@ func (h *Handler) generateDocument(w http.ResponseWriter, r *http.Request) {
 	genCtx, cancel := context.WithTimeout(r.Context(), config.GetFinalizeTimeout())
 	defer cancel()
 
-	docs, err := h.markdown.GenerateAll(genCtx, *sess.CurrentState, []string{req.Key})
+	var docs map[string]shared.GeneratedDocument
+	if h.emitter != nil {
+		if pw, ok := h.markdown.(progressAwareMarkdownWriter); ok {
+			docs, err = pw.GenerateAllWithProgress(genCtx, *sess.CurrentState, []string{req.Key}, h.emitter, id)
+		} else {
+			docs, err = h.markdown.GenerateAll(genCtx, *sess.CurrentState, []string{req.Key})
+		}
+	} else {
+		docs, err = h.markdown.GenerateAll(genCtx, *sess.CurrentState, []string{req.Key})
+	}
 	if err != nil {
 		if h.logger != nil {
 			h.logger.ErrorContext(r.Context(), "generate-document failed",

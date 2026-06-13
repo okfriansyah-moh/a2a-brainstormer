@@ -117,6 +117,16 @@ func (g *Generator) SetReadmeEnricher(e *ReadmeEnricher) *Generator {
 //
 // The returned map always covers every key in scaffolds.
 func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffolds map[string]shared.GeneratedDocument) (map[string]shared.GeneratedDocument, error) {
+	return g.EnhanceWithProgress(ctx, s, scaffolds, EnhanceOpts{})
+}
+
+// EnhanceWithProgress is Enhance with optional progress and token-streaming callbacks.
+// opts.ProgressFn is invoked at key generation stages (enricher, draft, repair, complete).
+// opts.TokenFn is invoked for each LLM token when the provider supports streaming.
+// When either callback is nil it is silently skipped.
+// Callers must not modify opts after passing it — the callbacks are invoked from
+// goroutines spawned for each document key.
+func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalState, scaffolds map[string]shared.GeneratedDocument, opts EnhanceOpts) (map[string]shared.GeneratedDocument, error) {
 	if g == nil || g.llm == nil {
 		return scaffolds, nil
 	}
@@ -136,6 +146,9 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 	// narrative fields in the state before the "architecture" doc is enhanced.
 	enrichedArchState := s
 	if _, hasArch := scaffolds["architecture"]; hasArch && g.archEnricher != nil && config.GetArchEnricherEnabled() {
+		if opts.ProgressFn != nil {
+			opts.ProgressFn("architecture", DocStepEnricher, "Running architecture enricher pre-pass…")
+		}
 		enrichedArchState, _ = g.archEnricher.Enrich(ctx, s)
 	}
 
@@ -143,6 +156,9 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 	// fields in the state before the "plan" doc is enhanced.
 	enrichedPlanState := s
 	if _, hasPlan := scaffolds["plan"]; hasPlan && g.planEnricher != nil && config.GetPlanEnricherEnabled() {
+		if opts.ProgressFn != nil {
+			opts.ProgressFn("plan", DocStepEnricher, "Running plan enricher pre-pass…")
+		}
 		enrichedPlanState, _ = g.planEnricher.Enrich(ctx, s)
 	}
 
@@ -150,6 +166,9 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 	// narrative fields in the state before the "readme" doc is enhanced.
 	enrichedReadmeState := s
 	if _, hasReadme := scaffolds["readme"]; hasReadme && g.readmeEnricher != nil && config.GetReadmeEnricherEnabled() {
+		if opts.ProgressFn != nil {
+			opts.ProgressFn("readme", DocStepEnricher, "Running readme enricher pre-pass…")
+		}
 		enrichedReadmeState, _ = g.readmeEnricher.Enrich(ctx, s)
 	}
 
@@ -174,7 +193,7 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 		}
 		go func(k string, scaffold shared.GeneratedDocument, st state.CanonicalState) {
 			defer wg.Done()
-			enhanced, err := g.enhanceOne(ctx, k, scaffold, st)
+			enhanced, err := g.enhanceOneWithOpts(ctx, k, scaffold, st, opts)
 			mu.Lock()
 			results[k] = result{doc: enhanced, err: err}
 			mu.Unlock()
@@ -203,24 +222,51 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 	return out, nil
 }
 
-// enhanceOne produces one AI-rewritten document. Returns the original scaffold
-// wrapped as a synthetic error when the AI output cannot satisfy the rubric;
-// the caller decides whether to surface the error or fall back.
+// enhanceOne produces one AI-rewritten document without progress callbacks.
 func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.GeneratedDocument, s state.CanonicalState) (shared.GeneratedDocument, error) {
+	return g.enhanceOneWithOpts(ctx, key, scaffold, s, EnhanceOpts{})
+}
+
+// enhanceOneWithOpts produces one AI-rewritten document, emitting optional
+// progress and token-streaming events via opts callbacks.
+func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold shared.GeneratedDocument, s state.CanonicalState, opts EnhanceOpts) (shared.GeneratedDocument, error) {
 	rubric := RubricFor(key)
 	systemPrompt := g.buildSystemPrompt(key)
 	userPrompt := buildInitialUserPrompt(key, scaffold, s)
 
-	resp, err := g.llm.Generate(ctx, llm.LLMRequest{
-		SystemPrompt:   systemPrompt,
-		UserMessage:    userPrompt,
-		Temperature:    g.temperature,
-		ResponseFormat: "text",
-	})
-	if err != nil {
-		return shared.GeneratedDocument{}, fmt.Errorf("initial generate: %w", err)
+	if opts.ProgressFn != nil {
+		opts.ProgressFn(key, DocStepDraft, "Generating first draft with AI…")
 	}
-	draft := strings.TrimSpace(resp.Content)
+
+	var draft string
+	// Use streaming when the provider supports it and a token callback is wired.
+	if opts.TokenFn != nil {
+		if sp, ok := g.llm.(llm.StreamingLLMProvider); ok {
+			d, err := g.generateStreamingDraft(ctx, key, sp, llm.LLMRequest{
+				SystemPrompt:   systemPrompt,
+				UserMessage:    userPrompt,
+				Temperature:    g.temperature,
+				ResponseFormat: "text",
+			}, opts.TokenFn)
+			if err != nil {
+				return shared.GeneratedDocument{}, fmt.Errorf("initial generate (stream): %w", err)
+			}
+			draft = d
+		}
+	}
+	if draft == "" {
+		resp, err := g.llm.Generate(ctx, llm.LLMRequest{
+			SystemPrompt:   systemPrompt,
+			UserMessage:    userPrompt,
+			Temperature:    g.temperature,
+			ResponseFormat: "text",
+		})
+		if err != nil {
+			return shared.GeneratedDocument{}, fmt.Errorf("initial generate: %w", err)
+		}
+		draft = strings.TrimSpace(resp.Content)
+	}
+
 	if draft == "" {
 		return shared.GeneratedDocument{}, errors.New("initial draft was empty")
 	}
@@ -235,10 +281,16 @@ func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.
 	for attempt := 0; attempt <= g.maxRepairs; attempt++ {
 		findings := Validate(draft, rubric)
 		if len(findings) == 0 {
+			if opts.ProgressFn != nil {
+				opts.ProgressFn(key, DocStepComplete, "Document generated successfully.")
+			}
 			return wrapDocument(scaffold.Filename, draft), nil
 		}
 		if attempt == g.maxRepairs {
 			return shared.GeneratedDocument{}, fmt.Errorf("rubric failed after %d repair attempts: %d findings", g.maxRepairs, len(findings))
+		}
+		if opts.ProgressFn != nil {
+			opts.ProgressFn(key, DocStepRepair, fmt.Sprintf("Repair pass %d/%d — fixing %d rubric finding(s)…", attempt+1, g.maxRepairs, len(findings)))
 		}
 		repairPrompt := buildRepairPrompt(key, draft, findings)
 		repaired, err := g.llm.Generate(ctx, llm.LLMRequest{
@@ -258,6 +310,29 @@ func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.
 	}
 	// Unreachable: the loop returns on success or on attempt == maxRepairs.
 	return shared.GeneratedDocument{}, errors.New("aigen: repair loop exited unexpectedly")
+}
+
+// generateStreamingDraft calls sp.GenerateStream, forwards each token to tokenFn,
+// and returns the fully-assembled draft string.
+func (g *Generator) generateStreamingDraft(ctx context.Context, key string, sp llm.StreamingLLMProvider, req llm.LLMRequest, tokenFn TokenFunc) (string, error) {
+	ch, err := sp.GenerateStream(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	var sb strings.Builder
+	for chunk := range ch {
+		if chunk.Err != nil {
+			return "", chunk.Err
+		}
+		if chunk.Text != "" {
+			sb.WriteString(chunk.Text)
+			tokenFn(key, chunk.Text)
+		}
+		if chunk.Done {
+			break
+		}
+	}
+	return strings.TrimSpace(sb.String()), nil
 }
 
 func (g *Generator) buildSystemPrompt(docKey string) string {

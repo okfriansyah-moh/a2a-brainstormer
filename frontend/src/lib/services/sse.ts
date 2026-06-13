@@ -77,8 +77,13 @@ export function createSSEClient(
       "agent.started",
       "agent.complete",
       "agent.error",
+      "agent.phase",
       "iteration.complete",
       "session.finalized",
+      "doc.phase",
+      "doc.token",
+      "doc.complete",
+      "agent.token",
     ];
     for (const type of knownTypes) {
       es.addEventListener(type, (raw: Event) => {

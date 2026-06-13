@@ -217,35 +217,72 @@ func (e *BrainstormExecutor) Execute(
 		systemPrompt := prompts.InjectIfPlanOutput(payload.OutputDocs, payload.SystemPrompt)
 		// Inject readme format into system prompt when the session generates a readme.
 		systemPrompt = prompts.InjectIfReadmeOutput(systemPrompt, payload.OutputDocs)
-		resp, err := activeLLM.Generate(ctx, llm.LLMRequest{
+
+		llmReq := llm.LLMRequest{
 			SystemPrompt: systemPrompt + requiredOutputStructurePrompt,
 			UserMessage:  userMessage,
 			Temperature:  0.15,
-		})
-		if err != nil {
-			e.logError(ctx, "LLM generate failed", err, slog.String("role", payload.Role))
-			errMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(
-				fmt.Sprintf("LLM generate failed: %s", err),
-			))
-			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
-			return
+		}
+
+		// Attempt streaming first. Each token is forwarded as a Working status
+		// update so the backend can relay it to the browser in real time.
+		// Fall back to blocking Generate when the provider does not support
+		// streaming or when the stream itself fails.
+		var rawContent string
+		if sp, streamOK := activeLLM.(llm.StreamingLLMProvider); streamOK {
+			chunks, streamErr := sp.GenerateStream(ctx, llmReq)
+			if streamErr == nil {
+				var sb strings.Builder
+				allOK := true
+				for chunk := range chunks {
+					if chunk.Err != nil {
+						e.logError(ctx, "LLM stream error, falling back to blocking Generate",
+							chunk.Err, slog.String("role", payload.Role))
+						allOK = false
+						break
+					}
+					if chunk.Text != "" {
+						sb.WriteString(chunk.Text)
+						tokenMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(chunk.Text))
+						if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, tokenMsg), nil) {
+							return
+						}
+					}
+				}
+				if allOK {
+					rawContent = sb.String()
+				}
+			}
+		}
+		// Blocking fallback when streaming is unavailable or failed.
+		if rawContent == "" {
+			resp, err := activeLLM.Generate(ctx, llmReq)
+			if err != nil {
+				e.logError(ctx, "LLM generate failed", err, slog.String("role", payload.Role))
+				errMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(
+					fmt.Sprintf("LLM generate failed: %s", err),
+				))
+				yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
+				return
+			}
+			rawContent = resp.Content
 		}
 
 		if e.logger != nil {
 			e.logger.InfoContext(ctx, "LLM call complete, parsing state",
 				slog.String("task_id", string(execCtx.TaskID)),
 				slog.String("role", payload.Role),
-				slog.Int("response_bytes", len(resp.Content)),
+				slog.Int("response_bytes", len(rawContent)),
 			)
 		}
 
 		// Parse the LLM JSON response as the updated CanonicalState.
 		// extractJSON handles responses where Claude wraps the JSON in prose or
 		// markdown code fences despite the explicit instruction.
-		updatedState, err := extractJSON(resp.Content)
+		updatedState, err := extractJSON(rawContent)
 		if err != nil {
 			e.logError(ctx, "parse LLM response as state failed", err,
-				slog.String("content_prefix", truncate(resp.Content, 200)),
+				slog.String("content_prefix", truncate(rawContent, 200)),
 			)
 			errMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(
 				fmt.Sprintf("LLM returned non-JSON: %s", err),

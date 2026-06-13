@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import {
@@ -7,7 +7,10 @@
     finalizeSession,
     generateDocument,
     listSessionArtifacts,
+    API_BASE,
   } from "$lib/services/api";
+  import { createSSEClient } from "$lib/services/sse";
+  import type { SSEClient } from "$lib/services/sse";
   import type { Session, GeneratedDocument } from "$lib/types";
 
   // ── Component state ─────────────────────────────────────────────────────
@@ -42,6 +45,12 @@
   let logBadgeDone = false;
   let loadedFromCache = false;
 
+  // ── SSE + streaming token state ──────────────────────────────────────────
+  /** Active SSE client during document generation. */
+  let sseClient: SSEClient | null = null;
+  /** doc_key → accumulated LLM token stream, cleared when doc.complete arrives. */
+  let docTokenBuffers: Record<string, string> = {};
+
   function artifactsToDocuments(
     artifacts: import("$lib/types").SessionArtifact[],
   ): Record<string, GeneratedDocument> {
@@ -75,11 +84,65 @@
     logBadgeDone = false;
     runningLine = null;
     documents = {};
+    docTokenBuffers = {};
 
-    // Show all selected docs as pending cards immediately
+    // Show all selected docs as pending cards immediately.
     const ordered = ALL_DOCS.filter((d) => selectedDocs.includes(d.key));
     queuedKeys = ordered.map((d) => d.key);
     perDocStatus = Object.fromEntries(queuedKeys.map((k) => [k, "pending"]));
+
+    // ── Option A + B: SSE phase events and token streaming ──────────────
+    sseClient?.close();
+    sseClient = createSSEClient(
+      `${API_BASE}/sessions/${sid}/events`,
+      (evt) => {
+        if (evt.type === "doc.phase") {
+          const d = evt.data as {
+            doc_key?: string;
+            step?: string;
+            detail?: string;
+          } | null;
+          if (d?.doc_key && d?.detail) {
+            const docLabel =
+              ALL_DOCS.find((doc) => doc.key === d.doc_key)?.label ?? d.doc_key;
+            if (d.step === "complete") {
+              logLines = [...logLines, `✦ ${docLabel} — ${d.detail}`];
+              // Keep runningLine set to the outer "Generating X…" message.
+            } else {
+              runningLine = `${docLabel}: ${d.detail}`;
+            }
+          }
+        }
+        if (evt.type === "doc.token") {
+          const d = evt.data as { doc_key?: string; token?: string } | null;
+          if (d?.doc_key && d?.token) {
+            docTokenBuffers[d.doc_key] =
+              (docTokenBuffers[d.doc_key] ?? "") + d.token;
+            // Svelte reactivity triggers on assignment; avoid per-token object copies.
+            docTokenBuffers = docTokenBuffers;
+          }
+        }
+        if (evt.type === "doc.complete") {
+          const d = evt.data as { doc_key?: string } | null;
+          if (d?.doc_key) {
+            const updated = { ...docTokenBuffers };
+            delete updated[d.doc_key];
+            docTokenBuffers = updated;
+          }
+        }
+      },
+      () => {
+        // ── Option C: poll fallback — SSE unavailable ─────────────────
+        // Generation continues via the sequential HTTP calls below.
+        // Just log the disconnection so the user knows phase events are off.
+        if (generating) {
+          logLines = [
+            ...logLines,
+            "⚠ Progress stream unavailable — generation continues.",
+          ];
+        }
+      },
+    );
 
     try {
       for (const { key, label } of ordered) {
@@ -87,6 +150,11 @@
         runningLine = `Generating ${label}…`;
 
         const resp = await generateDocument(sid, key);
+
+        // HTTP call complete — clear any streaming buffer for this doc.
+        const bufUpdated = { ...docTokenBuffers };
+        delete bufUpdated[key];
+        docTokenBuffers = bufUpdated;
 
         documents = { ...documents, [key]: resp.document };
         perDocStatus = { ...perDocStatus, [key]: "done" };
@@ -105,9 +173,15 @@
       logBadgeDone = false;
       runningLine = null;
     } finally {
+      sseClient?.close();
+      sseClient = null;
       generating = false;
     }
   }
+
+  onDestroy(() => {
+    sseClient?.close();
+  });
 
   // ── File helpers ─────────────────────────────────────────────────────────
   function downloadFile(content: string, filename: string) {
@@ -455,9 +529,13 @@
                   </button>
                 </div>
               {:else if docSt === "generating"}
-                <div class="output-generating">
-                  <span class="dots">Generating {docLabel}…</span>
-                </div>
+                {#if docTokenBuffers[key]}
+                  <div class="output-stream">{docTokenBuffers[key]}</div>
+                {:else}
+                  <div class="output-generating">
+                    <span class="dots">Generating {docLabel}…</span>
+                  </div>
+                {/if}
               {:else}
                 <div class="output-pending">Queued</div>
               {/if}
@@ -721,6 +799,23 @@
     padding: 24px 0;
     text-align: center;
     flex: 1;
+  }
+
+  .output-stream {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--ink-700);
+    background: var(--bg-1);
+    border-radius: 8px;
+    padding: 12px 14px;
+    min-height: 140px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.75;
+    flex: 1;
+    overflow-y: auto;
+    max-height: 320px;
+    border-left: 2px solid var(--accent-2);
   }
 
   .output-pending {
