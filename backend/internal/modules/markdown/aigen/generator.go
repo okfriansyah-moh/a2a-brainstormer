@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"a2a-brainstorm/backend/internal/modules/state"
+	"a2a-brainstorm/backend/internal/platform/config"
 	"a2a-brainstorm/backend/internal/platform/llm"
 	"a2a-brainstorm/backend/internal/shared"
 )
@@ -39,12 +40,15 @@ const (
 // auto-repair. It is safe for concurrent use across requests provided the
 // underlying LLMProvider is.
 type Generator struct {
-	llm         llm.LLMProvider
-	bundle      SkillBundle
-	maxRepairs  int
-	temperature float64
-	mode        Mode
-	logger      *slog.Logger
+	llm            llm.LLMProvider
+	bundle         SkillBundle
+	maxRepairs     int
+	temperature    float64
+	mode           Mode
+	logger         *slog.Logger
+	archEnricher   *ArchEnricher
+	planEnricher   *PlanEnricher
+	readmeEnricher *ReadmeEnricher
 }
 
 // New constructs a Generator. maxRepairs is clamped to [0,5]; temperature is
@@ -75,6 +79,33 @@ func New(provider llm.LLMProvider, bundle SkillBundle, maxRepairs int, temperatu
 	}
 }
 
+// SetArchEnricher wires an ArchEnricher into the generator. When set, the
+// enricher runs a single LLM pre-pass against the canonical state before the
+// "architecture" document is enhanced, populating optional narrative fields.
+// Returns the receiver for method chaining.
+func (g *Generator) SetArchEnricher(e *ArchEnricher) *Generator {
+	g.archEnricher = e
+	return g
+}
+
+// SetPlanEnricher wires a PlanEnricher into the generator. When set, the
+// enricher runs a single LLM pre-pass against the canonical state before the
+// "plan" document is enhanced, populating per-phase quality fields.
+// Returns the receiver for method chaining.
+func (g *Generator) SetPlanEnricher(e *PlanEnricher) *Generator {
+	g.planEnricher = e
+	return g
+}
+
+// SetReadmeEnricher wires a ReadmeEnricher into the generator. When set, the
+// enricher runs a single LLM pre-pass against the canonical state before the
+// "readme" document is enhanced, populating optional narrative README fields.
+// Returns the receiver for method chaining.
+func (g *Generator) SetReadmeEnricher(e *ReadmeEnricher) *Generator {
+	g.readmeEnricher = e
+	return g
+}
+
 // Enhance walks scaffolds and attempts an AI rewrite for each in parallel
 // (one goroutine per doc). Keys without an AI improvement are returned as the
 // original scaffold (hybrid mode) or omitted with an error (ModeAI).
@@ -101,6 +132,27 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 
 	keys := sortedKeys(scaffolds)
 
+	// Run the architecture enricher pre-pass when applicable — fills optional
+	// narrative fields in the state before the "architecture" doc is enhanced.
+	enrichedArchState := s
+	if _, hasArch := scaffolds["architecture"]; hasArch && g.archEnricher != nil && config.GetArchEnricherEnabled() {
+		enrichedArchState, _ = g.archEnricher.Enrich(ctx, s)
+	}
+
+	// Run the plan enricher pre-pass when applicable — fills per-phase quality
+	// fields in the state before the "plan" doc is enhanced.
+	enrichedPlanState := s
+	if _, hasPlan := scaffolds["plan"]; hasPlan && g.planEnricher != nil && config.GetPlanEnricherEnabled() {
+		enrichedPlanState, _ = g.planEnricher.Enrich(ctx, s)
+	}
+
+	// Run the readme enricher pre-pass when applicable — fills optional README
+	// narrative fields in the state before the "readme" doc is enhanced.
+	enrichedReadmeState := s
+	if _, hasReadme := scaffolds["readme"]; hasReadme && g.readmeEnricher != nil && config.GetReadmeEnricherEnabled() {
+		enrichedReadmeState, _ = g.readmeEnricher.Enrich(ctx, s)
+	}
+
 	type result struct {
 		doc shared.GeneratedDocument
 		err error
@@ -112,13 +164,21 @@ func (g *Generator) Enhance(ctx context.Context, s state.CanonicalState, scaffol
 	)
 	for _, key := range keys {
 		wg.Add(1)
-		go func(k string, scaffold shared.GeneratedDocument) {
+		stateForKey := s
+		if key == "architecture" {
+			stateForKey = enrichedArchState
+		} else if key == "plan" {
+			stateForKey = enrichedPlanState
+		} else if key == "readme" {
+			stateForKey = enrichedReadmeState
+		}
+		go func(k string, scaffold shared.GeneratedDocument, st state.CanonicalState) {
 			defer wg.Done()
-			enhanced, err := g.enhanceOne(ctx, k, scaffold, s)
+			enhanced, err := g.enhanceOne(ctx, k, scaffold, st)
 			mu.Lock()
 			results[k] = result{doc: enhanced, err: err}
 			mu.Unlock()
-		}(key, scaffolds[key])
+		}(key, scaffolds[key], stateForKey)
 	}
 	wg.Wait()
 
@@ -210,7 +270,11 @@ func (g *Generator) buildSystemPrompt(docKey string) string {
 	sb.WriteString("5. Never emit literal placeholder strings such as TBD, TODO, Lorem ipsum, placeholder, '...', 'to be defined', or '<insert ...>'. If a detail is genuinely unknowable, make a reasoned recommendation and label it 'Recommended default:'.\n")
 	sb.WriteString("6. Cite numbers (latencies, sizes, throughput, p95, error budgets) wherever you make performance claims. Round to plausible engineering values; never leave a quantity vague.\n")
 	sb.WriteString("7. Quality bar: write at the level of a senior staff engineer publishing an internal RFC — explicit trade-offs, concrete component boundaries, named interfaces, schemas, error paths.\n")
-	sb.WriteString("8. Dual-audience: every document MUST end with a `## For AI Agents` appendix containing `### Stack`, `### Key Contracts`, `### Implementation Order`, and `### Out of Scope` sub-sections with concrete, pasteable guidance for coding agents.\n\n")
+	if docKey == "readme" {
+		sb.WriteString("8. This is a human-facing README. Do NOT add a `## For AI Agents` appendix. End with the `## Contributing` section.\n\n")
+	} else {
+		sb.WriteString("8. Dual-audience: every document MUST end with a `## For AI Agents` appendix containing `### Stack`, `### Key Contracts`, `### Implementation Order`, and `### Out of Scope` sub-sections with concrete, pasteable guidance for coding agents.\n\n")
+	}
 	sb.WriteString("## Required structural depth for this document type\n")
 	sb.WriteString(docSkeletonHint(docKey))
 	if composed := g.bundle.Compose(); composed != "" {
@@ -242,15 +306,15 @@ Section 4 (Data Flow) must contain at least TWO mermaid diagrams (sequenceDiagra
 End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, Out of Scope).`
 	case "plan":
 		return `For every top-level section, produce these sub-sections:
-- ### Milestone detail  — acceptance criteria, owners, calendar timing
-- ### Phase objectives  — numbered deliverables with exit criteria
-- ### Cross-phase dependencies  — explicit blocking edges between phases
-- ### Module charter  — purpose, boundary, public surface
-- ### Files to create  — explicit paths per module/task
-- ### Validation  — commands to run, expected output
+- ### Goals detail  — acceptance criteria and success metrics
+- ### Milestone summary  — per-phase summary with entry/exit conditions
+- ### Dependency graph  — ASCII art showing task order and parallelism
+- ### Task block  — one ### Task N — {name} per execution plan step; each MUST include **Goal:**, **Layer(s) affected:**, **Files to create:**, **Coding standards:**, **Validation:**, **Invariant check:**, **Prompt context needed:**
+- ### Deep knowledge reference  — §8 schemas, algorithms, contracts
 
-Section 3 (Phase Breakdown) must contain one ### sub-section per execution_plan entry with all seven §8.23 fields.
-Section 5 (Module Tasks) must contain one ### sub-section per task with Files to create and Validation.
+Section 5 (Implementation Tasks) must contain one ### Task N subsection per execution_plan entry with all seven canonical fields.
+Section 7 (How to Use This Plan) must explain the task execution protocol.
+Section 8 (Deep Knowledge Reference) must include the CanonicalState Go struct skeleton.
 End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, Out of Scope).`
 	case "readme":
 		return `For every top-level section, produce these sub-sections:
@@ -260,9 +324,9 @@ End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, 
 - ### Walkthrough  — worked example with code snippets and CLI output
 - ### Configuration reference  — table of every env var
 - ### Troubleshooting  — numbered failure modes with diagnosis steps
-- ### Plan pointer  — next-phase summary from execution_plan
 
-End with ## For AI Agents appendix. Produce a comprehensive Configuration Reference table that includes EVERY env var the system reads.`
+Produce a comprehensive Configuration Reference table that includes EVERY env var the system reads.
+End with ## Contributing section. Do NOT add a ## For AI Agents appendix.`
 	default:
 		return `For every top-level section, produce a Context paragraph, 2–4 named sub-sections (###), at least one table or mermaid diagram, concrete code snippets where applicable, and a closing Implications paragraph. Expand each sub-section with worked examples and quantitative detail until total document length reaches 1000+ lines of genuine content.`
 	}

@@ -27,6 +27,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
+	"a2a-brainstorm/agent/internal/executor/prompts"
 	"a2a-brainstorm/agent/internal/llm"
 )
 
@@ -53,6 +54,12 @@ type BrainstormPayload struct {
 	// UserFeedback is the optional human directive injected for this pass.
 	// Empty string means no feedback was queued.
 	UserFeedback string `json:"user_feedback,omitempty"`
+
+	// OutputDocs lists the document keys the agent session will generate
+	// (e.g. ["plan", "architecture"]). When "plan" is present, the plan
+	// format prompt is injected into the system prompt. omitempty keeps the
+	// wire format backward-compatible with sessions that do not set this field.
+	OutputDocs []string `json:"output_docs,omitempty"`
 }
 
 // LLMConfig is the per-dispatch LLM configuration embedded in BrainstormPayload.
@@ -206,8 +213,12 @@ func (e *BrainstormExecutor) Execute(
 			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
 			return
 		}
+		// Inject plan format into system prompt when the session generates a plan.
+		systemPrompt := prompts.InjectIfPlanOutput(payload.OutputDocs, payload.SystemPrompt)
+		// Inject readme format into system prompt when the session generates a readme.
+		systemPrompt = prompts.InjectIfReadmeOutput(systemPrompt, payload.OutputDocs)
 		resp, err := activeLLM.Generate(ctx, llm.LLMRequest{
-			SystemPrompt: payload.SystemPrompt + requiredOutputStructurePrompt,
+			SystemPrompt: systemPrompt + requiredOutputStructurePrompt,
 			UserMessage:  userMessage,
 			Temperature:  0.15,
 		})

@@ -1,7 +1,8 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 3.0
-> **Date:** 2026-06-12 (inserted Task 37 — README.md Generation Quality Overhaul; renumbered original Tasks 37–47 to Tasks 38–48)
+> **Version:** 4.0
+> **Date:** 2026-06-13 (inserted Task 38 — Finalize Progress Streaming; renumbered original Tasks 38–48 to Tasks 39–49)
+> **Change in v4.0:** Inserted Task 38 — Finalize Progress Streaming: SSE Phase Events + LLM Token Streaming + Poll Fallback. Adds (A) named `doc.phase` SSE events emitted at each enricher and generation step so the finalize UI shows a live step log; (B) real LLM token streaming (`StreamingLLMProvider` interface + OpenCode implementation) forwarding tokens as `doc.token` SSE events so the rendered document types in character-by-character; (C) a frontend poll fallback that polls `GET /sessions/{id}` every 3 s if SSE disconnects before `doc.complete`. Must not break existing iteration SSE, the `TypeError/Failed-to-fetch` fix, or the `context.WithoutCancel` per-agent deadline fix. Original Tasks 38–48 renumbered 39–49. New §8.33 documents the streaming interface, event contracts, progress callback contract, and wiring rules.
 > **Change in v3.0:** Inserted Task 37 — README.md: Generation Quality Overhaul (Enricher + Correct Section Structure). Rewrites `generator_readme.go` to produce all 13 required sections (title, tagline, description paragraph, golden rule, "What it is NOT", "When to use" with Mermaid flowchart + numbered scenarios + code, Prerequisites/Installation, Quick Start, Architecture with ASCII and Mermaid, Command Reference table, Tech Stack, Repository Format, Contributing); removes wrong sections (Known Risks top-level, For AI Agents appendix, Phase-N roadmap). Adds `markdown/aigen/readme_enricher.go` (Approach B) LLM post-pass with `ReadmeEnrichmentOverlay` schema filling golden_rule, when_to_use scenarios, Mermaid flowcharts, quick_start_commands, command_reference, contributing_note, prerequisites. Adds `agent/internal/executor/prompts/readme_format.go` (Approach C) agent prompt constant injected when `readme` is in `output_docs`. Updates rubric ForbiddenStrings + RequiredPatterns. Original Tasks 37–47 renumbered 38–48. New §8.32 documents the README quality standard, enricher schema, enricher LLM prompt, Approach C fragment, and rubric assertions.
 > **Change in v2.0:** Inserted Task 36 — PLAN.md Generation Quality Overhaul (Enricher + Correct Task Format). Adds a new `markdown/aigen/plan_enricher.go` single-call LLM post-pass (Approach B) that restructures generated PLAN.md: merges §3 Phase Breakdown into properly-formatted §5 Implementation Tasks, rewrites thin "see phase deliverables" stubs into full `**Goal:**`/`**Files to create:**`/`**Validation:**`/`**Prompt context needed:**` specs, adds `**Invariant check:**` and `**Layer(s) affected:**` per task, deduplicates the Risks section, auto-generates §8 Deep Knowledge from canonical state, and emits an ASCII dependency graph. Adds a new `agent/internal/executor/prompts/plan_format.go` constant (Approach C) injected into agent system prompts when `plan` is in `output_docs`, directing agents to write tasks in the correct spec format (not "Phase N") with runnable validation commands. Fixes §1 Goals always-empty bug. Original Tasks 36–46 renumbered 37–47. New §8.31 documents the plan quality standard, enricher schema, and Approach C prompt spec.
 > **Author:** Core, Data and AI Team
@@ -272,37 +273,40 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
                                           Task 37 (README.md: Generation Quality Overhaul — Enricher + Correct Section Structure)
                                                      │
                                                      ▼
-                                          Task 38 (DB: Attachments + Chunks Schema — pgvector)
+                                          Task 38 (Finalize Progress Streaming: SSE Phase Events + Token Streaming + Poll Fallback)
                                                      │
                                                      ▼
-                                          Task 39 (Platform: Extractor + Embeddings + Blobstore)
+                                          Task 39 (DB: Attachments + Chunks Schema — pgvector)
                                                      │
                                                      ▼
-                                          Task 40 (Backend: Attachment Module — CRUD + Upload Pipeline)
+                                          Task 40 (Platform: Extractor + Embeddings + Blobstore)
                                                      │
                                                      ▼
-                                          Task 41 (Backend: AttachmentRetriever + Payload Extension + Engine Wiring)
+                                          Task 41 (Backend: Attachment Module — CRUD + Upload Pipeline)
                                                      │
                                                      ▼
-                                          Task 42 (Frontend: Attachment Menu + Upload Modal + Scope UX)
+                                          Task 42 (Backend: AttachmentRetriever + Payload Extension + Engine Wiring)
                                                      │
                                                      ▼
-                                          Task 43 (DB: MCP Server Registry Schema)
+                                          Task 43 (Frontend: Attachment Menu + Upload Modal + Scope UX)
                                                      │
                                                      ▼
-                                          Task 44 (Backend: MCP Server Module — CRUD)
+                                          Task 44 (DB: MCP Server Registry Schema)
+                                                     │
+                                                     ▼
+                                          Task 45 (Backend: MCP Server Module — CRUD)
                                                      │
                               ┌──────────────────────┴──────────────────────┐
                               ▼                                              ▼
-                  Task 45 (Backend: Agent–MCP                    Task 46 (Agent: MCP
+                  Task 46 (Backend: Agent–MCP                    Task 47 (Agent: MCP
                   Association + Payload Extension)                Client Package)
                               │                                              │
                               └──────────────────────┬──────────────────────┘
                                                      ▼
-                                          Task 47 (Agent: LLM Tool-Use + Executor Loop)
+                                          Task 48 (Agent: LLM Tool-Use + Executor Loop)
                                                      │
                                                      ▼
-                                          Task 48 (Frontend: MCP Settings + Smart Import)
+                                          Task 49 (Frontend: MCP Settings + Smart Import)
 ```
 
 ---
@@ -1649,7 +1653,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 35 — Architecture.md: State Enricher + High-Quality Section Generator
+### Task 35 — Architecture.md: State Enricher + High-Quality Section Generator ✅
 
 **Goal:** Produce a publication-quality `architecture.md` with 16 ordered sections (plus document metadata block, Table of Contents, and an AI agents appendix) by implementing two complementary layers: (A) a full rewrite of `generator_architecture.go` that renders all 16 sections from the canonical state with graceful deterministic fallbacks for each section, and (B) a new `aigen/enricher.go` pre-pass that makes a single targeted LLM call to populate optional narrative state fields (`problem_statement`, `solution_summary`, `scope`, `extension_points`, `security`, `guarantees`, decision alternatives/tradeoffs, risk mitigations, tech stack rationale) before the deterministic render runs. When the enricher is disabled or the LLM call fails, each section renders from raw state or a generic stub. See §8.30 for the full section contract, enricher input/output schema, and rubric targets.
 
@@ -1736,7 +1740,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 36 — PLAN.md: Generation Quality Overhaul — Enricher + Correct Task Format
+### Task 36 — PLAN.md: Generation Quality Overhaul — Enricher + Correct Task Format ✅
 
 **Goal:** Produce a publication-quality, AI-agent-executable `plan.md` by combining two complementary layers: (A) a full rewrite of `generator_plan.go` that renders §5 Implementation Tasks in the canonical `**Goal:**`/`**Layer(s) affected:**`/`**Files to create:**`/`**Coding standards:**`/`**Validation:**`/`**Invariant check:**`/`**Prompt context needed:**` format — eliminating the thin "see phase deliverables" stubs and the redundant §3 Phase Breakdown split — plus a deterministic ASCII dependency graph and a §8 Deep Knowledge section assembled from canonical state; and (B) a new `markdown/aigen/plan_enricher.go` single-call LLM post-pass that populates the per-task quality fields (`coding_standards`, `invariant_checks`, `layer_tags`, `deep_knowledge_entries`) before the deterministic render runs. Additionally, a new `agent/internal/executor/prompts/plan_format.go` constant (Approach C) is injected into agent system prompts when `plan` is in `output_docs`, directing agents to write tasks using the correct spec format — not "Phase N" — with explicit runnable validation commands and Go function signatures per file. See §8.31 for the full section contract, enricher schema, Approach C prompt spec, and quality assertion rules.
 
@@ -1859,7 +1863,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 37 — README.md: Generation Quality Overhaul — Enricher + Correct Section Structure
+### Task 37 — README.md: Generation Quality Overhaul — Enricher + Correct Section Structure ✅
 
 **Goal:** Rewrite `generator_readme.go` to produce all 13 required README sections, add a new `ReadmeEnricher` LLM post-pass (Approach B) that fills content-heavy sections (golden rule, "When to use" scenarios with code examples, Mermaid flowcharts, Quick Start commands, Command Reference table, Contributing note, Prerequisites), and add a `ReadmeFormat` agent prompt constant (Approach C) that directs the LLM agent to write README-appropriate content — not roadmap phases — when `readme` is in `output_docs`. Removes the three incorrect sections currently hard-coded in the generator (`## Known Risks` top-level, `## Roadmap` with "Phase N —" bullets, For AI Agents appendix).
 
@@ -1951,7 +1955,82 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 38 — DB: Attachments + Chunks Schema (pgvector)
+### Task 38 — Finalize Progress Streaming: SSE Phase Events + LLM Token Streaming + Poll Fallback
+
+**Goal:** Add live generation visibility to the document finalization flow: (A) named `doc.phase` SSE events emitted at each enricher and generation step so the finalize page shows a live step log; (B) real LLM token streaming via a new `StreamingLLMProvider` interface + OpenCode implementation that forwards tokens as `doc.token` SSE events so the document renders character-by-character; and (C) a frontend poll fallback that calls `GET /sessions/{id}` every 3 s if SSE disconnects before receiving `doc.complete`. Must not alter iteration SSE events (`agent.started`, `agent.complete`, `iteration.complete`) or break any flow fixed in Tasks 35–37. See §8.33.
+
+**Files to create:**
+
+- `backend/internal/platform/llm/streaming.go` — `StreamingLLMProvider` interface + supporting types; see §8.33:
+  - `StreamingLLMProvider` interface: `GenerateStream(ctx context.Context, req LLMRequest) (<-chan TokenChunk, error)` — channel closes when done; errors embedded as `TokenChunk{Err: err}`
+  - `TokenChunk` struct: `Token string`, `Done bool`, `Err error`
+  - `ToNonStreaming(sp StreamingLLMProvider) LLMProvider` — adapter that drains the channel and returns a full `LLMResponse`; used by callers that do not need streaming
+  - `NoopStreamingProvider(base LLMProvider) StreamingLLMProvider` — wraps any `LLMProvider`; emits the full response as a single terminal `TokenChunk{Done: true}` so callers need no provider-specific branching
+- `backend/internal/platform/llm/opencode_stream.go` — OpenCode streaming provider:
+  - Extends `OpenCodeProvider` (or composition) to implement `StreamingLLMProvider`
+  - Uses `stream: true` on OpenCode `/chat/completions`; parses `text/event-stream` `data:` lines; extracts `delta.content` tokens
+  - Respects `context.Context` cancellation; drains and closes channel on cancellation
+  - On non-streaming OpenCode response (fallback), delegates to `NoopStreamingProvider`
+- `backend/internal/modules/markdown/aigen/progress.go` — progress callback contract:
+  - `ProgressFunc func(p DocPhase)` — injected into generator and enrichers; `nil` is treated as no-op (never panics)
+  - `DocPhase` struct: `DocKey string`, `Step string`, `Detail string`
+  - Step constants: `StepEnricher = "enricher"`, `StepDraftPass = "draft"`, `StepRepairPass = "repair"`, `StepComplete = "complete"`
+  - `callProgress(fn ProgressFunc, p DocPhase)` — nil-safe helper used in all callers
+- `backend/internal/platform/sse/doc_events.go` — SSE event types for document generation progress:
+  - `DocPhasePayload` struct: `DocKey string`, `Step string`, `Detail string`
+  - `DocTokenPayload` struct: `DocKey string`, `Token string`
+  - `DocCompletePayload` struct: `DocKey string`, `CharCount int`
+  - `BroadcastDocPhase(sessionID, docKey, step, detail string)` on `*Broadcaster`
+  - `BroadcastDocToken(sessionID, docKey, token string)` on `*Broadcaster`
+  - `BroadcastDocComplete(sessionID, docKey string, charCount int)` on `*Broadcaster`
+  - Event type string constants: `EventDocPhase = "doc.phase"`, `EventDocToken = "doc.token"`, `EventDocComplete = "doc.complete"`
+- `backend/internal/modules/markdown/aigen/generator.go` (modified) — stream support + progress callback:
+  - Add `progressFn ProgressFunc` and `streamingLLM StreamingLLMProvider` fields to `Generator`
+  - Add `SetProgressFunc(fn ProgressFunc) *Generator` and `SetStreamingLLM(sp StreamingLLMProvider) *Generator` chainable setters
+  - In `Enhance()` goroutine per doc key: call `callProgress(g.progressFn, DocPhase{DocKey:key, Step:StepDraftPass, Detail:"AI draft pass…"})` before each LLM call; if `g.streamingLLM != nil` use `GenerateStream` and drain the channel collecting tokens + calling token callback; otherwise use existing `g.llm.Generate`
+  - `tokenCallbackFn func(docKey, token string)` field + `SetTokenCallback(fn func(string,string)) *Generator` — called per token in streaming path; generator does NOT import `sse` package (dependency inversion: caller injects callback)
+  - Repair loop: emit `StepRepairPass` phase with detail `"Repair pass N/M"` before each repair LLM call
+- `backend/internal/modules/markdown/aigen/arch_enricher.go` (modified) — accept progress callback:
+  - `Enrich` signature extended to accept `progressFn ProgressFunc` as last argument (or via setter); emits `StepEnricher` phase at start
+- `backend/internal/modules/markdown/aigen/plan_enricher.go` (modified) — accept progress callback:
+  - Same pattern as `arch_enricher.go`; emits `StepEnricher` phase
+- `backend/internal/modules/markdown/aigen/readme_enricher.go` (modified) — accept progress callback:
+  - Same pattern; emits `StepEnricher` phase
+- `backend/internal/modules/markdown/orchestrator.go` (modified) — wire broadcaster + streaming:
+  - Inject `*sse.Broadcaster` and session ID into orchestrator at construction or per `Enhance` call
+  - Create `progressFn` closure: calls `broadcaster.BroadcastDocPhase(sessionID, p.DocKey, p.Step, p.Detail)`
+  - Create `tokenCallbackFn` closure: calls `broadcaster.BroadcastDocToken(sessionID, docKey, token)`
+  - On doc completion: calls `broadcaster.BroadcastDocComplete(sessionID, docKey, len(finalDoc))`
+  - Pass callbacks into `generator.SetProgressFunc` and `generator.SetTokenCallback`
+  - If `OpenCodeProvider` implements `StreamingLLMProvider`, call `generator.SetStreamingLLM`
+- `backend/internal/modules/markdown/handler.go` (modified) — inject broadcaster into finalize orchestrator:
+  - Finalize handler already has access to `*sse.Broadcaster`; pass it + session ID into orchestrator
+- `frontend/src/lib/services/sse.ts` (modified) — register `doc.phase`, `doc.token`, `doc.complete` event types:
+  - Add to the event type union / switch so these events are dispatched to listeners (do not break existing `agent.started`, `agent.complete`, `iteration.complete` handling)
+- `frontend/src/routes/session/[id]/finalize/+page.svelte` (modified) — SSE step log + token stream + poll fallback:
+  - On mount: subscribe to the session SSE stream (`createSSEClient`)
+  - On `doc.phase`: append a step entry to a `stepLog: Array<{docKey, step, detail, ts}>` store; render as a live step log list with relative timestamps
+  - On `doc.token`: accumulate tokens per docKey into `liveDoc[docKey]` string; render in a `<pre>` panel replacing the static "Generating {key}....." placeholder
+  - On `doc.complete`: mark the doc key as done in the step log; stop accumulating tokens for it; show the final rendered document
+  - Poll fallback (Option C): if no `doc.complete` received within 15 s of `doc.phase` being received (or 30 s from page load if no SSE events), call `getSession(sessionId)` every 3 s and update UI from the returned finalized docs; stop polling once all expected docs are complete
+  - Do NOT use WebSocket; do NOT break the existing finalize navigation flow (`goto('/session/${id}/finalize')`)
+
+**Validation:**
+
+- `cd backend && go build ./...` — zero build errors
+- `cd backend && go vet ./...` — zero vet issues
+- `cd backend && go test ./internal/platform/llm/...` — covers `ToNonStreaming` round-trip, `NoopStreamingProvider` single-chunk emission, OpenCode streaming happy path with `httptest` SSE mock, cancellation drains channel cleanly
+- `cd backend && go test ./internal/platform/sse/...` — covers `BroadcastDocPhase`, `BroadcastDocToken`, `BroadcastDocComplete` emit correct event type strings and JSON payloads
+- `cd backend && go test ./internal/modules/markdown/...` — existing tests pass unchanged; new tests cover `ProgressFunc` callback invoked at each step, `tokenCallbackFn` called per token in streaming path
+- `cd frontend && pnpm check` — zero svelte-check errors
+- `cd frontend && pnpm build` — clean production build
+- Manual: open finalize page → trigger finalize → observe step log updates in real time → observe document text streaming in → confirm no console errors; existing iteration SSE (agent progress ticks, confidence bar) continues to work
+
+**Prompt context needed:** §8.33 (streaming interface, event contracts, progress callback, wiring rules — new in this task), §8.27 (AI-Driven Hybrid Generator — enricher + repair loop structure that progress callbacks thread through), §8.30 (arch enricher pattern), §8.31 (plan enricher pattern), §8.32 (readme enricher pattern), §8.3 (SSE broadcaster — existing event shape to not break), Task 31 (SSE infrastructure), Task 35/36/37 (enricher patterns being extended)
+
+---
+
+### Task 39 — DB: Attachments + Chunks Schema (pgvector)
 
 **Goal:** Create the two database migrations that introduce the `attachments` table (per-upload metadata) and the `attachment_chunks` table (RAG-lite chunks with pgvector embeddings). Defines the `attachment_scope` and `attachment_kind` enums used by all subsequent attachment tasks. No Go or frontend code in this task — schema + enum only.
 
@@ -1982,7 +2061,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 39 — Platform: Extractor + Embeddings + Blobstore Infrastructure
+### Task 40 — Platform: Extractor + Embeddings + Blobstore Infrastructure
 
 **Goal:** Build the three platform-layer infrastructure packages every attachment upload depends on: `extractor/` (turns any input modality into clean UTF-8 text), `embeddings/` (turns text into vectors via `LLMProvider`-style interface), and `blobstore/` (MinIO/S3 object storage for original file bytes). These are pure infrastructure — they own no domain logic and are reused only by `modules/attachment/`. Also extends `docker-compose.yml` with the MinIO service and the `config/` package with all related env getters.
 
@@ -2041,7 +2120,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 40 — Backend: Attachment Module (CRUD + Upload Pipeline)
+### Task 41 — Backend: Attachment Module (CRUD + Upload Pipeline)
 
 **Goal:** Implement the full `modules/attachment/` vertical slice — `model.go`, `repository.go`, `service.go`, `handler.go`. The service orchestrates the upload pipeline: extract text → chunk → embed → persist blob (if applicable) → persist attachment + chunks atomically. Exposes REST endpoints for creating attachments via all four input kinds (file multipart, image multipart, URL JSON, raw-text JSON), listing by scope, deleting, and an internal-only retrieval endpoint used by the iteration engine.
 
@@ -2059,7 +2138,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
   - `GetByID(ctx, id) (Attachment, error)`
   - `ListBySession(ctx, sessionID uuid.UUID, scopeFilter *Scope, scopeRefFilter *string) ([]Attachment, error)` — ordered by `created_at ASC`
   - `Delete(ctx, id uuid.UUID) error` — cascade removes chunks
-  - `DeleteByScope(ctx, sessionID uuid.UUID, scope Scope, scopeRef string) error` — used by lifecycle cleanup (Task 40)
+  - `DeleteByScope(ctx, sessionID uuid.UUID, scope Scope, scopeRef string) error` — used by lifecycle cleanup (Task 41)
   - `SearchChunks(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryEmbedding []float32, topK int) ([]AttachmentChunk, error)` — pgvector cosine similarity (`embedding <=> $1::vector`) filtered to attachments whose `(scope, scope_ref)` matches any entry in `scopes`; returns top-K ordered by ascending distance with `Score = 1 - distance`
   - `ScopeMatch` struct: `Scope Scope`, `ScopeRef *string` (NULL for session-scope match)
 - `backend/internal/modules/attachment/service.go`:
@@ -2075,7 +2154,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
     8. Wrap insert in a single transaction: `repo.Create(tx, attachment)` → `repo.CreateChunks(tx, attachmentID, chunks)` → commit; on rollback, also delete the blob (best-effort cleanup; log warn on failure)
     9. Emit log: `slog.Info("attachment created", attachment_id, scope, scope_ref, kind, chunk_count, byte_size)`
   - `List(ctx, sessionID, filter)`, `GetByID`, `Delete` — straight repository delegation; `Delete` also removes blob best-effort
-  - `Retrieve(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryText string, topK int) ([]AttachmentChunk, error)` — embeds queryText (single call), delegates to `repo.SearchChunks`; used by iteration engine in Task 40
+  - `Retrieve(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryText string, topK int) ([]AttachmentChunk, error)` — embeds queryText (single call), delegates to `repo.SearchChunks`; used by iteration engine in Task 41
 - `backend/internal/modules/attachment/handler.go`:
   - `POST   /sessions/{sessionID}/attachments` — Content-Type-driven multiplexer:
     - `multipart/form-data` (fields `scope`, `scope_ref`, `kind`, `file`, `display_name?`) → file or image upload
@@ -2101,11 +2180,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
   - `curl -d '{"scope":"agent","kind":"text","text":"x","display_name":"y"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 400 (missing scope_ref)
   - SSRF: URL `file:///etc/passwd` → 400
 
-**Prompt context needed:** §8.28 (attachment domain model + upload pipeline algorithm + chunking algorithm), Task 39 (extractor / embeddings / blobstore interfaces), AGENTS.md vertical-slice rules, security invariants 5/6 (parameterized queries, input validation)
+**Prompt context needed:** §8.28 (attachment domain model + upload pipeline algorithm + chunking algorithm), Task 40 (extractor / embeddings / blobstore interfaces), AGENTS.md vertical-slice rules, security invariants 5/6 (parameterized queries, input validation)
 
 ---
 
-### Task 41 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
+### Task 42 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
 
 **Goal:** Thread attachments into the dispatch path. Introduce a narrow `AttachmentRetriever` interface owned by the iteration engine (same pattern as `agentProvider` and `sessionStore`). Before dispatching each agent, the engine resolves the active scope set (session ∪ current iteration ∪ current agent), retrieves top-K chunks via cosine similarity against the canonical state's `idea + open_questions`, and appends them to `BrainstormPayload` as a new `Attachments []AttachmentChunkRef` field. The agent executor injects the chunks into the assembled system prompt under a dedicated `# Attached Context` section. Iteration- and agent-scoped attachments are deleted after their owning iteration completes via a lifecycle cleanup pass.
 
@@ -2169,11 +2248,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - Manual smoke: create session, attach a Markdown doc at session scope, run iterate → agent logs show `dispatch with attachments chunk_count=N>0`; converged state cites attachment content
 - Manual smoke: attach a text snippet at iteration scope (`scope_ref=1`), run 2 iterations → after iteration 1 the snippet is deleted; iteration 2 dispatch has chunk_count for that snippet = 0
 
-**Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 40 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
+**Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 41 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
 
 ---
 
-### Task 42 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
+### Task 43 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
 
 **Goal:** Build the ChatGPT-style `+` attachment menu UX and mount it at three scope-bound locations: home page (session-scope, set during creation), session page (iteration-scope, added between iterations), and `PipelineStage` per-agent header (agent-scope, narrows the next dispatch). Includes the modal with four input kinds (file picker, image picker, URL paste, raw text paste), a sticky list of active attachments per scope, and the API client layer.
 
@@ -2240,17 +2319,17 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `cd frontend && pnpm build`: clean production build
 - Manual:
   - Home page: click `+` → menu opens with four items; "Paste text" opens modal with textarea; submit before session exists → upload deferred until session ID known; both upload after `createSession`
-  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 40 lifecycle cleanup)
+  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 41 lifecycle cleanup)
   - PipelineStage: attach a text snippet to agent A → agent B's stage shows no chips; agent A's stage shows the snippet
   - Keyboard: `⌘U` while focused in the home page opens file picker directly
   - Large file (> 10 MB) → modal shows "File too large" before sending
   - PDF upload → after 1-2s shows summary tooltip on the chip; deletion removes both the chip and the blob (verified by re-listing attachments)
 
-**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 40 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
+**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 41 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
 
 ---
 
-### Task 43 — DB: MCP Server Registry Schema
+### Task 44 — DB: MCP Server Registry Schema
 
 **Goal:** Create the two database migrations that introduce the `mcp_servers` table (MCP server registry) and the `agent_mcp_servers` join table (agent ↔ MCP server many-to-many). No Go or frontend code changes in this task — schema only.
 
@@ -2274,7 +2353,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 44 — Backend: MCP Server Module (CRUD)
+### Task 45 — Backend: MCP Server Module (CRUD)
 
 **Goal:** Implement the full vertical slice for the MCP server registry — `model.go`, `repository.go`, `service.go`, `handler.go`. Expose five REST endpoints (`GET /mcp-servers`, `POST /mcp-servers`, `GET /mcp-servers/{id}`, `PUT /mcp-servers/{id}`, `DELETE /mcp-servers/{id}`). Validation enforces transport-type field consistency and rejects raw secret values in `env_refs`.
 
@@ -2312,7 +2391,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 45 — Backend: Agent–MCP Association + Payload Extension
+### Task 46 — Backend: Agent–MCP Association + Payload Extension
 
 **Goal:** Extend the agent module to load and persist `agent_mcp_servers` join rows. Extend `BrainstormPayload` with `MCPServers []MCPServerRef` so the iteration engine includes each agent's configured MCP servers in the dispatch payload, giving the agent binary the connection details it needs to dial those servers at runtime.
 
@@ -2348,11 +2427,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `go test ./backend/internal/modules/agent/...`: `SetMCPServers` transaction test (assign 2 servers, update to 1 — first server removed; update to nil — associations unchanged)
 - `go test ./backend/internal/modules/iteration/...`: mock `agentSvc.GetMCPServersForAgent` returns 1 server → dispatch payload includes 1 `MCPServerRef`; agent with no assignments → `MCPServers` is empty slice (not nil)
 
-**Prompt context needed:** §8.24 (MCPServerRef wire format + security rules), §8.3 (BrainstormPayload contract), Task 44 (MCPServer model + service), Task 7 (agent repository patterns), Task 9 (iteration engine dispatch path)
+**Prompt context needed:** §8.24 (MCPServerRef wire format + security rules), §8.3 (BrainstormPayload contract), Task 45 (MCPServer model + service), Task 7 (agent repository patterns), Task 9 (iteration engine dispatch path)
 
 ---
 
-### Task 46 — Agent: MCP Client Package
+### Task 47 — Agent: MCP Client Package
 
 **Goal:** Build `agent/internal/mcp/` — the package that dials MCP servers, lists their tools, and executes tool calls. Two transports: `stdio` (spawn subprocess, JSON-RPC 2.0 over stdin/stdout) and `http` (POST JSON-RPC 2.0 to a URL). `MCPPool` fans out across all servers assigned to an agent, deduplicates tools, and routes `Call` to the correct server.
 
@@ -2396,7 +2475,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 47 — Agent: LLM Tool-Use Interface + Executor Loop
+### Task 48 — Agent: LLM Tool-Use Interface + Executor Loop
 
 **Goal:** Add `GenerateWithTools` to the `LLMProvider` interface and implement it in `CopilotProvider` and `OpenCodeProvider` using OpenAI function-calling format. Replace the single-shot `llm.Generate` call in `BrainstormExecutor.Execute` with a configurable multi-turn tool-use loop: build MCP pool → list tools → call LLM with tools → execute any tool calls via pool → re-call LLM with results → repeat until no tool calls or max rounds reached.
 
@@ -2436,11 +2515,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `cd agent && go test ./internal/...`: all existing tests still pass; 3 new tool-use tests pass
 - Smoke: start agent binary with `AGENT_MCP_MAX_TOOL_ROUNDS=3`; no panic; config getter returns 3
 
-**Prompt context needed:** §8.25 (tool-use loop algorithm + `GenerateWithTools` OpenAI wire format + OpenCode adaptation + message history threading), §8.2 (LLMProvider interface), §8.24 (MCPServerRef), Task 46 (MCPPool API), §8.12 (credential security)
+**Prompt context needed:** §8.25 (tool-use loop algorithm + `GenerateWithTools` OpenAI wire format + OpenCode adaptation + message history threading), §8.2 (LLMProvider interface), §8.24 (MCPServerRef), Task 47 (MCPPool API), §8.12 (credential security)
 
 ---
 
-### Task 48 — Frontend: MCP Server Settings + Agent Assignment + Smart Import
+### Task 49 — Frontend: MCP Server Settings + Agent Assignment + Smart Import
 
 **Goal:** Add the "MCP Servers" tab to `/settings`, build new/edit forms for MCP servers with a "Test Connection" flow, implement the smart JSON config import modal that normalises Claude Desktop / VS Code / Cursor / Zed / Windsurf / canonical JSON formats, and extend the agent edit form with an MCP server multi-select section.
 
@@ -2492,7 +2571,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - Agent edit: assign 2 MCP servers → save → reload → both remain checked
 - Test Connection: mock backend returns 3 tools → chip shows "3 tools"; mock error → chip shows error message
 
-**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 44 (MCP server REST endpoints), Task 45 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
+**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 45 (MCP server REST endpoints), Task 46 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
 
 ---
 
@@ -2537,17 +2616,18 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 | 35   | Architecture.md: State Enricher + Section Generator | `markdown/generator_architecture.go` (rewrite), `markdown/templates.go` (modified), `markdown/aigen/enricher.go` (new), `markdown/aigen/enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_architecture_test.go` (rewrite) | Task 34                | High       |
 | 36   | PLAN.md: Generation Quality Overhaul          | `markdown/generator_plan.go` (rewrite), `markdown/aigen/plan_enricher.go` (new), `markdown/aigen/plan_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_plan_test.go` (new), `agent/internal/executor/prompts/plan_format.go` (new) | Task 35                | High       |
 | 37   | README.md: Generation Quality Overhaul        | `markdown/generator_readme.go` (rewrite), `markdown/aigen/readme_enricher.go` (new), `markdown/aigen/readme_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_readme_test.go` (new), `agent/internal/executor/prompts/readme_format.go` (new) | Task 36                | High       |
-| 38   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                       | Task 34                | Low        |
-| 39   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 38                | High       |
-| 40   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 39                | High       |
-| 41   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 40, 9, 11        | High       |
-| 42   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 40, 18, 30       | High       |
-| 43   | DB: MCP Server Registry Schema                | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                       | Task 38                | Low        |
-| 44   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 43                | Medium     |
-| 45   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 44, 9            | Medium     |
-| 46   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 43                | High       |
-| 47   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 45, 46           | High       |
-| 48   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 44, 45, 21       | High       |
+| 38   | Finalize Progress Streaming                   | `platform/llm/streaming.go` (new), `platform/llm/opencode_stream.go` (new), `modules/markdown/aigen/progress.go` (new), `platform/sse/doc_events.go` (new), `aigen/generator.go` (modified), `aigen/arch_enricher.go` (modified), `aigen/plan_enricher.go` (modified), `aigen/readme_enricher.go` (modified), `markdown/orchestrator.go` (modified), `markdown/handler.go` (modified), `lib/services/sse.ts` (modified), `finalize/+page.svelte` (modified) | Task 37                | High       |
+| 39   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                       | Task 34                | Low        |
+| 40   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 39                | High       |
+| 41   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 40                | High       |
+| 42   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 41, 9, 11        | High       |
+| 43   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 41, 18, 30       | High       |
+| 44   | DB: MCP Server Registry Schema                | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                       | Task 39                | Low        |
+| 45   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 44                | Medium     |
+| 46   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 45, 9            | Medium     |
+| 47   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 44                | High       |
+| 48   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 46, 47           | High       |
+| 49   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 45, 46, 21       | High       |
 
 ---
 
@@ -5569,4 +5649,163 @@ The README must be specific to THIS project. Use the actual project name, tech s
 | Document `MinChars` ≥ 1500 | `MinLength` | "Expand each section with more specific content derived from the project's architecture and tech stack" |
 
 Maximum 3 auto-repair attempts before falling back to deterministic-only output with a warning log.
+
+---
+
+### 8.33 Finalize Progress Streaming — Architecture, Event Contracts, and Wiring Rules (v4.0)
+
+#### Overview
+
+Three complementary mechanisms add live generation visibility to the finalize flow without touching the iteration SSE channel or breaking any existing fix:
+
+| Option | Mechanism | Backend | Frontend |
+|--------|-----------|---------|----------|
+| A | Named phase events | `BroadcastDocPhase` from generator/enrichers | Step log list in finalize page |
+| B | Real token streaming | `StreamingLLMProvider` → `BroadcastDocToken` | Typewriter `<pre>` panel per doc key |
+| C | Poll fallback | No change | 3-s `getSession` loop on SSE silence |
+
+#### 8.33.1 `StreamingLLMProvider` Interface
+
+```go
+// StreamingLLMProvider is an optional extension to LLMProvider for token-by-token output.
+// Not all providers need to implement it — use NoopStreamingProvider to adapt non-streaming ones.
+type StreamingLLMProvider interface {
+    GenerateStream(ctx context.Context, req LLMRequest) (<-chan TokenChunk, error)
+}
+
+type TokenChunk struct {
+    Token string
+    Done  bool  // true on the last (possibly empty) chunk
+    Err   error // non-nil if the stream ended with an error
+}
+
+// ToNonStreaming wraps a StreamingLLMProvider for callers that want a single LLMResponse.
+func ToNonStreaming(sp StreamingLLMProvider) LLMProvider
+
+// NoopStreamingProvider wraps any LLMProvider and emits the full response as a single
+// terminal TokenChunk{Done: true}. Used for providers not yet upgraded to real streaming.
+func NoopStreamingProvider(base LLMProvider) StreamingLLMProvider
+```
+
+**Rules:**
+- Channel MUST be closed after `Done: true` or `Err != nil` chunk — callers range over the channel
+- Caller MUST respect `context.Context` cancellation; provider MUST stop emitting and close channel on `ctx.Done()`
+- `GenerateStream` returns `(nil, err)` on connection failure before first token; caller must handle both the error return and channel-embedded errors
+- Generator imports `llm.StreamingLLMProvider` — it does NOT import `sse`; token callback is injected by the orchestrator layer (dependency inversion)
+
+#### 8.33.2 SSE Event Contracts
+
+All three new event types are emitted on the **same session SSE channel** as existing iteration events. The `event:` field distinguishes them.
+
+**`doc.phase`** — emitted at each named generation step:
+```json
+{
+  "event": "doc.phase",
+  "data": {
+    "doc_key": "plan",
+    "step": "enricher",
+    "detail": "Enriching plan structure with dependency graph…"
+  }
+}
+```
+Step values: `"enricher"` | `"draft"` | `"repair"` | `"complete"`
+
+**`doc.token`** — emitted per token during LLM streaming:
+```json
+{
+  "event": "doc.token",
+  "data": {
+    "doc_key": "plan",
+    "token": "## 1. Goals\n\n"
+  }
+}
+```
+
+**`doc.complete`** — emitted once the full doc is written and validated:
+```json
+{
+  "event": "doc.complete",
+  "data": {
+    "doc_key": "plan",
+    "char_count": 14823
+  }
+}
+```
+
+**Invariants:**
+- `doc.phase step=complete` fires before `doc.complete` for the same `doc_key`
+- For each `doc_key`, event order is strictly: `phase(enricher)` → `phase(draft)` → (0-N) `phase(repair)` → `phase(complete)` → `doc.complete`
+- `doc.token` events appear between `phase(draft)` and `phase(complete)` for each draft/repair LLM call
+- Existing events (`agent.started`, `agent.complete`, `iteration.complete`) are NEVER emitted during finalize — the finalize flow uses `doc.*` events only
+
+#### 8.33.3 `ProgressFunc` / `DocPhase` Contract
+
+```go
+// ProgressFunc is the callback type injected into the generator and enrichers.
+// A nil ProgressFunc is always safe — use callProgress() which is nil-safe.
+type ProgressFunc func(p DocPhase)
+
+type DocPhase struct {
+    DocKey string // "architecture" | "plan" | "readme" | custom key
+    Step   string // StepEnricher | StepDraftPass | StepRepairPass | StepComplete
+    Detail string // human-readable label shown in the finalize step log
+}
+
+const (
+    StepEnricher   = "enricher"
+    StepDraftPass  = "draft"
+    StepRepairPass = "repair"
+    StepComplete   = "complete"
+)
+```
+
+**Threading rule:** `ProgressFunc` is injected at `Generator` construction via `SetProgressFunc`. The orchestrator layer creates the closure that bridges it to the SSE broadcaster. The generator layer NEVER imports `platform/sse`.
+
+#### 8.33.4 Frontend Poll Fallback Algorithm (Option C)
+
+```
+onMount:
+  sseClient = createSSEClient(sessionId)
+  lastDocPhaseAt = null
+
+on doc.phase event:
+  lastDocPhaseAt = Date.now()
+
+on doc.complete for all expected doc keys:
+  stopPollFallback()
+
+pollFallback():
+  // Starts after 30 s of page load if no SSE event received,
+  // or 15 s after last doc.phase if doc.complete not yet seen.
+  every 3 s: response = await getSession(sessionId)
+  if response.finalized_docs is non-empty:
+    update UI with finalized docs
+    stopPollFallback()
+```
+
+#### 8.33.5 Wiring Diagram
+
+```
+finalize handler
+    │ injects broadcaster + sessionID
+    ▼
+orchestrator.Enhance(ctx, state, keys)
+    │ creates progressFn + tokenCallbackFn closures
+    │ calls generator.SetProgressFunc(progressFn)
+    │ calls generator.SetTokenCallback(tokenCallbackFn)
+    │ calls generator.SetStreamingLLM(opencodeStreamProvider)
+    ▼
+generator.Enhance (per doc key goroutine)
+    │ calls archEnricher.Enrich(ctx, state, progressFn)  →  BroadcastDocPhase phase=enricher
+    │ calls planEnricher.Enrich(ctx, state, progressFn)  →  BroadcastDocPhase phase=enricher
+    │ calls readmeEnricher.Enrich(ctx, state, progressFn) → BroadcastDocPhase phase=enricher
+    │ draft pass:  callProgress(StepDraftPass)            →  BroadcastDocPhase phase=draft
+    │              GenerateStream → tokens                →  BroadcastDocToken (per token)
+    │ repair pass: callProgress(StepRepairPass)           →  BroadcastDocPhase phase=repair
+    │              GenerateStream → tokens                →  BroadcastDocToken (per token)
+    │ done:        callProgress(StepComplete)             →  BroadcastDocPhase phase=complete
+    ▼
+orchestrator after Enhance
+    │ BroadcastDocComplete(sessionID, docKey, charCount)
+```
 

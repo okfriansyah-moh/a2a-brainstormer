@@ -416,6 +416,12 @@
         // Another iteration is already running. Stay in loading state and let
         // the SSE iteration.complete event clear it once the pass finishes.
         iterInFlight = true;
+      } else if (err instanceof TypeError) {
+        // Browser dropped the long-running HTTP connection (LLM can take 10+
+        // minutes) but the pipeline is still running on the server.
+        // Do NOT show an error — SSE will deliver iteration.complete with the
+        // final state. Stay in loading state until SSE clears it.
+        iterInFlight = true;
       } else {
         actionError = err instanceof Error ? err.message : "Iteration failed.";
       }
@@ -484,6 +490,12 @@
         converged = false;
         actionError =
           "An iteration is already running. Your feedback has been saved — submit again when the current pass completes.";
+      } else if (err instanceof TypeError) {
+        // Browser dropped the long-running HTTP connection (LLM can take 10+
+        // minutes) but the pipeline is still running on the server.
+        // Do NOT show an error and do NOT restore previousConverged — the
+        // pipeline is running and SSE will deliver iteration.complete.
+        iterInFlight = true;
       } else {
         // If the backend rejects the feedback run, restore the converged state
         // so the UI returns to the finalize prompt. Prefer the response body
