@@ -5,13 +5,47 @@
  * models — this file is the single source of truth for all frontend types.
  */
 
+// ── LLM provider enum ────────────────────────────────────────────────────────
+
+export type ProviderKind = 'copilot' | 'opencode' | 'openai' | 'claude' | 'deepseek';
+
+export const ALL_PROVIDER_KINDS: ProviderKind[] = [
+  'copilot', 'opencode', 'openai', 'claude', 'deepseek',
+];
+
+/** Tooltip shown below the credential_ref input for each provider. */
+export const PROVIDER_CREDENTIAL_HINT: Record<ProviderKind, string> = {
+  copilot:  'Set COPILOT_API_KEY in the agent environment; paste the env var NAME here (not the key value)',
+  opencode: 'Set OPENCODE_SERVER_USERNAME + OPENCODE_SERVER_PASSWORD; paste OPENCODE_SERVER_PASSWORD here',
+  openai:   'Set OPENAI_API_KEY in the environment; paste the env var NAME here (not the key value)',
+  claude:   'Set ANTHROPIC_API_KEY in the environment; paste the env var NAME here (not the key value)',
+  deepseek: 'Set DEEPSEEK_API_KEY in the environment; paste the env var NAME here (not the key value)',
+};
+
+/** Placeholder text for the model input per provider. */
+export const PROVIDER_MODEL_PLACEHOLDER: Record<ProviderKind, string> = {
+  copilot:  'github-copilot/claude-sonnet-4.6',
+  opencode: 'github-copilot/claude-sonnet-4.6',
+  openai:   'gpt-5.4',
+  claude:   'claude-opus-4-8',
+  deepseek: 'deepseek-v4-flash',
+};
+
 // ── LLM configuration ────────────────────────────────────────────────────────
 
 /** Resolved per-dispatch LLM configuration. CredentialRef is an env var name. */
 export interface LLMConfig {
-  provider: string; // "copilot" | "claude"
-  model: string; // e.g. "gpt-4o", "claude-opus-4"
+  provider: string;
+  model: string;
   credential_ref: string; // env var name only — never the raw key
+}
+
+/** Response from GET /api/config/global-llm. */
+export interface GlobalLLMConfig {
+  provider: string;
+  model: string;
+  credential_ref: string;
+  available: boolean;
 }
 
 // ── Skill ────────────────────────────────────────────────────────────────────

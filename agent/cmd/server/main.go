@@ -113,9 +113,9 @@ func run(ctx context.Context, logger *slog.Logger) error {
 //   - providers: map of provider name → LLMProvider (always includes "copilot")
 //   - fallback: the default LLMProvider to use when the requested name is absent
 //
-// copilot is always the fallback. opencode is added to the map only when its
-// credentials are present; a missing opencode credential is a warning, not a
-// fatal error — the agent falls back to copilot transparently.
+// copilot is always the fallback. opencode and registry-based providers (deepseek,
+// etc.) are added only when their credentials are present — absence is a warning,
+// not a fatal error.
 //
 // Security invariant: os.Getenv is never called here; all configuration is
 // obtained through agent/internal/config.
@@ -140,6 +140,28 @@ func buildAllProviders(logger *slog.Logger) (providers map[string]llm.LLMProvide
 		logger.Warn("opencode provider unavailable; requests for provider=opencode will fallback to copilot",
 			slog.String("reason", opencodeErr.Error()),
 		)
+	}
+
+	// ── registry-based providers (deepseek, openai, etc.) ────────────────────
+	// Use agentllm.New() so any provider registered via init() can be activated
+	// by setting AGENT_LLM_PROVIDER + AGENT_LLM_MODEL + AGENT_LLM_CREDENTIAL_REF.
+	primaryProvider := config.GetLLMProvider()
+	if _, alreadyBuilt := providers[primaryProvider]; !alreadyBuilt {
+		cfg := llm.LLMConfig{
+			Provider:      primaryProvider,
+			Model:         config.GetLLMModel(),
+			CredentialRef: config.GetLLMCredentialRef(),
+		}
+		p, regErr := llm.New(cfg, config.GetLLMAPIKey)
+		if regErr == nil {
+			providers[primaryProvider] = p
+			logger.Info("LLM provider ready", slog.String("provider", primaryProvider))
+		} else {
+			logger.Warn("registry provider unavailable; will use copilot fallback",
+				slog.String("provider", primaryProvider),
+				slog.String("reason", regErr.Error()),
+			)
+		}
 	}
 
 	return providers, fallback, nil

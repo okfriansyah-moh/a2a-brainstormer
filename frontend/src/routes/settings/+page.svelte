@@ -9,11 +9,16 @@
     getSkills,
     deleteAgent,
     deleteSkill,
+    getGlobalLLMConfig,
   } from "$lib/services/api";
-  import type { Agent, Skill } from "$lib/types";
+  import type { Agent, GlobalLLMConfig, Skill } from "$lib/types";
 
   // Tab state driven by URL search param; default to 'agents'
   $: activeTab = $page.url.searchParams.get("tab") ?? "agents";
+
+  $: if (activeTab === "global-llm" && globalLLM === null && !globalLLMLoading) {
+    void loadGlobalLLM();
+  }
 
   function switchTab(tab: string): void {
     goto(`?tab=${tab}`, { replaceState: true, noScroll: true });
@@ -125,6 +130,24 @@
     ).length;
   }
 
+  // ── Global LLM state ─────────────────────────────────────────────────────
+
+  let globalLLM: GlobalLLMConfig | null = null;
+  let globalLLMError = "";
+  let globalLLMLoading = false;
+
+  async function loadGlobalLLM(): Promise<void> {
+    globalLLMLoading = true;
+    globalLLMError = "";
+    try {
+      globalLLM = await getGlobalLLMConfig();
+    } catch (err) {
+      globalLLMError = err instanceof Error ? err.message : "Failed to load global LLM config.";
+    } finally {
+      globalLLMLoading = false;
+    }
+  }
+
   onMount(async () => {
     agentRegistryStore.setLoading(true);
     error = "";
@@ -136,6 +159,10 @@
       error = err instanceof Error ? err.message : "Failed to load data.";
     } finally {
       agentRegistryStore.setLoading(false);
+    }
+
+    if (activeTab === "global-llm") {
+      await loadGlobalLLM();
     }
   });
 
@@ -192,6 +219,14 @@
         on:click={() => switchTab("roles")}
       >
         Roles
+      </button>
+      <button
+        class="stab"
+        class:stab-active={activeTab === "global-llm"}
+        type="button"
+        on:click={() => switchTab("global-llm")}
+      >
+        Global LLM
       </button>
     </div>
 
@@ -420,6 +455,49 @@
             {/each}
           </tbody>
         </table>
+      {/if}
+    {/if}
+
+    <!-- ── Global LLM Tab ───────────────────────────────────────────── -->
+    {#if activeTab === "global-llm"}
+      <div class="table-toolbar">
+        <h3>Global LLM Configuration</h3>
+      </div>
+
+      {#if globalLLMLoading}
+        <p class="loading-msg">Loading…</p>
+      {:else if globalLLMError}
+        <div class="feedback-error" role="alert">{globalLLMError}</div>
+      {:else if globalLLM}
+        <div class="llm-card">
+          <div class="llm-row">
+            <span class="llm-label">Provider</span>
+            <span class="llm-value mono-cell">{globalLLM.provider}</span>
+          </div>
+          <div class="llm-row">
+            <span class="llm-label">Model</span>
+            <span class="llm-value mono-cell">{globalLLM.model}</span>
+          </div>
+          <div class="llm-row">
+            <span class="llm-label">Credential Ref</span>
+            <span class="llm-value mono-cell">{globalLLM.credential_ref}</span>
+          </div>
+          <div class="llm-row">
+            <span class="llm-label">Status</span>
+            {#if globalLLM.available}
+              <span class="chip-ok">available</span>
+            {:else}
+              <span class="chip-err">missing credential</span>
+            {/if}
+          </div>
+        </div>
+
+        <div class="llm-env-note">
+          <p>To change the global LLM, set these environment variables and restart the server:</p>
+          <pre class="env-block">GLOBAL_LLM_PROVIDER={globalLLM.provider}
+GLOBAL_LLM_MODEL={globalLLM.model}
+GLOBAL_LLM_CREDENTIAL_REF={globalLLM.credential_ref}</pre>
+        </div>
       {/if}
     {/if}
   </div>
@@ -676,6 +754,75 @@
     color: var(--ink-500);
     margin-top: 14px;
     margin-bottom: 0;
+  }
+
+  /* ─── Global LLM tab ────────────────────────────────────────────── */
+  .llm-card {
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+
+  .llm-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+
+  .llm-row:last-child {
+    border-bottom: none;
+  }
+
+  .llm-label {
+    width: 130px;
+    flex-shrink: 0;
+    color: var(--ink-500);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  .llm-value {
+    color: var(--ink-900);
+  }
+
+  .chip-err {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(206, 49, 88, 0.1);
+    color: var(--danger);
+    border: 1px solid rgba(206, 49, 88, 0.25);
+  }
+
+  .llm-env-note {
+    margin-top: 4px;
+  }
+
+  .llm-env-note p {
+    font-size: 13px;
+    color: var(--ink-500);
+    margin: 0 0 8px;
+  }
+
+  .env-block {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    background: var(--bg-1);
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--ink-700);
+    white-space: pre;
+    overflow-x: auto;
+    margin: 0;
   }
 
   @media (max-width: 640px) {

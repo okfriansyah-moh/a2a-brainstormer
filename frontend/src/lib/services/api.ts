@@ -21,6 +21,7 @@ import type {
   FinalizeRequest,
   FinalizeResponse,
   GenerateDocumentResponse,
+  GlobalLLMConfig,
   IterateResponse,
   ListSessionsResponse,
   PreviewResult,
@@ -373,4 +374,9 @@ export async function discardAgentPreview(
     `/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/preview`,
     { method: "DELETE" },
   );
+}
+
+/** Fetch the global LLM configuration from the server environment. */
+export async function getGlobalLLMConfig(): Promise<GlobalLLMConfig> {
+  return request<GlobalLLMConfig>("/api/config/global-llm");
 }

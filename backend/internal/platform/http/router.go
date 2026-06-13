@@ -26,6 +26,7 @@ type Deps struct {
 	AgentHandler     RouteRegistrar
 	SessionHandler   RouteRegistrar
 	IterationHandler RouteRegistrar
+	GlobalLLMHandler http.Handler // GET /api/config/global-llm — may be nil
 	Logger           *slog.Logger
 }
 
@@ -46,6 +47,11 @@ func NewRouter(deps Deps) http.Handler {
 	deps.AgentHandler.RegisterRoutes(mux)
 	deps.SessionHandler.RegisterRoutes(mux)
 	deps.IterationHandler.RegisterRoutes(mux)
+
+	// Global LLM config — read-only env var reflection for the settings UI.
+	if deps.GlobalLLMHandler != nil {
+		mux.Handle("GET /api/config/global-llm", deps.GlobalLLMHandler)
+	}
 
 	// Health check — no DB ping; just confirms the process is alive.
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {

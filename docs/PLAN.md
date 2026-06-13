@@ -2033,7 +2033,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ---
 
-### Task 39 — Platform: LLM Provider Registry + DeepSeek Provider
+### Task 39 — Platform: LLM Provider Registry + DeepSeek Provider ✅
 
 **Goal:** Introduce a provider registry abstraction (`ProviderKind` enum + factory map + `New()` selector), a shared `OpenAICompatibleProvider` base for all OpenAI-wire-compatible APIs, and `DeepSeekProvider` as the first new provider. Refactor `CopilotProvider` to use the base. Mirror the registry and DeepSeek factory in the agent binary. Update the frontend provider dropdown from a hardcoded array to a typed const, add per-provider credential tooltips, and add a Global LLM Settings tab in Settings.
 
@@ -2081,7 +2081,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ---
 
-### Task 40 — Platform: OpenAI LLM Provider
+### Task 40 — Platform: OpenAI LLM Provider ✅
 
 **Goal:** Add OpenAI as a registered provider using the registry and `openAICompatProvider` base from Task 39. Target endpoint `https://api.openai.com/v1/chat/completions`. Register in both backend and agent binary. Mirror env var config pattern.
 
@@ -2104,7 +2104,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ---
 
-### Task 41 — Platform: Claude (Anthropic) LLM Provider
+### Task 41 — Platform: Claude (Anthropic) LLM Provider ✅
 
 **Goal:** Add Anthropic Claude as a registered provider with a fully independent `ClaudeProvider` implementation. Claude uses a different wire format from OpenAI-compatible providers: `POST /v1/messages`, `x-api-key` auth header, `anthropic-version: 2023-06-01` required header, and `content[]` response array instead of `choices[]`. See §8.34.6 for complete wire format spec.
 

@@ -181,6 +181,25 @@ var defaultSkillBundlePaths = []string{
 	".github/skills/plan-management/SKILL.md",
 }
 
+// GetDeepSeekBaseURL returns the DeepSeek API base URL.
+// Reads DEEPSEEK_BASE_URL; defaults to "https://api.deepseek.com".
+func GetDeepSeekBaseURL() string {
+	return envString("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+}
+
+// GetOpenAIBaseURL returns the OpenAI API base URL.
+// Reads OPENAI_BASE_URL; defaults to "https://api.openai.com/v1".
+// Override for Azure OpenAI or proxy deployments.
+func GetOpenAIBaseURL() string {
+	return envString("OPENAI_BASE_URL", "https://api.openai.com/v1")
+}
+
+// GetAnthropicBaseURL returns the Anthropic API base URL.
+// Reads ANTHROPIC_BASE_URL; defaults to "https://api.anthropic.com".
+func GetAnthropicBaseURL() string {
+	return envString("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+}
+
 // ── OpenCode (used when GLOBAL_LLM_PROVIDER=opencode) ────────────────────────
 
 // GetGlobalOpenCodeBaseURL returns the HTTP base URL of the OpenCode server
