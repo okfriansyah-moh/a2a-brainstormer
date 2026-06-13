@@ -739,6 +739,7 @@
             position={i + 1}
             status={stageStatuses[i] ?? "waiting"}
             output={stageOutputText(agent)}
+            streamingText={agentTokenBuffers[agent.id] ?? ""}
             summary={stageSummary(agent).headline}
             summaryBullets={stageSummary(agent).bullets}
             pipelineRunning={$sessionStore.loading}
@@ -747,21 +748,6 @@
             onPreview={() => handlePreviewAgent(agent.id)}
             onApply={() => handleApplyPreview(agent.id)}
           />
-          {#if stageStatuses[i] === "running" && agentTokenBuffers[agent.id]}
-            <div class="agent-token-stream">
-              <span class="dot-live" style="flex-shrink:0;"></span>
-              <span class="token-text">{agentTokenBuffers[agent.id]}</span>
-            </div>
-          {:else if stageStatuses[i] === "running" && agentPhaseDetail[agent.id]}
-            <div
-              style="font-size:0.75rem;color:var(--ink-400);padding:2px 12px 4px;display:flex;align-items:center;gap:6px;"
-            >
-              <span
-                style="width:6px;height:6px;border-radius:50%;background:var(--ink-300);display:inline-block;animation:pulse 1.2s ease-in-out infinite;flex-shrink:0;"
-              ></span>
-              {agentPhaseDetail[agent.id]}
-            </div>
-          {/if}
           {#if i < $sessionStore.agents.length - 1}
             <div class="stage-arrow" aria-hidden="true">
               <svg width="16" height="20" viewBox="0 0 16 20" fill="none">
@@ -1093,30 +1079,6 @@
     padding: 2px 8px;
     font-size: 0.75rem;
     margin-left: auto;
-  }
-
-  /* ── Agent token stream ── */
-  .agent-token-stream {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 6px 14px 8px;
-    margin: 0 2px;
-    background: rgba(0, 0, 0, 0.03);
-    border-left: 2px solid var(--accent-line);
-    border-radius: 0 0 6px 6px;
-  }
-
-  .token-text {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 0.72rem;
-    line-height: 1.55;
-    color: var(--ink-600);
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 120px;
-    overflow-y: auto;
-    flex: 1;
   }
 
   /* ── Responsive ── */

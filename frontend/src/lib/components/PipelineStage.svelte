@@ -13,6 +13,9 @@
   /** Mono log text emitted by this agent (shown when running or done). */
   export let output: string = "";
 
+  /** Live token stream while the agent is running — renders token-by-token inside the log box. */
+  export let streamingText: string = "";
+
   /** Human-readable summary produced after completion. */
   export let summary: string = "";
 
@@ -122,10 +125,18 @@
     </div>
   {/if}
 
-  {#if status !== "waiting" && (displayOutput || summary)}
+  {#if status !== "waiting" && (displayOutput || summary || streamingText || status === "running")}
     <div class="stage-body">
       {#if displayOutput}
         <div class="stage-log">{displayOutput}</div>
+      {:else if status === "running" && streamingText}
+        <div class="stage-log stream-log">
+          <span class="stream-cursor" aria-hidden="true"></span>{streamingText}
+        </div>
+      {:else if status === "running"}
+        <div class="stage-log">
+          <span class="dots">Processing...</span>
+        </div>
       {/if}
       {#if status === "done" && summary}
         <div class="stage-summary">
@@ -141,15 +152,7 @@
             </ul>
           {/if}
         </div>
-      {:else if status === "running" && !displayOutput}
-        <div class="stage-log">
-          <span class="dots">Processing...</span>
-        </div>
       {/if}
-    </div>
-  {:else if status === "running" && !displayOutput}
-    <div class="stage-body">
-      <div class="stage-log"><span class="dots">Processing...</span></div>
     </div>
   {/if}
 </div>
@@ -422,6 +425,26 @@
 
   .dots {
     animation: blink 1.2s infinite;
+  }
+
+  .stream-log {
+    position: relative;
+  }
+
+  .stream-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background: var(--accent-2);
+    vertical-align: text-bottom;
+    margin-right: 3px;
+    border-radius: 1px;
+    animation: cursor-blink 0.9s steps(1) infinite;
+  }
+
+  @keyframes cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
   }
 
   @keyframes blink {
