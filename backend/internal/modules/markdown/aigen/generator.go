@@ -240,7 +240,7 @@ func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.
 		if attempt == g.maxRepairs {
 			return shared.GeneratedDocument{}, fmt.Errorf("rubric failed after %d repair attempts: %d findings", g.maxRepairs, len(findings))
 		}
-		repairPrompt := buildRepairPrompt(draft, findings)
+		repairPrompt := buildRepairPrompt(key, draft, findings)
 		repaired, err := g.llm.Generate(ctx, llm.LLMRequest{
 			SystemPrompt:   systemPrompt,
 			UserMessage:    repairPrompt,
@@ -337,7 +337,7 @@ End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, 
 	case "readme":
 		return `TARGET: A beginner-friendly product README. Model it after the best open-source project READMEs: clear, scannable, under 500 lines.
 
-STRUCTURE (follow exactly — no extra sub-sections):
+STRUCTURE (follow exactly — preserve every ## heading from the scaffold in the same order):
 - Title + one-line tagline
 - ## Golden Rule — one sentence stating the core invariant
 - ## What it is NOT — 3–5 short bullets (1 sentence each), scope boundaries
@@ -346,6 +346,8 @@ STRUCTURE (follow exactly — no extra sub-sections):
 - ## Quick Start — single fenced bash block, 3–5 commands that actually work
 - ## Architecture — 1 ASCII art diagram (8–12 lines) + 1 mermaid diagram, NO prose walls
 - ## Command Reference — single Markdown table: Command | Description (max 10 rows, core commands only)
+- ## Tech Stack — one-line-per-technology table: Technology | Role | Why chosen
+- ## Repository Format — brief directory tree (≤ 12 lines) with one-line descriptions
 - ## Contributing — 2–4 sentences: what to read, how to run tests, PR process
 
 FORBIDDEN (never include these):
@@ -355,7 +357,7 @@ FORBIDDEN (never include these):
 - Detailed sequence diagrams of internal flows
 - Module-by-module technical breakdowns
 - "For AI Agents" appendix
-- Any section titled "Walkthrough", "Key Concepts", "Tech Stack", or "Repository Format"
+- Any section titled "Walkthrough" or "Key Concepts"
 - Paragraph introductions longer than 2 sentences in any section
 
 TONE: Write as if explaining the project to a smart developer who just found it on GitHub. They need to know: what it does, whether it fits their problem, and how to get started in under 5 minutes.`
@@ -366,15 +368,24 @@ TONE: Write as if explaining the project to a smart developer who just found it 
 
 func buildInitialUserPrompt(key string, scaffold shared.GeneratedDocument, s state.CanonicalState) string {
 	var sb strings.Builder
-	sb.WriteString("Produce the final `")
-	sb.WriteString(key)
-	sb.WriteString("` document. Use the deterministic scaffold below as the FACTUAL SEED — every claim it contains must be preserved — then expand it into a production-grade document of AT LEAST 1000 lines, fully populated with sub-sections, tables, mermaid diagrams, code snippets, and concrete examples drawn from the canonical state.\n\n")
-	sb.WriteString("Hard requirements:\n")
-	sb.WriteString("- ≥ 1000 lines total (not soft-target — hard floor)\n")
-	sb.WriteString("- every `## ` heading from the scaffold preserved, in the same order\n")
-	sb.WriteString("- every component / risk / assumption / open question / execution_plan entry from the canonical state given its own named sub-section or table row\n")
-	sb.WriteString("- zero placeholders (TBD/TODO/Lorem/...); make reasoned 'Recommended default:' calls instead\n")
-	sb.WriteString("- at least one mermaid diagram per top-level section where structure matters\n\n")
+	if key == "readme" {
+		sb.WriteString("Produce the final `readme` document. Use the deterministic scaffold below as the FACTUAL SEED — every claim it contains must be preserved — then rewrite it as a concise, beginner-friendly product README.\n\n")
+		sb.WriteString("Hard requirements:\n")
+		sb.WriteString("- 250–500 lines total — concise beats exhaustive\n")
+		sb.WriteString("- every `## ` heading from the scaffold preserved, in the same order\n")
+		sb.WriteString("- zero placeholders (TBD/TODO/<insert...>); use the actual project name and tech stack\n")
+		sb.WriteString("- Quick Start must contain only real, runnable commands for THIS project\n\n")
+	} else {
+		sb.WriteString("Produce the final `")
+		sb.WriteString(key)
+		sb.WriteString("` document. Use the deterministic scaffold below as the FACTUAL SEED — every claim it contains must be preserved — then expand it into a production-grade document of AT LEAST 1000 lines, fully populated with sub-sections, tables, mermaid diagrams, code snippets, and concrete examples drawn from the canonical state.\n\n")
+		sb.WriteString("Hard requirements:\n")
+		sb.WriteString("- ≥ 1000 lines total (not soft-target — hard floor)\n")
+		sb.WriteString("- every `## ` heading from the scaffold preserved, in the same order\n")
+		sb.WriteString("- every component / risk / assumption / open question / execution_plan entry from the canonical state given its own named sub-section or table row\n")
+		sb.WriteString("- zero placeholders (TBD/TODO/Lorem/...); make reasoned 'Recommended default:' calls instead\n")
+		sb.WriteString("- at least one mermaid diagram per top-level section where structure matters\n\n")
+	}
 	sb.WriteString("## Canonical state context\n\n")
 	sb.WriteString(summariseState(s))
 	sb.WriteString("\n\n## Deterministic scaffold (factual seed — expand, do not summarise)\n\n")
@@ -382,7 +393,7 @@ func buildInitialUserPrompt(key string, scaffold shared.GeneratedDocument, s sta
 	return sb.String()
 }
 
-func buildRepairPrompt(draft string, findings []RubricFinding) string {
+func buildRepairPrompt(key, draft string, findings []RubricFinding) string {
 	var sb strings.Builder
 	needsExpansion := false
 	for _, f := range findings {
@@ -393,7 +404,11 @@ func buildRepairPrompt(draft string, findings []RubricFinding) string {
 	}
 	sb.WriteString("The previous draft failed the document rubric. Produce a CORRECTED FULL document (not a diff, not a patch) that resolves every finding below.\n\n")
 	if needsExpansion {
-		sb.WriteString("The primary problem is INSUFFICIENT DEPTH. Do not edit the previous draft sentence-by-sentence — EXPAND it. Add sub-sections, tables, worked examples, mermaid diagrams, and concrete code snippets until each section comfortably exceeds its minimum and the full document exceeds 1000 lines. Preserve every fact already in the draft; never delete content to make room.\n\n")
+		if key == "readme" {
+			sb.WriteString("The primary problem is MISSING or TOO-SHORT SECTIONS. Add the required content to each flagged section while keeping the total document within 250–500 lines. Never add engineering-deep sections (config tables, troubleshooting, domain models) to fix a length finding.\n\n")
+		} else {
+			sb.WriteString("The primary problem is INSUFFICIENT DEPTH. Do not edit the previous draft sentence-by-sentence — EXPAND it. Add sub-sections, tables, worked examples, mermaid diagrams, and concrete code snippets until each section comfortably exceeds its minimum and the full document exceeds 1000 lines. Preserve every fact already in the draft; never delete content to make room.\n\n")
+		}
 	}
 	sb.WriteString("Findings to resolve:\n\n")
 	for _, f := range findings {

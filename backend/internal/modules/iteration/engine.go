@@ -341,11 +341,16 @@ func (e *Engine) runPipelinePass(
 		dispatchStart := time.Now()
 		// Give each agent call an independent per-call timeout that is NOT
 		// inherited from the parent iterCtx budget. Without WithoutCancel, a
-		// long first-agent LLM call (e.g. 30 min) exhausts iterCtx and leaves
-		// every subsequent agent with a zero-or-negative deadline — causing
-		// immediate context deadline exceeded errors on iteration 2+.
-		// context.WithoutCancel copies values but ignores parent cancellation,
-		// so the per-call agentCallTimeout is the sole upper bound for each call.
+		// long first-agent LLM call exhausts iterCtx and leaves every subsequent
+		// agent with a zero-or-negative deadline — causing immediate deadline
+		// exceeded errors on iteration 2+.
+		//
+		// Trade-off: context.WithoutCancel also drops parent *cancellation*
+		// signals (client disconnect, server shutdown). An in-flight agent call
+		// will therefore not abort on those signals; it runs to its own
+		// agentCallTimeout deadline. This is intentional: the per-agent timeout
+		// (config.GetAgentCallTimeout) is the effective upper bound, and
+		// interrupting a long LLM call mid-stream produces no useful output.
 		agentCallTimeout := config.GetAgentCallTimeout()
 		agentCtx, agentCancel := context.WithTimeout(context.WithoutCancel(ctx), agentCallTimeout)
 		out, err := e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback)

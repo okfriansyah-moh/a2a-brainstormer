@@ -52,7 +52,7 @@ REQUIRED for frontend tasks: ` + "`pnpm check`" + ` in Validation
 func InjectIfPlanOutput(outputDocs []string, basePrompt string) string {
 	for _, doc := range outputDocs {
 		if strings.EqualFold(strings.TrimSpace(doc), "plan") {
-			return basePrompt + PlanTaskFormat
+			return basePrompt + "\n\n" + strings.TrimLeft(PlanTaskFormat, "\n")
 		}
 	}
 	return basePrompt

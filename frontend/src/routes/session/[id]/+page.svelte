@@ -46,6 +46,77 @@
    */
   let plainIterPending = false;
 
+  // ─── Iterate retry config ──────────────────────────────────────────────────
+  // When the iterate HTTP call results in a TypeError (browser dropped the
+  // long-running connection while the pipeline was still processing), we poll
+  // getSession() in the background to confirm the server received the request.
+  // Both values can be raised without UI changes — interval in ms, max attempts.
+  const ITER_RETRY_INTERVAL_MS = 8_000; // poll every 8 s
+  const ITER_RETRY_MAX = 30; // 30 × 8 s ≈ 4 min
+
+  let iterRetryCount = 0;
+  let iterRetryActive = false;
+  let iterRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearIterRetry() {
+    if (iterRetryTimer !== null) {
+      clearTimeout(iterRetryTimer);
+      iterRetryTimer = null;
+    }
+    iterRetryActive = false;
+    iterRetryCount = 0;
+  }
+
+  /**
+   * Starts a background polling loop that calls getSession() every
+   * ITER_RETRY_INTERVAL_MS. Behaviour per server status:
+   * - "running"            → SSE will fire; keep retrying.
+   * - "converged"/"approved" → apply state inline (SSE may have been missed).
+   * - other / fetch error  → keep retrying until ITER_RETRY_MAX.
+   * When retries are exhausted, surfaces a retryable actionError and restores
+   * the converged flag to fallbackConverged.
+   */
+  function startIterRetry(sid: string, fallbackConverged: boolean) {
+    clearIterRetry();
+    iterRetryActive = true;
+
+    function tick() {
+      iterRetryTimer = setTimeout(async () => {
+        iterRetryCount += 1;
+        let resolved = false;
+        try {
+          const sess = await getSession(sid);
+          if (sess.status === "converged" || sess.status === "approved") {
+            // Pipeline completed but SSE missed the final event — apply inline.
+            sessionStore.updateState((sess as any).state ?? null);
+            converged = true;
+            resolved = true;
+            clearIterRetry();
+            sessionStore.setLoading(false);
+          }
+          // "running" → SSE is watching; keep retrying.
+          // "active"/"failed" → server never received it or hard failure; keep retrying.
+        } catch {
+          // Network still unreachable — keep retrying until exhausted.
+        }
+
+        if (!resolved) {
+          if (iterRetryCount < ITER_RETRY_MAX) {
+            tick();
+          } else {
+            clearIterRetry();
+            converged = fallbackConverged;
+            sessionStore.setLoading(false);
+            actionError =
+              'Lost connection to the server. The pipeline may still be running — click "Run Next Iteration" to retry.';
+          }
+        }
+      }, ITER_RETRY_INTERVAL_MS);
+    }
+
+    tick();
+  }
+
   /**
    * Map of agentId → true while a preview dispatch is in flight for that agent.
    * Used to disable per-agent buttons during the request.
@@ -394,6 +465,7 @@
 
   onDestroy(() => {
     sseClient?.close();
+    clearIterRetry();
   });
 
   async function handleNextIteration() {
@@ -416,12 +488,15 @@
         // Another iteration is already running. Stay in loading state and let
         // the SSE iteration.complete event clear it once the pass finishes.
         iterInFlight = true;
-      } else if (err instanceof TypeError) {
-        // Browser dropped the long-running HTTP connection (LLM can take 10+
-        // minutes) but the pipeline is still running on the server.
-        // Do NOT show an error — SSE will deliver iteration.complete with the
-        // final state. Stay in loading state until SSE clears it.
+      } else if (
+        err instanceof TypeError &&
+        /failed to fetch|networkerror|fetch/i.test(err.message)
+      ) {
+        // Browser dropped the long-running connection or it never reached the
+        // server (offline, CORS, DNS). Start a background retry loop that polls
+        // getSession() to confirm whether the pipeline is running.
         iterInFlight = true;
+        startIterRetry(sessionId, false);
       } else {
         actionError = err instanceof Error ? err.message : "Iteration failed.";
       }
@@ -490,12 +565,16 @@
         converged = false;
         actionError =
           "An iteration is already running. Your feedback has been saved — submit again when the current pass completes.";
-      } else if (err instanceof TypeError) {
-        // Browser dropped the long-running HTTP connection (LLM can take 10+
-        // minutes) but the pipeline is still running on the server.
-        // Do NOT show an error and do NOT restore previousConverged — the
-        // pipeline is running and SSE will deliver iteration.complete.
+      } else if (
+        err instanceof TypeError &&
+        /failed to fetch|networkerror|fetch/i.test(err.message)
+      ) {
+        // Browser dropped the long-running connection or it never reached the
+        // server (offline, CORS, DNS). Start a background retry loop; if the
+        // server never received the request, restore previousConverged so the
+        // UI is not stuck on an optimistically cleared converged flag.
         iterInFlight = true;
+        startIterRetry(sessionId, previousConverged);
       } else {
         // If the backend rejects the feedback run, restore the converged state
         // so the UI returns to the finalize prompt. Prefer the response body
@@ -579,6 +658,15 @@
   {/if}
   {#if actionError}
     <div class="banner banner-warn">{actionError}</div>
+  {/if}
+  {#if iterRetryActive}
+    <div class="banner banner-info">
+      <span class="dot-live"></span>
+      Checking server status… attempt {iterRetryCount}/{ITER_RETRY_MAX}
+      <button class="btn-ghost btn-xs" type="button" on:click={clearIterRetry}>
+        Cancel
+      </button>
+    </div>
   {/if}
 
   <div class="workspace">
@@ -937,6 +1025,21 @@
     background: var(--warn-bg);
     color: var(--warn);
     border: 1px solid var(--warn-line);
+  }
+
+  .banner-info {
+    background: var(--accent-bg);
+    color: var(--accent-2);
+    border: 1px solid var(--accent-line);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-xs {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    margin-left: auto;
   }
 
   /* ── Responsive ── */

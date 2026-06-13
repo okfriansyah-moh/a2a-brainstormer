@@ -16,8 +16,9 @@ import (
 // ─── Overlay types (§8.32) ────────────────────────────────────────────────────
 
 // ReadmeEnrichmentOverlay holds the structured enrichment data the LLM
-// pre-pass returns for the README document. Every field is optional; absent
-// fields leave the canonical state unchanged (never overwrite existing values).
+// pre-pass returns for the README document. Every field is optional; when a
+// field is present and non-empty in the overlay, it overwrites the corresponding
+// value in the canonical state (overlay wins).
 type ReadmeEnrichmentOverlay struct {
 	Tagline              string            `json:"tagline"`
 	DescriptionParagraph string            `json:"description_paragraph"`
@@ -58,8 +59,9 @@ type Prerequisite struct {
 
 // ReadmeEnricher runs a single LLM pre-pass to populate optional README
 // narrative fields in the canonical state before the README generator renders.
-// It is a pure augmenter: on any error it returns the original state unchanged
-// and logs at Warn level — no error is propagated.
+// The enricher always wins: non-empty overlay fields overwrite whatever is in
+// the current state (unlike arch/plan enrichers which fill absent fields only).
+// On any error it returns the original state unchanged and logs at Warn level.
 type ReadmeEnricher struct {
 	llm        llm.LLMProvider
 	timeoutSec int
@@ -127,7 +129,7 @@ func (e *ReadmeEnricher) Enrich(ctx context.Context, s state.CanonicalState) (st
 		SystemPrompt:   readmeEnricherSystemPrompt,
 		UserMessage:    string(inputJSON),
 		Temperature:    0.2,
-		ResponseFormat: "json",
+		ResponseFormat: "json_object",
 	})
 	if err != nil {
 		slog.WarnContext(ctx, "readme_enricher_failed", slog.Any("error", err))

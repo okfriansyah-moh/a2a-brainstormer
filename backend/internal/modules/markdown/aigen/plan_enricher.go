@@ -94,7 +94,7 @@ func validateOverlay(o PlanEnrichmentOverlay, planLen int) error {
 			if len(ic) > maxInvariantCheckLen {
 				return fmt.Errorf("phases[%d].invariant_checks[%d] exceeds %d chars", i, j, maxInvariantCheckLen)
 			}
-			if len(ic) > 0 && ic[0] < 'A' || ic[0] > 'Z' {
+			if len(ic) > 0 && (ic[0] < 'A' || ic[0] > 'Z') {
 				return fmt.Errorf("phases[%d].invariant_checks[%d] does not start with a capital letter", i, j)
 			}
 		}

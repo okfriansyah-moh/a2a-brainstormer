@@ -5,6 +5,8 @@
 // readme format when the payload's OutputDocs includes "readme".
 package prompts
 
+import "strings"
+
 // ReadmeFormat is the canonical readme.md output format specification injected
 // into the system prompt when the agent is asked to produce a readme document.
 // It constrains the agent to use the README section format required by §8.32.
@@ -41,7 +43,7 @@ The README must be specific to THIS project. Use the actual project name, tech s
 // system prompt so the LLM sees it as a hard constraint, not a user request.
 func InjectIfReadmeOutput(base string, outputDocs []string) string {
 	for _, doc := range outputDocs {
-		if doc == "readme" {
+		if strings.EqualFold(strings.TrimSpace(doc), "readme") {
 			return base + "\n\n" + ReadmeFormat
 		}
 	}

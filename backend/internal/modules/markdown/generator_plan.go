@@ -31,6 +31,10 @@ func GeneratePlan(s state.CanonicalState) (string, error) {
 	b.WriteString("## 2. Milestones\n\n")
 	b.WriteString(renderMilestonesTable(s))
 
+	// ── § 3. Assumptions ─────────────────────────────────────────────────────
+	b.WriteString("## 3. Assumptions\n\n")
+	b.WriteString(renderPlanAssumptions(s))
+
 	// ── § 4. Dependency Graph ────────────────────────────────────────────────
 	b.WriteString("## 4. Dependency Graph\n\n")
 	b.WriteString(renderDependencyGraph(s))
@@ -124,6 +128,20 @@ func renderMilestonesTable(s state.CanonicalState) string {
 		})
 	}
 	return renderTable([]string{"#", "Task", "Summary"}, rows)
+}
+
+// ─── §3 Assumptions ───────────────────────────────────────────────────────────
+
+func renderPlanAssumptions(s state.CanonicalState) string {
+	if len(s.Assumptions) == 0 {
+		return "_No assumptions recorded yet._\n\n"
+	}
+	var b strings.Builder
+	for _, a := range s.Assumptions {
+		b.WriteString(fmt.Sprintf("- %s\n", a))
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 // ─── §4 Dependency Graph ──────────────────────────────────────────────────────
@@ -383,7 +401,7 @@ func renderTaskSummaryTable(s state.CanonicalState) string {
 	return renderTable([]string{"#", "Task Name", "Primary File", "Depends-On", "Notes"}, rows)
 }
 
-// renderDeduplicatedRisks renders risks deduplicated by text similarity.
+// renderDeduplicatedRisks renders the risks table.
 func renderDeduplicatedRisks(s state.CanonicalState) string {
 	return renderRisksTable(s)
 }
