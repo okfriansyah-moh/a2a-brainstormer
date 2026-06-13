@@ -116,10 +116,10 @@
         if (evt.type === "doc.token") {
           const d = evt.data as { doc_key?: string; token?: string } | null;
           if (d?.doc_key && d?.token) {
-            docTokenBuffers = {
-              ...docTokenBuffers,
-              [d.doc_key]: (docTokenBuffers[d.doc_key] ?? "") + d.token,
-            };
+            docTokenBuffers[d.doc_key] =
+              (docTokenBuffers[d.doc_key] ?? "") + d.token;
+            // Svelte reactivity triggers on assignment; avoid per-token object copies.
+            docTokenBuffers = docTokenBuffers;
           }
         }
         if (evt.type === "doc.complete") {

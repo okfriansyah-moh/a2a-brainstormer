@@ -88,7 +88,8 @@
           const sess = await getSession(sid);
           if (sess.status === "converged" || sess.status === "approved") {
             // Pipeline completed but SSE missed the final event — apply inline.
-            sessionStore.updateState((sess as any).state ?? null);
+            if (sess.current_state)
+              sessionStore.updateState(sess.current_state);
             converged = true;
             resolved = true;
             clearIterRetry();
@@ -434,10 +435,10 @@
         if (evt.type === "agent.token") {
           const d = evt.data as { agent_id?: string; token?: string } | null;
           if (d?.agent_id && d?.token) {
-            agentTokenBuffers = {
-              ...agentTokenBuffers,
-              [d.agent_id]: (agentTokenBuffers[d.agent_id] ?? "") + d.token,
-            };
+            agentTokenBuffers[d.agent_id] =
+              (agentTokenBuffers[d.agent_id] ?? "") + d.token;
+            // Svelte reactivity triggers on assignment; avoid per-token object copies.
+            agentTokenBuffers = agentTokenBuffers;
           }
         }
         // Clear phase detail and token buffer when the agent finishes.
@@ -752,8 +753,12 @@
               <span class="token-text">{agentTokenBuffers[agent.id]}</span>
             </div>
           {:else if stageStatuses[i] === "running" && agentPhaseDetail[agent.id]}
-            <div style="font-size:0.75rem;color:var(--ink-400);padding:2px 12px 4px;display:flex;align-items:center;gap:6px;">
-              <span style="width:6px;height:6px;border-radius:50%;background:var(--ink-300);display:inline-block;animation:pulse 1.2s ease-in-out infinite;flex-shrink:0;"></span>
+            <div
+              style="font-size:0.75rem;color:var(--ink-400);padding:2px 12px 4px;display:flex;align-items:center;gap:6px;"
+            >
+              <span
+                style="width:6px;height:6px;border-radius:50%;background:var(--ink-300);display:inline-block;animation:pulse 1.2s ease-in-out infinite;flex-shrink:0;"
+              ></span>
               {agentPhaseDetail[agent.id]}
             </div>
           {/if}

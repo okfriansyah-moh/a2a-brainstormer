@@ -70,8 +70,13 @@ type MarkdownWriter = markdownWriter
 // progressAwareMarkdownWriter is the optional extension of markdownWriter that
 // supports SSE phase and token events during document generation. The Orchestrator
 // implements this; plain *markdown.Writer does not.
+//
+// The emitter parameter uses an anonymous interface so that markdown.Orchestrator
+// (which declares its own package-local emitter type) satisfies this interface
+// without a cross-package import. *sse.Broadcaster and sse.NoopEmitter both
+// satisfy the anonymous interface structurally.
 type progressAwareMarkdownWriter interface {
-	GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter sse.EventEmitter, sessionID string) (map[string]shared.GeneratedDocument, error)
+	GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface{ Emit(sessionID, evtType string, data any) }, sessionID string) (map[string]shared.GeneratedDocument, error)
 }
 
 // Handler implements the HTTP layer for the session API.

@@ -63,7 +63,10 @@ func (p *OpenCodeProvider) streamMessage(ctx context.Context, sessID string, req
 	}
 
 	// SSE path: scan line-by-line and forward text deltas.
+	// Use a 512 KiB buffer so large JSON data lines do not trigger ErrTooLong.
+	const sseBufSize = 512 * 1024
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, sseBufSize), sseBufSize)
 	for scanner.Scan() {
 		if ctx.Err() != nil {
 			return
@@ -85,6 +88,10 @@ func (p *OpenCodeProvider) streamMessage(ctx context.Context, sessID string, req
 		if done {
 			break
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		sendChunk(ctx, ch, TokenChunk{Done: true, Err: fmt.Errorf("opencode: SSE scan error: %w", err)})
+		return
 	}
 	sendChunk(ctx, ch, TokenChunk{Done: true})
 }

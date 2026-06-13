@@ -87,18 +87,16 @@ func (o *Orchestrator) GenerateAll(ctx context.Context, s state.CanonicalState, 
 	return enhanced, nil
 }
 
-// progressEmitter is the narrow interface the orchestrator uses to publish SSE
-// events. *sse.Broadcaster satisfies this structurally — no direct import needed.
-type progressEmitter interface {
-	Emit(sessionID, evtType string, data any)
-}
-
 // GenerateAllWithProgress is GenerateAll with optional SSE phase and token events.
 // When emitter is non-nil, it fires doc.phase events at key generation stages and
 // doc.token events for each streamed LLM token (when the provider supports it).
 // If the underlying markdown writer is not AI-capable the method falls back to
 // GenerateAll silently.
-func (o *Orchestrator) GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter progressEmitter, sessionID string) (map[string]shared.GeneratedDocument, error) {
+//
+// The emitter parameter is an anonymous interface so that the method signature
+// matches session/handler.go's progressAwareMarkdownWriter exactly, enabling
+// the type assertion to succeed without a cross-package import.
+func (o *Orchestrator) GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface{ Emit(sessionID, evtType string, data any) }, sessionID string) (map[string]shared.GeneratedDocument, error) {
 	scaffolds, err := GenerateAll(s, keys)
 	if err != nil {
 		return nil, err
