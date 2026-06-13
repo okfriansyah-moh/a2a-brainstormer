@@ -266,6 +266,91 @@ func GetDiscoveryHintsTemperature() float64 {
 	return v
 }
 
+// GetArchEnricherEnabled returns whether the architecture enricher LLM pre-pass
+// is enabled. Reads ARCH_ENRICHER_ENABLED; default true.
+func GetArchEnricherEnabled() bool {
+	v := os.Getenv("ARCH_ENRICHER_ENABLED")
+	if v == "" {
+		return true
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return true
+	}
+	return b
+}
+
+// GetArchEnricherTimeoutSec returns the timeout in seconds for the architecture
+// enricher LLM call. Reads ARCH_ENRICHER_TIMEOUT_SEC; default 30; clamped [5,120].
+func GetArchEnricherTimeoutSec() int {
+	v := envInt("ARCH_ENRICHER_TIMEOUT_SEC", 30)
+	if v < 5 {
+		return 5
+	}
+	if v > 120 {
+		return 120
+	}
+	return v
+}
+
+// GetPlanEnricherEnabled returns whether the plan enricher LLM pre-pass is enabled.
+// Reads PLAN_ENRICHER_ENABLED; default true.
+func GetPlanEnricherEnabled() bool {
+	v := os.Getenv("PLAN_ENRICHER_ENABLED")
+	if v == "" {
+		return true
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return true
+	}
+	return b
+}
+
+// GetPlanEnricherTimeoutSec returns the timeout in seconds for the plan enricher
+// LLM call. Reads PLAN_ENRICHER_TIMEOUT_SEC; default 45; clamped [10,120].
+func GetPlanEnricherTimeoutSec() int {
+	v := envInt("PLAN_ENRICHER_TIMEOUT_SEC", 45)
+	if v < 10 {
+		return 10
+	}
+	if v > 120 {
+		return 120
+	}
+	return v
+}
+
+// GetReadmeEnricherEnabled returns whether the readme enricher LLM pre-pass is enabled.
+// Reads README_ENRICHER_ENABLED; default true.
+// Returns false when FINALIZE_MODE=deterministic regardless of README_ENRICHER_ENABLED.
+func GetReadmeEnricherEnabled() bool {
+	if GetFinalizeMode() == "deterministic" {
+		return false
+	}
+	v := os.Getenv("README_ENRICHER_ENABLED")
+	if v == "" {
+		return true
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return true
+	}
+	return b
+}
+
+// GetReadmeEnricherTimeoutSec returns the timeout in seconds for the readme enricher
+// LLM call. Reads README_ENRICHER_TIMEOUT_SEC; default 45; clamped [10,120].
+func GetReadmeEnricherTimeoutSec() int {
+	v := envInt("README_ENRICHER_TIMEOUT_SEC", 45)
+	if v < 10 {
+		return 10
+	}
+	if v > 120 {
+		return 120
+	}
+	return v
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // envString reads an env var and returns defVal when absent or empty.

@@ -33,6 +33,12 @@ type Rubric struct {
 	// contain at least this many characters. Pairs with MinTotalLines to guard
 	// against "many short lines" gaming of the line-count rule.
 	MinTotalChars int
+	// ForbiddenStrings is a list of strings that must NOT appear anywhere in
+	// the document body. Violations trigger auto-repair.
+	ForbiddenStrings []string
+	// RequiredPatterns is a list of strings that MUST appear somewhere in the
+	// document body. Absence triggers auto-repair.
+	RequiredPatterns []string
 }
 
 // RubricFinding is one rule violation in the validated document.
@@ -60,39 +66,85 @@ var defaultPlaceholders = []string{"TBD", "TODO", "Lorem ipsum", "placeholder"}
 var defaultRubrics = map[string]Rubric{
 	"architecture": {
 		DocKey:        "architecture",
-		MinTotalLines: 1000,
-		MinTotalChars: 35000,
+		MinTotalLines: 600,
+		MinTotalChars: 1500,
+		// Phase N — and Phase N: naming is forbidden; all steps must be called Task N
+		ForbiddenStrings: []string{
+			"Phase 0 —", "Phase 1 —", "Phase 2 —", "Phase 3 —", "Phase 4 —",
+			"Phase 5 —", "Phase 6 —", "Phase 7 —", "Phase 8 —", "Phase 9 —", "Phase 10 —",
+			"Phase 0:", "Phase 1:", "Phase 2:", "Phase 3:", "Phase 4:",
+			"Phase 5:", "Phase 6:", "Phase 7:", "Phase 8:", "Phase 9:", "Phase 10:",
+		},
 		Sections: []SectionRule{
-			{Heading: "1. Overview", MinChars: 1500},
-			{Heading: "2. System Components", MinChars: 4000, RequiredKeywords: []string{"Responsibility", "Technologies", "Dependencies"}},
-			{Heading: "3. Data Model", MinChars: 2500},
-			{Heading: "4. Data Flow", MinChars: 2000, RequiredKeywords: []string{"```mermaid"}},
-			{Heading: "5. Deployment", MinChars: 1500},
-			{Heading: "6. Architecture Decisions", MinChars: 2000},
+			{Heading: "1. Problem Statement", MinChars: 80},
+			{Heading: "2. Solution", MinChars: 80},
+			{Heading: "3. Scope", MinChars: 60, RequiredKeywords: []string{"In Scope", "Out of Scope"}},
+			{Heading: "4. Layers", MinChars: 100},
+			{Heading: "5. Tech Stack", MinChars: 80},
+			{Heading: "6. Data Flows", MinChars: 100, RequiredKeywords: []string{"graph"}},
+			{Heading: "7. Module Boundaries", MinChars: 60},
+			{Heading: "8. Architecture Decisions", MinChars: 80, RequiredKeywords: []string{"Decision", "Status"}},
+			{Heading: "9. Extension Points", MinChars: 60},
+			{Heading: "10. Security Considerations", MinChars: 60, RequiredKeywords: []string{"Surface", "Mitigation"}},
+			{Heading: "11. Quality Targets", MinChars: 40, RequiredKeywords: []string{"Confidence"}},
+			{Heading: "12. System Guarantees", MinChars: 60},
+			{Heading: "13. Risks", MinChars: 60, RequiredKeywords: []string{"Risk", "Status"}},
+			{Heading: "14. Assumptions", MinChars: 20},
+			{Heading: "15. Open Questions", MinChars: 20},
+			{Heading: "16. Definition of Done", MinChars: 60, RequiredKeywords: []string{"- [ ]"}},
 			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Key Contracts", "Implementation Order", "Out of Scope"}},
 		},
 	},
 	"plan": {
 		DocKey:        "plan",
-		MinTotalLines: 1000,
-		MinTotalChars: 35000,
+		MinTotalLines: 800,
+		MinTotalChars: 3000,
+		ForbiddenStrings: []string{
+			"see phase deliverables",
+			"per module test suite",
+			// All Phase N — and Phase N: patterns; all steps must be called Task N
+			"Phase 0 —", "Phase 1 —", "Phase 2 —", "Phase 3 —", "Phase 4 —",
+			"Phase 5 —", "Phase 6 —", "Phase 7 —", "Phase 8 —", "Phase 9 —", "Phase 10 —",
+			"Phase 0:", "Phase 1:", "Phase 2:", "Phase 3:", "Phase 4:",
+			"Phase 5:", "Phase 6:", "Phase 7:", "Phase 8:", "Phase 9:", "Phase 10:",
+		},
+		RequiredPatterns: []string{
+			"**Goal:**",
+			"**Validation:**",
+			"**Invariant check:**",
+		},
 		Sections: []SectionRule{
-			{Heading: "1. Goals", MinChars: 1200},
-			{Heading: "2. Milestones", MinChars: 2500},
-			{Heading: "3. Phase Breakdown", MinChars: 5000, RequiredKeywords: []string{"Objective", "Scope", "Deliverables", "Exit Criteria"}},
-			{Heading: "5. Module Tasks", MinChars: 3500, RequiredKeywords: []string{"Files to create", "Validation"}},
+			{Heading: "1. Goals", MinChars: 30},
+			{Heading: "5. Implementation Tasks", MinChars: 200, RequiredKeywords: []string{"**Goal:**", "go build ./..."}},
+			{Heading: "7. How to Use This Plan", MinChars: 80},
+			{Heading: "8. Deep Knowledge Reference", MinChars: 80},
 			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Key Contracts", "Implementation Order", "Out of Scope"}},
 		},
 	},
 	"readme": {
 		DocKey:        "readme",
-		MinTotalLines: 1000,
-		MinTotalChars: 35000,
+		MinTotalLines: 80,
+		MinTotalChars: 1000,
+		ForbiddenStrings: []string{
+			"<repository-url>",
+			"Phase 1 —", "Phase 2 —", "Phase 3 —",
+			"## Known Risks\n",
+			"For AI Agents",
+			"## Roadmap\n\n_Roadmap",
+			// Sections that indicate over-engineering the README
+			"## Troubleshooting",
+			"## Configuration Reference",
+		},
+		RequiredPatterns: []string{
+			"**Golden rule:**",
+			"```mermaid",
+			"## When to use",
+			"## Contributing",
+		},
 		Sections: []SectionRule{
-			{Heading: "Overview", MinChars: 1500},
-			{Heading: "Architecture", MinChars: 1500},
-			{Heading: "Getting Started", MinChars: 1000},
-			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Implementation Order"}},
+			{Heading: "When to use", MinChars: 100},
+			{Heading: "Quick Start", MinChars: 50},
+			{Heading: "Contributing", MinChars: 30},
 		},
 	},
 }
@@ -133,6 +185,22 @@ func Validate(content string, r Rubric) []RubricFinding {
 			findings = append(findings, RubricFinding{
 				Heading: "<document>",
 				Reason:  fmt.Sprintf("document has %d chars; minimum is %d — add concrete detail, not filler", len(trimmed), r.MinTotalChars),
+			})
+		}
+	}
+	for _, forbidden := range r.ForbiddenStrings {
+		if strings.Contains(trimmed, forbidden) {
+			findings = append(findings, RubricFinding{
+				Heading: "<document>",
+				Reason:  fmt.Sprintf("forbidden string %q present in document — remove or replace", forbidden),
+			})
+		}
+	}
+	for _, pattern := range r.RequiredPatterns {
+		if !strings.Contains(trimmed, pattern) {
+			findings = append(findings, RubricFinding{
+				Heading: "<document>",
+				Reason:  fmt.Sprintf("required pattern %q absent from document", pattern),
 			})
 		}
 	}
