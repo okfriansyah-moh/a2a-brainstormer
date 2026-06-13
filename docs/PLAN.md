@@ -1,7 +1,8 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 4.0
-> **Date:** 2026-06-13 (inserted Task 38 — Finalize Progress Streaming; renumbered original Tasks 38–48 to Tasks 39–49)
+> **Version:** 5.0
+> **Date:** 2026-06-13 (inserted Tasks 39–41 — Multi-Provider LLM Registry + DeepSeek + OpenAI + Claude; renumbered original Tasks 39–49 to Tasks 42–52)
+> **Change in v5.0:** Inserted Tasks 39–41 — Multi-Provider LLM Provider Registry. Introduces `ProviderKind` enum (`copilot`, `opencode`, `openai`, `claude`, `deepseek`), a registry factory map replacing the `main.go` switch, `openAICompatProvider` shared base for all OpenAI-wire-compatible APIs (Copilot refactored, DeepSeek added via Task 39, OpenAI via Task 40), and `claudeProvider` for the Anthropic wire format (Task 41). Frontend gains a typed `ProviderKind` const, per-provider credential tooltips, model placeholder suggestions, and a Global LLM Settings tab in Settings. Original Tasks 39–49 renumbered to Tasks 42–52. New §8.34 documents the registry contract, OpenAI-compatible wire format, DeepSeek and OpenAI configs, frontend enum and UI contracts, and Claude wire format.
 > **Change in v4.0:** Inserted Task 38 — Finalize Progress Streaming: SSE Phase Events + LLM Token Streaming + Poll Fallback. Adds (A) named `doc.phase` SSE events emitted at each enricher and generation step so the finalize UI shows a live step log; (B) real LLM token streaming (`StreamingLLMProvider` interface + OpenCode implementation) forwarding tokens as `doc.token` SSE events so the rendered document types in character-by-character; (C) a frontend poll fallback that polls `GET /sessions/{id}` every 3 s if SSE disconnects before `doc.complete`. Must not break existing iteration SSE, the `TypeError/Failed-to-fetch` fix, or the `context.WithoutCancel` per-agent deadline fix. Original Tasks 38–48 renumbered 39–49. New §8.33 documents the streaming interface, event contracts, progress callback contract, and wiring rules.
 > **Change in v3.0:** Inserted Task 37 — README.md: Generation Quality Overhaul (Enricher + Correct Section Structure). Rewrites `generator_readme.go` to produce all 13 required sections (title, tagline, description paragraph, golden rule, "What it is NOT", "When to use" with Mermaid flowchart + numbered scenarios + code, Prerequisites/Installation, Quick Start, Architecture with ASCII and Mermaid, Command Reference table, Tech Stack, Repository Format, Contributing); removes wrong sections (Known Risks top-level, For AI Agents appendix, Phase-N roadmap). Adds `markdown/aigen/readme_enricher.go` (Approach B) LLM post-pass with `ReadmeEnrichmentOverlay` schema filling golden_rule, when_to_use scenarios, Mermaid flowcharts, quick_start_commands, command_reference, contributing_note, prerequisites. Adds `agent/internal/executor/prompts/readme_format.go` (Approach C) agent prompt constant injected when `readme` is in `output_docs`. Updates rubric ForbiddenStrings + RequiredPatterns. Original Tasks 37–47 renumbered 38–48. New §8.32 documents the README quality standard, enricher schema, enricher LLM prompt, Approach C fragment, and rubric assertions.
 > **Change in v2.0:** Inserted Task 36 — PLAN.md Generation Quality Overhaul (Enricher + Correct Task Format). Adds a new `markdown/aigen/plan_enricher.go` single-call LLM post-pass (Approach B) that restructures generated PLAN.md: merges §3 Phase Breakdown into properly-formatted §5 Implementation Tasks, rewrites thin "see phase deliverables" stubs into full `**Goal:**`/`**Files to create:**`/`**Validation:**`/`**Prompt context needed:**` specs, adds `**Invariant check:**` and `**Layer(s) affected:**` per task, deduplicates the Risks section, auto-generates §8 Deep Knowledge from canonical state, and emits an ASCII dependency graph. Adds a new `agent/internal/executor/prompts/plan_format.go` constant (Approach C) injected into agent system prompts when `plan` is in `output_docs`, directing agents to write tasks in the correct spec format (not "Phase N") with runnable validation commands. Fixes §1 Goals always-empty bug. Original Tasks 36–46 renumbered 37–47. New §8.31 documents the plan quality standard, enricher schema, and Approach C prompt spec.
@@ -274,39 +275,41 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
                                                      │
                                                      ▼
                                           Task 38 (Finalize Progress Streaming: SSE Phase Events + Token Streaming + Poll Fallback)
+                                              │
+                     ┌────────────────────────┴──────────────────────────────────────────────────────┐
+                     ▼                                                                                ▼
+         Task 39 (Platform: LLM Registry + DeepSeek + Frontend Enum)         Task 42 (DB: Attachments + Chunks Schema — pgvector)
+                     │                                                                                │
+          ┌──────────┴──────────┐                                                                     ▼
+          ▼                     ▼                                                         Task 43 (Platform: Extractor + Embeddings + Blobstore)
+Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
                                                      │
                                                      ▼
-                                          Task 39 (DB: Attachments + Chunks Schema — pgvector)
+                                          Task 44 (Backend: Attachment Module — CRUD + Upload Pipeline)
                                                      │
                                                      ▼
-                                          Task 40 (Platform: Extractor + Embeddings + Blobstore)
+                                          Task 45 (Backend: AttachmentRetriever + Payload Extension + Engine Wiring)
                                                      │
                                                      ▼
-                                          Task 41 (Backend: Attachment Module — CRUD + Upload Pipeline)
+                                          Task 46 (Frontend: Attachment Menu + Upload Modal + Scope UX)
                                                      │
                                                      ▼
-                                          Task 42 (Backend: AttachmentRetriever + Payload Extension + Engine Wiring)
+                                          Task 47 (DB: MCP Server Registry Schema)
                                                      │
                                                      ▼
-                                          Task 43 (Frontend: Attachment Menu + Upload Modal + Scope UX)
-                                                     │
-                                                     ▼
-                                          Task 44 (DB: MCP Server Registry Schema)
-                                                     │
-                                                     ▼
-                                          Task 45 (Backend: MCP Server Module — CRUD)
+                                          Task 48 (Backend: MCP Server Module — CRUD)
                                                      │
                               ┌──────────────────────┴──────────────────────┐
                               ▼                                              ▼
-                  Task 46 (Backend: Agent–MCP                    Task 47 (Agent: MCP
+                  Task 49 (Backend: Agent–MCP                    Task 50 (Agent: MCP
                   Association + Payload Extension)                Client Package)
                               │                                              │
                               └──────────────────────┬──────────────────────┘
                                                      ▼
-                                          Task 48 (Agent: LLM Tool-Use + Executor Loop)
+                                          Task 51 (Agent: LLM Tool-Use + Executor Loop)
                                                      │
                                                      ▼
-                                          Task 49 (Frontend: MCP Settings + Smart Import)
+                                          Task 52 (Frontend: MCP Settings + Smart Import)
 ```
 
 ---
@@ -2030,7 +2033,108 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 39 — DB: Attachments + Chunks Schema (pgvector)
+### Task 39 — Platform: LLM Provider Registry + DeepSeek Provider
+
+**Goal:** Introduce a provider registry abstraction (`ProviderKind` enum + factory map + `New()` selector), a shared `OpenAICompatibleProvider` base for all OpenAI-wire-compatible APIs, and `DeepSeekProvider` as the first new provider. Refactor `CopilotProvider` to use the base. Mirror the registry and DeepSeek factory in the agent binary. Update the frontend provider dropdown from a hardcoded array to a typed const, add per-provider credential tooltips, and add a Global LLM Settings tab in Settings.
+
+**Files to create:**
+
+- `backend/internal/platform/llm/registry.go` — see §8.34.1 for full contract
+  - `type ProviderKind string` with constants: `ProviderCopilot`, `ProviderOpenCode`, `ProviderOpenAI`, `ProviderClaude`, `ProviderDeepSeek`
+  - `var AllProviderKinds []ProviderKind` — ordered; exported for `GET /api/config/global-llm`
+  - `type ProviderFactory func(cfg LLMConfig, keyResolver func(string) (string, error)) (LLMProvider, error)`
+  - `Register(kind ProviderKind, f ProviderFactory)` — called from `init()` in each provider file
+  - `New(cfg LLMConfig, keyResolver func(string)(string,error)) (LLMProvider, error)` — returns descriptive error with valid values on unknown provider
+- `backend/internal/platform/llm/openai_compat.go` — shared base for Copilot, OpenAI, DeepSeek; see §8.34.2
+  - `openAICompatProvider` (unexported struct): `baseURL`, `credentialRef`, `keyResolver`, `httpClient`
+  - `newOpenAICompatProvider(baseURL, credRef string, kr func(string)(string,error)) *openAICompatProvider`
+  - `Generate(ctx, LLMRequest) (LLMResponse, error)` — POST `{baseURL}/chat/completions`, `Authorization: Bearer {key}`, body per §8.34.2
+  - `GenerateStream(ctx, LLMRequest) (<-chan TokenChunk, error)` — same endpoint with `stream: true`; SSE line parsing; channel closed after `Done: true` or `ctx.Done()`
+  - `defaultHTTPTimeout = 10 * time.Minute`; `maxResponseBytes = 8 * 1024 * 1024`
+- `backend/internal/platform/llm/deepseek.go` — see §8.34.4
+  - `init()` calls `Register(ProviderDeepSeek, newDeepSeekProvider)`
+  - `newDeepSeekProvider(cfg LLMConfig, kr func(string)(string,error)) (LLMProvider, error)` — returns `newOpenAICompatProvider("https://api.deepseek.com", cfg.CredentialRef, kr)`
+- `agent/internal/llm/registry.go` — mirror of backend registry for agent binary (same ProviderKind enum, Register/New pattern)
+- `agent/internal/llm/openai_compat.go` — mirror of backend openai_compat.go for agent binary
+- `agent/internal/llm/deepseek.go` — mirror of backend deepseek.go for agent binary
+- `backend/internal/platform/llm/copilot.go` — **refactor** to delegate HTTP logic to `openAICompatProvider`; `init()` registers `ProviderCopilot`; base URL `"https://api.githubcopilot.com"`
+- `backend/internal/platform/config/config.go` — add `GetDeepSeekBaseURL()` (env `DEEPSEEK_BASE_URL`, default `"https://api.deepseek.com"`)
+- `backend/cmd/server/main.go` — replace `switch` in `newGlobalLLMProvider()` with `llm.New(globalCfg, config.GetLLMAPIKey)`; import `deepseek.go` via blank import to trigger `init()` registration
+- `agent/cmd/server/main.go` — replace agent provider switch with `agentllm.New(cfg, config.GetLLMAPIKey)`
+- `frontend/src/lib/types.ts` — add `ProviderKind` type + `ALL_PROVIDER_KINDS` const + `PROVIDER_CREDENTIAL_HINT` + `PROVIDER_MODEL_PLACEHOLDER` maps; see §8.34.5
+- `frontend/src/routes/settings/agent/new/+page.svelte` — replace hardcoded `providerOptions` with `ALL_PROVIDER_KINDS`; add credential tooltip shown below credential_ref input driven by selected provider; update model placeholder per provider; see §8.34.5
+- `frontend/src/routes/settings/agent/[id]/+page.svelte` — same provider tooltip + model placeholder logic as new-agent form
+- `frontend/src/routes/settings/+page.svelte` — add "Global LLM" as 5th tab; on mount call `GET /api/config/global-llm`; display provider/model/credential_ref in read-only card + availability status chip + env var instructions; see §8.34.5
+- `backend/internal/platform/http/router.go` — register `GET /api/config/global-llm` route
+- `backend/cmd/server/main.go` — inline `GlobalLLMConfigHandler` returning `{provider, model, credential_ref, available}` from current env config; see §8.34.5
+
+**Validation:**
+
+- `cd backend && go build ./...` — zero build errors
+- `cd backend && go vet ./...` — zero vet issues
+- `cd backend && go test ./internal/platform/llm/...` — registry returns error on unknown provider; DeepSeek factory returns `openAICompatProvider{baseURL:"https://api.deepseek.com"}`; copilot refactor produces identical HTTP request shape; `Generate` round-trip via `httptest` mock; streaming channel closes cleanly after `Done:true`
+- `cd agent && go build ./...` — zero build errors; `cd agent && go vet ./...` — zero vet issues
+- `cd frontend && pnpm check` — zero svelte-check errors; `cd frontend && pnpm build` — clean production build
+- `DEEPSEEK_API_KEY=sk-test GLOBAL_LLM_PROVIDER=deepseek GLOBAL_LLM_MODEL=deepseek-v4-flash GLOBAL_LLM_CREDENTIAL_REF=DEEPSEEK_API_KEY go run ./cmd/server/main.go` — `GET /api/config/global-llm` returns `{"provider":"deepseek","model":"deepseek-v4-flash","credential_ref":"DEEPSEEK_API_KEY","available":true}`
+
+**Prompt context needed:** §8.34 (Provider Registry + DeepSeek wire format — new in this task), §8.2 (LLMProvider interface + LLMConfig shape), §8.12 (credential security — CredentialRef is env var name only, never raw key), Task 3 (LLM Abstraction — base being extended), Task 26 (OpenCode provider — must not break)
+
+---
+
+### Task 40 — Platform: OpenAI LLM Provider
+
+**Goal:** Add OpenAI as a registered provider using the registry and `openAICompatProvider` base from Task 39. Target endpoint `https://api.openai.com/v1/chat/completions`. Register in both backend and agent binary. Mirror env var config pattern.
+
+**Files to create:**
+
+- `backend/internal/platform/llm/openai.go` — see §8.34.3
+  - `init()` calls `Register(ProviderOpenAI, newOpenAIProvider)`
+  - `newOpenAIProvider(cfg LLMConfig, kr func(string)(string,error)) (LLMProvider, error)` — returns `newOpenAICompatProvider("https://api.openai.com/v1", cfg.CredentialRef, kr)`
+- `agent/internal/llm/openai.go` — mirror for agent binary
+- `backend/internal/platform/config/config.go` — add `GetOpenAIBaseURL()` (env `OPENAI_BASE_URL`, default `"https://api.openai.com/v1"`)
+
+**Validation:**
+
+- `cd backend && go build ./...` — zero build errors; `cd backend && go vet ./...` — zero issues
+- `cd backend && go test ./internal/platform/llm/...` — registry resolves `"openai"` → `openAICompatProvider{baseURL:"https://api.openai.com/v1"}`; `Generate` with `httptest` mock returns correct response
+- `cd agent && go build ./...` — zero build errors
+- Smoke test: `GLOBAL_LLM_PROVIDER=openai GLOBAL_LLM_MODEL=gpt-5.4 GLOBAL_LLM_CREDENTIAL_REF=OPENAI_API_KEY OPENAI_API_KEY=sk-test go run ./cmd/server/main.go` — no startup error; `GET /api/config/global-llm` returns `{"provider":"openai","model":"gpt-5.4","credential_ref":"OPENAI_API_KEY","available":true}`
+
+**Prompt context needed:** §8.34 (OpenAI wire format — §8.34.3), §8.2 (LLMProvider interface), §8.12 (credential security), Task 39 (registry + openai_compat base — required dependency)
+
+---
+
+### Task 41 — Platform: Claude (Anthropic) LLM Provider
+
+**Goal:** Add Anthropic Claude as a registered provider with a fully independent `ClaudeProvider` implementation. Claude uses a different wire format from OpenAI-compatible providers: `POST /v1/messages`, `x-api-key` auth header, `anthropic-version: 2023-06-01` required header, and `content[]` response array instead of `choices[]`. See §8.34.6 for complete wire format spec.
+
+**Files to create:**
+
+- `backend/internal/platform/llm/claude.go` — see §8.34.6 for full wire format
+  - `claudeProvider` (unexported struct): `baseURL`, `credentialRef`, `keyResolver`, `httpClient`
+  - `init()` calls `Register(ProviderClaude, newClaudeProvider)`
+  - `newClaudeProvider(cfg LLMConfig, kr func(string)(string,error)) (LLMProvider, error)`
+  - `Generate(ctx, LLMRequest) (LLMResponse, error)`:
+    - `POST {baseURL}/v1/messages`
+    - Headers: `x-api-key: {resolvedKey}`, `anthropic-version: 2023-06-01`, `Content-Type: application/json`
+    - Body: `{model, max_tokens:8192, system:req.SystemPrompt, messages:[{role:"user",content:req.UserMessage}], temperature}` — see §8.34.6
+    - Response: find first `content[]` block with `type=="text"` → `.text`; map `stop_reason` → `FinishReason`; sum `usage.input_tokens + usage.output_tokens` → `TokensUsed`
+  - `GenerateStream(ctx, LLMRequest) (<-chan TokenChunk, error)` — `stream:true`; parse SSE `content_block_delta` events with `delta.type=="text_delta"` → emit `delta.text`; close on `message_stop`; honour `ctx.Done()`
+- `agent/internal/llm/claude.go` — mirror for agent binary
+- `backend/internal/platform/config/config.go` — add `GetAnthropicBaseURL()` (env `ANTHROPIC_BASE_URL`, default `"https://api.anthropic.com"`)
+
+**Validation:**
+
+- `cd backend && go build ./...` — zero build errors; `cd backend && go vet ./...` — zero issues
+- `cd backend && go test ./internal/platform/llm/...` — `claudeProvider.Generate` via `httptest` mock: request has `x-api-key` header + `anthropic-version: 2023-06-01`; response `.content[0].text` extracted correctly; streaming test verifies `content_block_delta` events produce correct tokens; `message_stop` closes channel with `Done:true`
+- `cd agent && go build ./...` — zero build errors
+- Smoke test: `GLOBAL_LLM_PROVIDER=claude GLOBAL_LLM_MODEL=claude-opus-4-8 GLOBAL_LLM_CREDENTIAL_REF=ANTHROPIC_API_KEY ANTHROPIC_API_KEY=sk-test go run ./cmd/server/main.go` — no startup error
+
+**Prompt context needed:** §8.34 (Claude wire format — §8.34.6 — key in this task), §8.2 (LLMProvider interface), §8.12 (credential security), §8.33 (StreamingLLMProvider interface — Task 38, must implement), Task 39 (registry — required dependency)
+
+---
+
+### Task 42 — DB: Attachments + Chunks Schema (pgvector)
 
 **Goal:** Create the two database migrations that introduce the `attachments` table (per-upload metadata) and the `attachment_chunks` table (RAG-lite chunks with pgvector embeddings). Defines the `attachment_scope` and `attachment_kind` enums used by all subsequent attachment tasks. No Go or frontend code in this task — schema + enum only.
 
@@ -2061,7 +2165,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 40 — Platform: Extractor + Embeddings + Blobstore Infrastructure
+### Task 43 — Platform: Extractor + Embeddings + Blobstore Infrastructure
 
 **Goal:** Build the three platform-layer infrastructure packages every attachment upload depends on: `extractor/` (turns any input modality into clean UTF-8 text), `embeddings/` (turns text into vectors via `LLMProvider`-style interface), and `blobstore/` (MinIO/S3 object storage for original file bytes). These are pure infrastructure — they own no domain logic and are reused only by `modules/attachment/`. Also extends `docker-compose.yml` with the MinIO service and the `config/` package with all related env getters.
 
@@ -2120,7 +2224,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 41 — Backend: Attachment Module (CRUD + Upload Pipeline)
+### Task 44 — Backend: Attachment Module (CRUD + Upload Pipeline)
 
 **Goal:** Implement the full `modules/attachment/` vertical slice — `model.go`, `repository.go`, `service.go`, `handler.go`. The service orchestrates the upload pipeline: extract text → chunk → embed → persist blob (if applicable) → persist attachment + chunks atomically. Exposes REST endpoints for creating attachments via all four input kinds (file multipart, image multipart, URL JSON, raw-text JSON), listing by scope, deleting, and an internal-only retrieval endpoint used by the iteration engine.
 
@@ -2138,7 +2242,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
   - `GetByID(ctx, id) (Attachment, error)`
   - `ListBySession(ctx, sessionID uuid.UUID, scopeFilter *Scope, scopeRefFilter *string) ([]Attachment, error)` — ordered by `created_at ASC`
   - `Delete(ctx, id uuid.UUID) error` — cascade removes chunks
-  - `DeleteByScope(ctx, sessionID uuid.UUID, scope Scope, scopeRef string) error` — used by lifecycle cleanup (Task 41)
+  - `DeleteByScope(ctx, sessionID uuid.UUID, scope Scope, scopeRef string) error` — used by lifecycle cleanup (Task 44)
   - `SearchChunks(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryEmbedding []float32, topK int) ([]AttachmentChunk, error)` — pgvector cosine similarity (`embedding <=> $1::vector`) filtered to attachments whose `(scope, scope_ref)` matches any entry in `scopes`; returns top-K ordered by ascending distance with `Score = 1 - distance`
   - `ScopeMatch` struct: `Scope Scope`, `ScopeRef *string` (NULL for session-scope match)
 - `backend/internal/modules/attachment/service.go`:
@@ -2154,7 +2258,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
     8. Wrap insert in a single transaction: `repo.Create(tx, attachment)` → `repo.CreateChunks(tx, attachmentID, chunks)` → commit; on rollback, also delete the blob (best-effort cleanup; log warn on failure)
     9. Emit log: `slog.Info("attachment created", attachment_id, scope, scope_ref, kind, chunk_count, byte_size)`
   - `List(ctx, sessionID, filter)`, `GetByID`, `Delete` — straight repository delegation; `Delete` also removes blob best-effort
-  - `Retrieve(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryText string, topK int) ([]AttachmentChunk, error)` — embeds queryText (single call), delegates to `repo.SearchChunks`; used by iteration engine in Task 41
+  - `Retrieve(ctx, sessionID uuid.UUID, scopes []ScopeMatch, queryText string, topK int) ([]AttachmentChunk, error)` — embeds queryText (single call), delegates to `repo.SearchChunks`; used by iteration engine in Task 44
 - `backend/internal/modules/attachment/handler.go`:
   - `POST   /sessions/{sessionID}/attachments` — Content-Type-driven multiplexer:
     - `multipart/form-data` (fields `scope`, `scope_ref`, `kind`, `file`, `display_name?`) → file or image upload
@@ -2180,11 +2284,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
   - `curl -d '{"scope":"agent","kind":"text","text":"x","display_name":"y"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 400 (missing scope_ref)
   - SSRF: URL `file:///etc/passwd` → 400
 
-**Prompt context needed:** §8.28 (attachment domain model + upload pipeline algorithm + chunking algorithm), Task 40 (extractor / embeddings / blobstore interfaces), AGENTS.md vertical-slice rules, security invariants 5/6 (parameterized queries, input validation)
+**Prompt context needed:** §8.28 (attachment domain model + upload pipeline algorithm + chunking algorithm), Task 43 (extractor / embeddings / blobstore interfaces), AGENTS.md vertical-slice rules, security invariants 5/6 (parameterized queries, input validation)
 
 ---
 
-### Task 42 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
+### Task 45 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
 
 **Goal:** Thread attachments into the dispatch path. Introduce a narrow `AttachmentRetriever` interface owned by the iteration engine (same pattern as `agentProvider` and `sessionStore`). Before dispatching each agent, the engine resolves the active scope set (session ∪ current iteration ∪ current agent), retrieves top-K chunks via cosine similarity against the canonical state's `idea + open_questions`, and appends them to `BrainstormPayload` as a new `Attachments []AttachmentChunkRef` field. The agent executor injects the chunks into the assembled system prompt under a dedicated `# Attached Context` section. Iteration- and agent-scoped attachments are deleted after their owning iteration completes via a lifecycle cleanup pass.
 
@@ -2248,11 +2352,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - Manual smoke: create session, attach a Markdown doc at session scope, run iterate → agent logs show `dispatch with attachments chunk_count=N>0`; converged state cites attachment content
 - Manual smoke: attach a text snippet at iteration scope (`scope_ref=1`), run 2 iterations → after iteration 1 the snippet is deleted; iteration 2 dispatch has chunk_count for that snippet = 0
 
-**Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 41 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
+**Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 44 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
 
 ---
 
-### Task 43 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
+### Task 46 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
 
 **Goal:** Build the ChatGPT-style `+` attachment menu UX and mount it at three scope-bound locations: home page (session-scope, set during creation), session page (iteration-scope, added between iterations), and `PipelineStage` per-agent header (agent-scope, narrows the next dispatch). Includes the modal with four input kinds (file picker, image picker, URL paste, raw text paste), a sticky list of active attachments per scope, and the API client layer.
 
@@ -2319,17 +2423,17 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `cd frontend && pnpm build`: clean production build
 - Manual:
   - Home page: click `+` → menu opens with four items; "Paste text" opens modal with textarea; submit before session exists → upload deferred until session ID known; both upload after `createSession`
-  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 41 lifecycle cleanup)
+  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 44 lifecycle cleanup)
   - PipelineStage: attach a text snippet to agent A → agent B's stage shows no chips; agent A's stage shows the snippet
   - Keyboard: `⌘U` while focused in the home page opens file picker directly
   - Large file (> 10 MB) → modal shows "File too large" before sending
   - PDF upload → after 1-2s shows summary tooltip on the chip; deletion removes both the chip and the blob (verified by re-listing attachments)
 
-**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 41 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
+**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 44 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
 
 ---
 
-### Task 44 — DB: MCP Server Registry Schema
+### Task 47 — DB: MCP Server Registry Schema
 
 **Goal:** Create the two database migrations that introduce the `mcp_servers` table (MCP server registry) and the `agent_mcp_servers` join table (agent ↔ MCP server many-to-many). No Go or frontend code changes in this task — schema only.
 
@@ -2353,7 +2457,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 45 — Backend: MCP Server Module (CRUD)
+### Task 48 — Backend: MCP Server Module (CRUD)
 
 **Goal:** Implement the full vertical slice for the MCP server registry — `model.go`, `repository.go`, `service.go`, `handler.go`. Expose five REST endpoints (`GET /mcp-servers`, `POST /mcp-servers`, `GET /mcp-servers/{id}`, `PUT /mcp-servers/{id}`, `DELETE /mcp-servers/{id}`). Validation enforces transport-type field consistency and rejects raw secret values in `env_refs`.
 
@@ -2391,7 +2495,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 46 — Backend: Agent–MCP Association + Payload Extension
+### Task 49 — Backend: Agent–MCP Association + Payload Extension
 
 **Goal:** Extend the agent module to load and persist `agent_mcp_servers` join rows. Extend `BrainstormPayload` with `MCPServers []MCPServerRef` so the iteration engine includes each agent's configured MCP servers in the dispatch payload, giving the agent binary the connection details it needs to dial those servers at runtime.
 
@@ -2427,11 +2531,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `go test ./backend/internal/modules/agent/...`: `SetMCPServers` transaction test (assign 2 servers, update to 1 — first server removed; update to nil — associations unchanged)
 - `go test ./backend/internal/modules/iteration/...`: mock `agentSvc.GetMCPServersForAgent` returns 1 server → dispatch payload includes 1 `MCPServerRef`; agent with no assignments → `MCPServers` is empty slice (not nil)
 
-**Prompt context needed:** §8.24 (MCPServerRef wire format + security rules), §8.3 (BrainstormPayload contract), Task 45 (MCPServer model + service), Task 7 (agent repository patterns), Task 9 (iteration engine dispatch path)
+**Prompt context needed:** §8.24 (MCPServerRef wire format + security rules), §8.3 (BrainstormPayload contract), Task 48 (MCPServer model + service), Task 7 (agent repository patterns), Task 9 (iteration engine dispatch path)
 
 ---
 
-### Task 47 — Agent: MCP Client Package
+### Task 50 — Agent: MCP Client Package
 
 **Goal:** Build `agent/internal/mcp/` — the package that dials MCP servers, lists their tools, and executes tool calls. Two transports: `stdio` (spawn subprocess, JSON-RPC 2.0 over stdin/stdout) and `http` (POST JSON-RPC 2.0 to a URL). `MCPPool` fans out across all servers assigned to an agent, deduplicates tools, and routes `Call` to the correct server.
 
@@ -2475,7 +2579,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 48 — Agent: LLM Tool-Use Interface + Executor Loop
+### Task 51 — Agent: LLM Tool-Use Interface + Executor Loop
 
 **Goal:** Add `GenerateWithTools` to the `LLMProvider` interface and implement it in `CopilotProvider` and `OpenCodeProvider` using OpenAI function-calling format. Replace the single-shot `llm.Generate` call in `BrainstormExecutor.Execute` with a configurable multi-turn tool-use loop: build MCP pool → list tools → call LLM with tools → execute any tool calls via pool → re-call LLM with results → repeat until no tool calls or max rounds reached.
 
@@ -2515,11 +2619,11 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - `cd agent && go test ./internal/...`: all existing tests still pass; 3 new tool-use tests pass
 - Smoke: start agent binary with `AGENT_MCP_MAX_TOOL_ROUNDS=3`; no panic; config getter returns 3
 
-**Prompt context needed:** §8.25 (tool-use loop algorithm + `GenerateWithTools` OpenAI wire format + OpenCode adaptation + message history threading), §8.2 (LLMProvider interface), §8.24 (MCPServerRef), Task 47 (MCPPool API), §8.12 (credential security)
+**Prompt context needed:** §8.25 (tool-use loop algorithm + `GenerateWithTools` OpenAI wire format + OpenCode adaptation + message history threading), §8.2 (LLMProvider interface), §8.24 (MCPServerRef), Task 50 (MCPPool API), §8.12 (credential security)
 
 ---
 
-### Task 49 — Frontend: MCP Server Settings + Agent Assignment + Smart Import
+### Task 52 — Frontend: MCP Server Settings + Agent Assignment + Smart Import
 
 **Goal:** Add the "MCP Servers" tab to `/settings`, build new/edit forms for MCP servers with a "Test Connection" flow, implement the smart JSON config import modal that normalises Claude Desktop / VS Code / Cursor / Zed / Windsurf / canonical JSON formats, and extend the agent edit form with an MCP server multi-select section.
 
@@ -2571,7 +2675,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 - Agent edit: assign 2 MCP servers → save → reload → both remain checked
 - Test Connection: mock backend returns 3 tools → chip shows "3 tools"; mock error → chip shows error message
 
-**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 45 (MCP server REST endpoints), Task 46 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
+**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 48 (MCP server REST endpoints), Task 49 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
 
 ---
 
@@ -2617,17 +2721,20 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 | 36   | PLAN.md: Generation Quality Overhaul          | `markdown/generator_plan.go` (rewrite), `markdown/aigen/plan_enricher.go` (new), `markdown/aigen/plan_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_plan_test.go` (new), `agent/internal/executor/prompts/plan_format.go` (new) | Task 35                | High       |
 | 37   | README.md: Generation Quality Overhaul        | `markdown/generator_readme.go` (rewrite), `markdown/aigen/readme_enricher.go` (new), `markdown/aigen/readme_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_readme_test.go` (new), `agent/internal/executor/prompts/readme_format.go` (new) | Task 36                | High       |
 | 38   | Finalize Progress Streaming                   | `platform/llm/streaming.go` (new), `platform/llm/opencode_stream.go` (new), `modules/markdown/aigen/progress.go` (new), `platform/sse/doc_events.go` (new), `aigen/generator.go` (modified), `aigen/arch_enricher.go` (modified), `aigen/plan_enricher.go` (modified), `aigen/readme_enricher.go` (modified), `markdown/orchestrator.go` (modified), `markdown/handler.go` (modified), `lib/services/sse.ts` (modified), `finalize/+page.svelte` (modified) | Task 37                | High       |
-| 39   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                       | Task 34                | Low        |
-| 40   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 39                | High       |
-| 41   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 40                | High       |
-| 42   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 41, 9, 11        | High       |
-| 43   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 41, 18, 30       | High       |
-| 44   | DB: MCP Server Registry Schema                | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                       | Task 39                | Low        |
-| 45   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 44                | Medium     |
-| 46   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 45, 9            | Medium     |
-| 47   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 44                | High       |
-| 48   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 46, 47           | High       |
-| 49   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 45, 46, 21       | High       |
+| 39   | Platform: LLM Registry + DeepSeek + Frontend | `platform/llm/registry.go` (new), `platform/llm/openai_compat.go` (new), `platform/llm/deepseek.go` (new), `platform/llm/copilot.go` (refactor), `agent/internal/llm/registry.go` (new), `agent/internal/llm/openai_compat.go` (new), `agent/internal/llm/deepseek.go` (new), `platform/config/config.go` (modified), `cmd/server/main.go` (modified), `frontend/src/lib/types.ts` (modified), `settings/+page.svelte` (modified), `settings/agent/new/+page.svelte` (modified) | Tasks 3, 11, 26        | Medium     |
+| 40   | Platform: OpenAI LLM Provider                 | `platform/llm/openai.go` (new), `agent/internal/llm/openai.go` (new), `platform/config/config.go` (modified)                                                                                                                  | Task 39                | Low        |
+| 41   | Platform: Claude (Anthropic) LLM Provider     | `platform/llm/claude.go` (new), `agent/internal/llm/claude.go` (new), `platform/config/config.go` (modified)                                                                                                                  | Tasks 39, 38           | Medium     |
+| 42   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                       | Task 34                | Low        |
+| 43   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 42                | High       |
+| 44   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 43                | High       |
+| 45   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 44, 9, 11        | High       |
+| 46   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 44, 18, 30       | High       |
+| 47   | DB: MCP Server Registry Schema                | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                       | Task 42                | Low        |
+| 48   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 47                | Medium     |
+| 49   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 48, 9            | Medium     |
+| 50   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 47                | High       |
+| 51   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 49, 50           | High       |
+| 52   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 48, 49, 21       | High       |
 
 ---
 
@@ -3153,7 +3260,7 @@ All UI tasks (Tasks 16–25) must use the following design tokens and component 
   --danger: #ce3158; /* red — error, delete action */
   --surface: rgba(255, 255, 255, 0.72); /* glassmorphism card fill */
   --blur: blur(8px); /* backdrop blur */
-  --shadow-md: 0 10px 30px rgba(35, 46, 82, 0.1);
+  --shadow-md: 0 10px 30px rgba(35, 49, 82, 0.1);
 }
 ```
 
@@ -3191,7 +3298,7 @@ min-height: 100vh;
   background: var(--surface);
   backdrop-filter: var(--blur);
   border-radius: 14px;
-  box-shadow: 0 4px 16px rgba(35, 46, 82, 0.07);
+  box-shadow: 0 4px 16px rgba(35, 49, 82, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.6);
   padding: 20px;
 }
@@ -4728,7 +4835,7 @@ chunkText(text, sizeTokens, overlapTokens):
 
 #### 8.28.5 Retrieval & Dispatch Algorithm
 
-Called inside `iteration/engine.go` before each agent dispatch (Task 40):
+Called inside `iteration/engine.go` before each agent dispatch (Task 43):
 
 ```
 for agent in sess.OrderedAgents:
@@ -4891,7 +4998,7 @@ file=<binary>
 | `ATTACHMENT_CHUNK_SIZE`          | `1000`                   | tokens, `[100, 4000]`       | Task 38 |
 | `ATTACHMENT_CHUNK_OVERLAP`       | `150`                    | tokens, `[0, chunk_size/2]` | Task 38 |
 | `ATTACHMENT_RETRIEVAL_TOP_K`     | `5`                      | `[1, 20]`                   | Task 38 |
-| `ATTACHMENT_MIN_EXTRACTED_CHARS` | `16`                     | `[1, 1000]`                 | Task 39 |
+| `ATTACHMENT_MIN_EXTRACTED_CHARS` | `16`                     | `[1, 1000]`                 | Task 42 |
 
 All getters live in `backend/internal/platform/config/config.go` — no `os.Getenv` calls elsewhere.
 
@@ -5206,7 +5313,7 @@ These targets are enforced by the rubric validator in `aigen/rubric.go` during t
 | Architecture Decisions | `"Decision"`, `"Status"` | 80 |
 | Extension Points | — | 60 |
 | Security Considerations | `"Surface"`, `"Mitigation"` | 60 |
-| Quality Targets | `"Confidence"` | 40 |
+| Quality Targets | `"Confidence"` | 43 |
 | System Guarantees | — | 60 |
 | Risks | `"Risk"`, `"Status"` | 60 |
 | Assumptions | — | 20 |
@@ -5809,3 +5916,189 @@ orchestrator after Enhance
     │ BroadcastDocComplete(sessionID, docKey, charCount)
 ```
 
+
+---
+
+### 8.34 Multi-Provider LLM Registry Architecture (v5.0)
+
+#### Overview
+
+Introduces a provider registry that decouples provider selection from all call sites. Adding a new provider requires one new file with an `init()` registration — no changes to `main.go`, handlers, or business logic.
+
+| Decision | Rationale |
+|---|---|
+| Registry factory map | Adding provider = one file + one `Register()` call; no central switch to modify |
+| `openAICompatProvider` base | Copilot, OpenAI, DeepSeek share identical wire format — one implementation, zero duplication |
+| Separate `claudeProvider` | Anthropic wire format is incompatible with OpenAI (`/v1/messages`, `x-api-key`, `anthropic-version` header, `content[]` response) |
+| Credentials resolved at call-time | Supports key rotation without restart; follows existing `CopilotProvider` pattern |
+| Dual registry (backend + agent) | Agent binary is a separate Go module; must mirror the registry but may omit unused provider imports |
+
+#### 8.34.1 ProviderKind Enum + Registry Contract
+
+```go
+// backend/internal/platform/llm/registry.go
+
+type ProviderKind string
+
+const (
+    ProviderCopilot  ProviderKind = "copilot"
+    ProviderOpenCode ProviderKind = "opencode"
+    ProviderOpenAI   ProviderKind = "openai"
+    ProviderClaude   ProviderKind = "claude"
+    ProviderDeepSeek ProviderKind = "deepseek"
+)
+
+// AllProviderKinds is the canonical ordered list for API and UI enumeration.
+var AllProviderKinds = []ProviderKind{
+    ProviderCopilot, ProviderOpenCode, ProviderOpenAI, ProviderClaude, ProviderDeepSeek,
+}
+
+type ProviderFactory func(cfg LLMConfig, keyResolver func(string) (string, error)) (LLMProvider, error)
+
+// Register adds a factory to the global registry. Called from init() in each provider file.
+func Register(kind ProviderKind, f ProviderFactory)
+
+// New instantiates the provider for the given config.
+// Returns a descriptive error listing valid kinds when cfg.Provider is unknown.
+// Never silently falls back to a default provider.
+func New(cfg LLMConfig, keyResolver func(string) (string, error)) (LLMProvider, error)
+```
+
+**Rules:**
+- Registrations MUST happen in `init()` in the provider's own source file — never in `main.go` or a central registry file
+- `New()` returns `fmt.Errorf("unknown LLM provider %q — valid: %s", cfg.Provider, strings.Join(...))` on unknown kind
+- `main.go` calls `llm.New(globalCfg, config.GetLLMAPIKey)` and uses blank imports (`_ "a2a-brainstorm/backend/internal/platform/llm/deepseek"`) to trigger `init()` registrations
+- Agent binary mirrors exactly: same enum values, same `Register/New` contract, separate package path
+
+#### 8.34.2 OpenAI-Compatible Wire Format (Copilot, OpenAI, DeepSeek)
+
+**Endpoint:** `POST {baseURL}/chat/completions`
+**Auth:** `Authorization: Bearer {resolvedKey}`
+**Content-Type:** `application/json`
+
+Request body:
+```json
+{
+  "model": "deepseek-v4-flash",
+  "messages": [
+    {"role": "system", "content": "{req.SystemPrompt}"},
+    {"role": "user",   "content": "{req.UserMessage}"}
+  ],
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "stream": false
+}
+```
+
+Response parsing:
+```go
+choices[0].message.content                              → LLMResponse.Content
+choices[0].finish_reason                                → LLMResponse.FinishReason
+usage.prompt_tokens + usage.completion_tokens           → LLMResponse.TokensUsed
+```
+
+Streaming: set `"stream": true`; parse SSE lines prefixed with `data: `; accumulate `choices[0].delta.content`; terminate on `data: [DONE]`.
+
+#### 8.34.3 OpenAI Provider Config
+
+| Env Var | Default | Purpose |
+|---|---|---|
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for proxy or Azure OpenAI |
+| `OPENAI_API_KEY` | (required when `provider="openai"`) | Resolved via `CredentialRef` at call-time |
+
+**Model placeholder:** `gpt-5.4` (current flagship as of June 2026)
+**CredentialRef convention:** `OPENAI_API_KEY`
+
+#### 8.34.4 DeepSeek Provider Config
+
+| Env Var | Default | Purpose |
+|---|---|---|
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Override for enterprise endpoints |
+| `DEEPSEEK_API_KEY` | (required when `provider="deepseek"`) | Resolved via `CredentialRef` at call-time |
+
+**Model placeholder:** `deepseek-v4-flash` (economical) or `deepseek-v4-pro` (higher capability)
+**CredentialRef convention:** `DEEPSEEK_API_KEY`
+**⚠ Legacy model names** `deepseek-chat` and `deepseek-reasoner` retire **2026-07-24** — always use `deepseek-v4-flash` or `deepseek-v4-pro`.
+
+#### 8.34.5 Frontend Provider Enum + Global LLM Settings UI
+
+```typescript
+// frontend/src/lib/types.ts
+export type ProviderKind = 'copilot' | 'opencode' | 'openai' | 'claude' | 'deepseek';
+export const ALL_PROVIDER_KINDS: ProviderKind[] = ['copilot', 'opencode', 'openai', 'claude', 'deepseek'];
+
+// Tooltip shown below the credential_ref input when that provider is selected
+export const PROVIDER_CREDENTIAL_HINT: Record<ProviderKind, string> = {
+  copilot:  'Set COPILOT_API_KEY in the agent environment; paste the env var NAME here (not the key value)',
+  opencode: 'Set OPENCODE_SERVER_USERNAME + OPENCODE_SERVER_PASSWORD; paste OPENCODE_SERVER_PASSWORD here',
+  openai:   'Set OPENAI_API_KEY in the environment; paste the env var NAME here (not the key value)',
+  claude:   'Set ANTHROPIC_API_KEY in the environment; paste the env var NAME here (not the key value)',
+  deepseek: 'Set DEEPSEEK_API_KEY in the environment; paste the env var NAME here (not the key value)',
+};
+
+// Placeholder text for the model input field per provider
+export const PROVIDER_MODEL_PLACEHOLDER: Record<ProviderKind, string> = {
+  copilot:  'github-copilot/claude-sonnet-4.6',
+  opencode: 'github-copilot/claude-sonnet-4.6',
+  openai:   'gpt-5.4',
+  claude:   'claude-opus-4-8',
+  deepseek: 'deepseek-v4-flash',
+};
+```
+
+**Global LLM Settings tab** — 5th tab in `settings/+page.svelte`:
+- On mount: `GET /api/config/global-llm` → `{provider, model, credential_ref, available: bool}`
+- Read-only display (changing requires env var restart)
+- Shows env var names to set in a code block: `GLOBAL_LLM_PROVIDER`, `GLOBAL_LLM_MODEL`, `GLOBAL_LLM_CREDENTIAL_REF`
+- Availability chip: green "available" when `available === true`; red "missing credential" when false
+
+**`GET /api/config/global-llm` response:**
+```json
+{
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "credential_ref": "DEEPSEEK_API_KEY",
+  "available": true
+}
+```
+
+#### 8.34.6 Claude (Anthropic) Wire Format
+
+**Base URL:** `https://api.anthropic.com` (env `ANTHROPIC_BASE_URL`)
+**Endpoint:** `POST /v1/messages`
+**Required headers:**
+
+| Header | Value |
+|---|---|
+| `x-api-key` | `{resolvedKey}` — NOT `Authorization: Bearer` |
+| `anthropic-version` | `2023-06-01` — always required; requests fail without it |
+| `Content-Type` | `application/json` |
+
+Request body:
+```json
+{
+  "model": "claude-opus-4-8",
+  "max_tokens": 8192,
+  "system": "{req.SystemPrompt}",
+  "messages": [{"role": "user", "content": "{req.UserMessage}"}],
+  "temperature": 0.7,
+  "stream": false
+}
+```
+
+Response parsing:
+```go
+// Find first content block where type == "text"
+content[i].text where content[i].type == "text"   → LLMResponse.Content
+stop_reason                                         → LLMResponse.FinishReason
+usage.input_tokens + usage.output_tokens            → LLMResponse.TokensUsed
+```
+
+Streaming (`"stream": true`): parse SSE events:
+- `content_block_delta` with `delta.type == "text_delta"` → emit `TokenChunk{Token: delta.text}`
+- `message_stop` → emit `TokenChunk{Done: true}` and close channel
+- Honour `ctx.Done()` — stop reading and close channel on cancellation
+
+**CredentialRef convention:** `ANTHROPIC_API_KEY`
+**Model placeholder:** `claude-opus-4-8`
+**Current model IDs (June 2026):** `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`
