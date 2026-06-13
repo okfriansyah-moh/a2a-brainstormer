@@ -21,6 +21,7 @@ import (
 	"a2a-brainstorm/backend/internal/modules/session"
 	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/config"
+	"a2a-brainstorm/backend/internal/platform/ctxidle"
 	"a2a-brainstorm/backend/internal/platform/llm"
 	"a2a-brainstorm/backend/internal/platform/sse"
 )
@@ -364,8 +365,8 @@ func (e *Engine) runPipelinePass(
 			"iteration": iterNum,
 			"agent_id":  sa.AgentID,
 			"role":      sa.Role,
-			"phase":     "dispatching",
-			"detail":    "Sending canonical state to agent…",
+			"phase":     "generating",
+			"detail":    "Waiting for model response…",
 		})
 
 		confBefore := current.Metrics.Confidence
@@ -383,22 +384,54 @@ func (e *Engine) runPipelinePass(
 		// (config.GetAgentCallTimeout) is the effective upper bound, and
 		// interrupting a long LLM call mid-stream produces no useful output.
 		agentCallTimeout := config.GetAgentCallTimeout()
-		agentCtx, agentCancel := context.WithTimeout(context.WithoutCancel(ctx), agentCallTimeout)
+		totalCtx, totalCancel := context.WithTimeout(context.WithoutCancel(ctx), agentCallTimeout)
 
 		var out state.CanonicalState
+		var agentCtx context.Context
+		var agentCancel func()
 		if e.streamDispatch != nil {
+			// Streaming calls may run longer than a fixed HTTP client timeout when
+			// tokens keep arriving. Idle timeout arms on the first streamed token
+			// (see ctxidle) so a long time-to-first-token does not abort the call.
+			streamCtx, bumpIdle := ctxidle.WithIdleTimeout(totalCtx, config.GetAgentStreamIdleTimeout())
+			agentCtx = streamCtx
+			agentCancel = totalCancel
 			// Capture loop variables for the token closure.
 			agentID := sa.AgentID
 			iterN := iterNum
-			tokenFn := func(token string) {
+			batcher := newAgentTokenBatcher()
+			streamChars := 0
+			emitTokens := func(text string) {
+				if text == "" {
+					return
+				}
+				streamChars += len(text)
 				e.emitter.Emit(sess.ID, EventAgentToken, map[string]any{
 					"iteration": iterN,
 					"agent_id":  agentID,
-					"token":     token,
+					"token":     text,
+				})
+				e.emitter.Emit(sess.ID, EventAgentPhase, map[string]any{
+					"iteration": iterN,
+					"agent_id":  agentID,
+					"role":      sa.Role,
+					"phase":     "generating",
+					"detail":    fmt.Sprintf("Streaming model output… %d characters received", streamChars),
 				})
 			}
+			tokenFn := func(token string) {
+				bumpIdle()
+				if batched := batcher.append(token); batched != "" {
+					emitTokens(batched)
+				}
+			}
 			out, err = e.streamDispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback, tokenFn)
+			if flushed := batcher.flush(); flushed != "" {
+				emitTokens(flushed)
+			}
 		} else {
+			agentCtx = totalCtx
+			agentCancel = totalCancel
 			out, err = e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback)
 		}
 		agentCancel()

@@ -22,6 +22,7 @@ import type {
   FinalizeResponse,
   GenerateDocumentResponse,
   GlobalLLMConfig,
+  GlobalLLMConfigUpdate,
   IterateResponse,
   ListSessionsResponse,
   PreviewResult,
@@ -379,4 +380,14 @@ export async function discardAgentPreview(
 /** Fetch the global LLM configuration from the server environment. */
 export async function getGlobalLLMConfig(): Promise<GlobalLLMConfig> {
   return request<GlobalLLMConfig>("/api/config/global-llm");
+}
+
+/** Update the server-side global LLM defaults (provider and model only). */
+export async function updateGlobalLLMConfig(
+  req: GlobalLLMConfigUpdate,
+): Promise<GlobalLLMConfig> {
+  return request<GlobalLLMConfig>("/api/config/global-llm", {
+    method: "PUT",
+    ...json(req),
+  });
 }

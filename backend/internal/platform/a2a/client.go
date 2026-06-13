@@ -46,12 +46,22 @@ var cardResolver agentCardResolver = agentcard.DefaultResolver
 // and constructs an a2aclient.Client using the negotiated transport.
 //
 // The HTTP client used for A2A calls is configured with a timeout sourced from
-// config.GetAgentCallTimeout() (default 10 minutes) to accommodate long-running
+// config.GetAgentCallTimeout() (default 30 minutes) to accommodate long-running
 // LLM inference calls that exceed the SDK's built-in 3-minute default.
 //
 // The caller owns the returned *Client and must not share it across goroutines
 // without synchronisation.
 func NewClient(ctx context.Context, agentEndpoint string) (*a2aclient.Client, error) {
+	return newClientWithHTTPTimeout(ctx, agentEndpoint, config.GetAgentCallTimeout())
+}
+
+// NewStreamingClient is like NewClient but uses an HTTP client with no overall
+// request timeout. Streaming A2A calls are bounded by the caller context instead.
+func NewStreamingClient(ctx context.Context, agentEndpoint string) (*a2aclient.Client, error) {
+	return newClientWithHTTPTimeout(ctx, agentEndpoint, 0)
+}
+
+func newClientWithHTTPTimeout(ctx context.Context, agentEndpoint string, httpTimeout time.Duration) (*a2aclient.Client, error) {
 	var lastErr error
 	delay := retryBaseDelay
 
@@ -80,10 +90,15 @@ func NewClient(ctx context.Context, agentEndpoint string) (*a2aclient.Client, er
 			continue
 		}
 
-		// Override the SDK default 3-minute HTTP timeout with a longer,
-		// configurable value so that large LLM inference calls don't time out
-		// prematurely. The same client is reused for JSON-RPC and REST calls.
-		httpClient := &http.Client{Timeout: config.GetAgentCallTimeout()}
+		// Override the SDK default 3-minute HTTP timeout. Blocking calls use the
+		// configured agent-call timeout; streaming callers pass httpTimeout=0 and
+		// rely on context deadlines instead.
+		var httpClient *http.Client
+		if httpTimeout > 0 {
+			httpClient = &http.Client{Timeout: httpTimeout}
+		} else {
+			httpClient = &http.Client{}
+		}
 
 		client, err := a2aclient.NewFromCard(ctx, card,
 			a2aclient.WithJSONRPCTransport(httpClient),

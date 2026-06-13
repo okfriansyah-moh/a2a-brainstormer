@@ -28,8 +28,8 @@ func TestGetPort_Override(t *testing.T) {
 
 func TestGetLLMProvider_Default(t *testing.T) {
 	t.Setenv("AGENT_LLM_PROVIDER", "")
-	if got := config.GetLLMProvider(); got != "copilot" {
-		t.Errorf("GetLLMProvider() = %q, want %q", got, "copilot")
+	if got := config.GetLLMProvider(); got != "deepseek" {
+		t.Errorf("GetLLMProvider() = %q, want %q", got, "deepseek")
 	}
 }
 
@@ -44,8 +44,8 @@ func TestGetLLMProvider_Override(t *testing.T) {
 
 func TestGetLLMModel_Default(t *testing.T) {
 	t.Setenv("AGENT_LLM_MODEL", "")
-	if got := config.GetLLMModel(); got != "gpt-4o" {
-		t.Errorf("GetLLMModel() = %q, want %q", got, "gpt-4o")
+	if got := config.GetLLMModel(); got != "deepseek-v4-flash" {
+		t.Errorf("GetLLMModel() = %q, want %q", got, "deepseek-v4-flash")
 	}
 }
 
@@ -60,8 +60,8 @@ func TestGetLLMModel_Override(t *testing.T) {
 
 func TestGetLLMCredentialRef_Default(t *testing.T) {
 	t.Setenv("AGENT_LLM_CREDENTIAL_REF", "")
-	if got := config.GetLLMCredentialRef(); got != "COPILOT_API_KEY" {
-		t.Errorf("GetLLMCredentialRef() = %q, want %q", got, "COPILOT_API_KEY")
+	if got := config.GetLLMCredentialRef(); got != "DEEPSEEK_API_KEY" {
+		t.Errorf("GetLLMCredentialRef() = %q, want %q", got, "DEEPSEEK_API_KEY")
 	}
 }
 

@@ -10,6 +10,7 @@ package http
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -108,7 +109,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 
 // requestLoggerMiddleware logs each request with method, path, status, and
 // latency using structured slog output. It uses WARN for 4xx responses, ERROR
-// for 5xx, and INFO for everything else.
+// for 5xx, and INFO for everything else — except expected GET 404s on the
+// session SSE endpoint (stale browser tabs reconnecting to deleted sessions).
 func requestLoggerMiddleware(next http.Handler, logger *slog.Logger) http.Handler {
 	if logger == nil {
 		return next
@@ -119,12 +121,7 @@ func requestLoggerMiddleware(next http.Handler, logger *slog.Logger) http.Handle
 		next.ServeHTTP(rw, r)
 		latency := time.Since(start)
 
-		level := slog.LevelInfo
-		if rw.statusCode >= 500 {
-			level = slog.LevelError
-		} else if rw.statusCode >= 400 {
-			level = slog.LevelWarn
-		}
+		level := requestLogLevel(r.Method, r.URL.Path, rw.statusCode)
 
 		logger.Log(r.Context(), level, "http request",
 			slog.String("method", r.Method),
@@ -133,4 +130,29 @@ func requestLoggerMiddleware(next http.Handler, logger *slog.Logger) http.Handle
 			slog.Duration("latency", latency),
 		)
 	})
+}
+
+// requestLogLevel picks the slog level for an HTTP access log line.
+func requestLogLevel(method, path string, status int) slog.Level {
+	if status >= 500 {
+		return slog.LevelError
+	}
+	if status >= 400 {
+		if status == http.StatusNotFound && isSessionEventsSSEPath(method, path) {
+			return slog.LevelInfo
+		}
+		return slog.LevelWarn
+	}
+	return slog.LevelInfo
+}
+
+// isSessionEventsSSEPath reports GET /sessions/{id}/events — a 404 here usually
+// means a zombie EventSource from a deleted or expired session tab.
+func isSessionEventsSSEPath(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	trimmed := strings.Trim(path, "/")
+	parts := strings.Split(trimmed, "/")
+	return len(parts) == 3 && parts[0] == "sessions" && parts[2] == "events"
 }

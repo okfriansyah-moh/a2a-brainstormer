@@ -18,6 +18,21 @@ import (
 	"strings"
 )
 
+// MergeAgentDelta applies a sparse agent output onto the running pipeline state.
+// Agents emit role-scoped deltas; empty sections in delta are preserved from base.
+func MergeAgentDelta(base, delta CanonicalState) CanonicalState {
+	out := Merge(base, delta)
+	if isZeroMetrics(delta.Metrics) {
+		out.Metrics = base.Metrics
+	}
+	out.Meta = base.Meta
+	return out
+}
+
+func isZeroMetrics(m StateMetrics) bool {
+	return m.Confidence == 0 && m.TestCoverageTarget == 0 && m.LatencyBudgetMs == 0
+}
+
 // Merge combines the base state (before the pipeline pass) with the incoming
 // state (the cumulative output of all agents in the pass) and returns a new
 // CanonicalState. Neither base nor incoming is mutated.

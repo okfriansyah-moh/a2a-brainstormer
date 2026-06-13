@@ -69,10 +69,10 @@ curl -X POST http://localhost:8080/sessions \
 Configure per-agent or global LLM settings. Supported providers: GitHub Copilot, Claude, and OpenCode (Copilot OAuth proxy). Credentials are env-var references only — never stored in source or the database.
 
 ```env
-GLOBAL_LLM_PROVIDER=copilot
-GLOBAL_LLM_MODEL=gpt-4o
-GLOBAL_LLM_CREDENTIAL_REF=COPILOT_API_KEY
-COPILOT_API_KEY=sk-...
+GLOBAL_LLM_PROVIDER=deepseek
+GLOBAL_LLM_MODEL=deepseek-v4-flash
+GLOBAL_LLM_CREDENTIAL_REF=DEEPSEEK_API_KEY
+DEEPSEEK_API_KEY=sk-...
 ```
 
 **4. You want to preview one agent's output before applying it**
@@ -106,14 +106,14 @@ make docker-scale SCALE=3
 
 ### Prerequisites
 
-| Tool                    | Version                  |
-| ----------------------- | ------------------------ |
-| Docker + Docker Compose | latest                   |
-| GNU Make                | 3.81+                    |
-| Go                      | 1.26+ (local dev only)   |
-| Node.js                 | 20+ (local dev only)     |
-| pnpm                    | 9+ (local dev only)      |
-| PostgreSQL              | 16 (provided via Docker) |
+| Tool                    | Version                      |
+| ----------------------- | ---------------------------- |
+| Docker + Docker Compose | latest                       |
+| GNU Make                | 3.81+                        |
+| Go                      | 1.26+ (local dev only)       |
+| Node.js                 | 20+ (local dev only)         |
+| pnpm                    | 9+ (local dev only)          |
+| PostgreSQL              | 16 (provided via Docker)     |
 | `psql` CLI              | any (used by `make migrate`) |
 
 Quick checks:
@@ -138,10 +138,10 @@ make start
 
 Endpoints after startup:
 
-| Service      | URL                                              |
-| ------------ | ------------------------------------------------ |
-| Frontend UI  | http://localhost:5173                            |
-| Backend API  | http://localhost:8080                            |
+| Service        | URL                                               |
+| -------------- | ------------------------------------------------- |
+| Frontend UI    | http://localhost:5173                             |
+| Backend API    | http://localhost:8080                             |
 | Agent A2A card | http://localhost:9090/.well-known/agent-card.json |
 
 ### Local development (without Docker for Go/frontend)
@@ -193,27 +193,30 @@ make check
 
 All Docker operations use Makefile targets — do not run `docker compose` directly.
 
-| Command                     | Description                                              |
-| --------------------------- | -------------------------------------------------------- |
-| `make start`                | Start all services + apply migrations                    |
-| `make docker-up`            | Start all services in the background                     |
-| `make docker-down`          | Stop and remove containers                               |
-| `make docker-restart`       | Stop then start all services                             |
-| `make docker-ps`            | List running containers                                  |
-| `make docker-scale`         | Scale agent service (default `SCALE=2`)                  |
-| `make docker-logs`          | Tail logs from all services                              |
-| `make migrate`              | Apply all SQL migrations from `migrations/`              |
-| `make build`                | Build backend binary                                     |
-| `make build-agent`          | Build agent binary                                       |
-| `make test`                 | Run backend + agent Go tests                             |
-| `make lint`                 | `go vet` (backend + agent) + frontend `pnpm check`       |
-| `make check`                | Full build + vet + frontend check/build                  |
-| `make frontend`             | Start frontend dev server                                |
-| `make frontend-build`       | Build frontend production bundle                         |
-| `make opencode-up`          | Start OpenCode container (Copilot OAuth)                 |
-| `make opencode-auth`        | One-time GitHub Copilot OAuth flow                       |
-| `make opencode-status`      | Print OpenCode health JSON                               |
-| `make opencode-down`        | Stop OpenCode container (auth volume preserved)          |
+| Command                | Description                                        |
+| ---------------------- | -------------------------------------------------- |
+| `make start`           | Rebuild images, start all services, apply migrations |
+| `make start-fast`      | Start all services + migrations (no image rebuild)   |
+| `make rebuild`         | Rebuild images and restart containers (no migrations) |
+| `make docker-up`       | Rebuild images and start all services in background  |
+| `make docker-up-fast`  | Start all services without rebuilding images         |
+| `make docker-down`     | Stop and remove containers                         |
+| `make docker-restart`  | Stop then start all services                       |
+| `make docker-ps`       | List running containers                            |
+| `make docker-scale`    | Scale agent service (default `SCALE=2`)            |
+| `make docker-logs`     | Tail logs from all services                        |
+| `make migrate`         | Apply all SQL migrations from `migrations/`        |
+| `make build`           | Build backend binary                               |
+| `make build-agent`     | Build agent binary                                 |
+| `make test`            | Run backend + agent Go tests                       |
+| `make lint`            | `go vet` (backend + agent) + frontend `pnpm check` |
+| `make check`           | Full build + vet + frontend check/build            |
+| `make frontend`        | Start frontend dev server                          |
+| `make frontend-build`  | Build frontend production bundle                   |
+| `make opencode-up`     | Start OpenCode container (Copilot OAuth)           |
+| `make opencode-auth`   | One-time GitHub Copilot OAuth flow                 |
+| `make opencode-status` | Print OpenCode health JSON                         |
+| `make opencode-down`   | Stop OpenCode container (auth volume preserved)    |
 
 Scale example:
 
@@ -223,21 +226,21 @@ make docker-scale SCALE=3
 
 ## Provider Support
 
-| Provider       | Config value | Credential env var  | Notes                              |
-| -------------- | ------------ | ------------------- | ---------------------------------- |
-| GitHub Copilot | `copilot`    | `COPILOT_API_KEY`   | Direct API key or via OpenCode OAuth |
-| Anthropic Claude | `claude`   | `CLAUDE_API_KEY`    | Direct API key                     |
-| OpenCode proxy | `opencode`   | (OAuth via OpenCode) | Requires `make opencode-up` + auth |
+| Provider         | Config value | Credential env var   | Notes                                |
+| ---------------- | ------------ | -------------------- | ------------------------------------ |
+| GitHub Copilot   | `copilot`    | `COPILOT_API_KEY`    | Direct API key or via OpenCode OAuth |
+| Anthropic Claude | `claude`     | `CLAUDE_API_KEY`     | Direct API key                       |
+| OpenCode proxy   | `opencode`   | (OAuth via OpenCode) | Requires `make opencode-up` + auth   |
 
-| Variable                    | Scope   | Required | Description                                      |
-| --------------------------- | ------- | -------- | ------------------------------------------------ |
-| `GLOBAL_LLM_PROVIDER`       | Backend | ✅       | Default LLM provider                             |
-| `GLOBAL_LLM_MODEL`          | Backend | ✅       | Default model name                               |
-| `GLOBAL_LLM_CREDENTIAL_REF` | Backend | ✅       | Env var **name** holding the API key             |
-| `AGENT_LLM_PROVIDER`        | Agent   | ❌       | Per-agent provider override                      |
-| `AGENT_LLM_CREDENTIAL_REF`  | Agent   | ❌       | Env var name for agent's API key                 |
-| `AGENT_ENDPOINTS`           | Backend | ✅       | Comma-separated agent base URLs                  |
-| `VITE_API_BASE_URL`         | Frontend | ❌      | Backend URL (default: `http://localhost:8080`)   |
+| Variable                    | Scope    | Required | Description                                    |
+| --------------------------- | -------- | -------- | ---------------------------------------------- |
+| `GLOBAL_LLM_PROVIDER`       | Backend  | ✅       | Default LLM provider                           |
+| `GLOBAL_LLM_MODEL`          | Backend  | ✅       | Default model name                             |
+| `GLOBAL_LLM_CREDENTIAL_REF` | Backend  | ✅       | Env var **name** holding the API key           |
+| `AGENT_LLM_PROVIDER`        | Agent    | ❌       | Per-agent provider override                    |
+| `AGENT_LLM_CREDENTIAL_REF`  | Agent    | ❌       | Env var name for agent's API key               |
+| `AGENT_ENDPOINTS`           | Backend  | ✅       | Comma-separated agent base URLs                |
+| `VITE_API_BASE_URL`         | Frontend | ❌       | Backend URL (default: `http://localhost:8080`) |
 
 > **Security rule:** API keys are never stored in source code, config files, or the database. `*_CREDENTIAL_REF` variables hold the env var name only; keys are resolved at runtime. Missing credentials → agent unavailable (no silent fallback).
 

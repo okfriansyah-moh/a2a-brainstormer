@@ -193,6 +193,10 @@ func (p *openAICompatProvider) readSSEStream(ctx context.Context, body io.Reader
 		if text != "" {
 			sendChunk(ctx, ch, TokenChunk{Text: text})
 		}
+		if reason := delta.Choices[0].FinishReason; reason != "" {
+			sendChunk(ctx, ch, TokenChunk{Done: true, FinishReason: reason})
+			return
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		sendChunk(ctx, ch, TokenChunk{Err: fmt.Errorf("openai_compat stream scan: %w", err), Done: true})
@@ -235,7 +239,8 @@ type agentOpenAIStreamDelta struct {
 }
 
 type agentOpenAIStreamChoice struct {
-	Delta agentOpenAIStreamDeltaContent `json:"delta"`
+	Delta        agentOpenAIStreamDeltaContent `json:"delta"`
+	FinishReason string                      `json:"finish_reason"`
 }
 
 type agentOpenAIStreamDeltaContent struct {

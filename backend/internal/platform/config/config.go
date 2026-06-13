@@ -57,21 +57,45 @@ func GetMinConfidenceFloor() float64 {
 // ── Global LLM defaults ───────────────────────────────────────────────────────
 
 // GetGlobalLLMProvider returns the default LLM provider name.
-// Allowed values: "copilot" | "claude" | "opencode". Defaults to "opencode".
+// Allowed values: "copilot" | "claude" | "opencode" | "deepseek".
+// Defaults to "deepseek".
 func GetGlobalLLMProvider() string {
-	return envString("GLOBAL_LLM_PROVIDER", "opencode")
+	return envString("GLOBAL_LLM_PROVIDER", "deepseek")
 }
 
-// GetGlobalLLMModel returns the default LLM model name. Defaults to "gpt-4o".
+// GetGlobalLLMModel returns the default LLM model name. Defaults to "deepseek-v4-flash".
 func GetGlobalLLMModel() string {
-	return envString("GLOBAL_LLM_MODEL", "gpt-4o")
+	return envString("GLOBAL_LLM_MODEL", "deepseek-v4-flash")
 }
 
 // GetGlobalLLMCredentialRef returns the env var NAME that holds the global LLM
 // API key. This is a reference (env var name), never the raw key value.
-// Defaults to "COPILOT_API_KEY".
+// Defaults to "DEEPSEEK_API_KEY".
 func GetGlobalLLMCredentialRef() string {
-	return envString("GLOBAL_LLM_CREDENTIAL_REF", "COPILOT_API_KEY")
+	return envString("GLOBAL_LLM_CREDENTIAL_REF", "DEEPSEEK_API_KEY")
+}
+
+// SetGlobalLLMConfig writes the global LLM defaults back to the runtime env.
+// Empty values fall back to the same DeepSeek defaults used at startup so the
+// settings page can always restore a valid provider/model/credential_ref pair.
+func SetGlobalLLMConfig(provider, model, credentialRef string) {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "deepseek"
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = "deepseek-v4-flash"
+	}
+	credentialRef = strings.TrimSpace(credentialRef)
+	if credentialRef == "" {
+		// Preserve the current runtime/env credential ref when callers omit it.
+		credentialRef = GetGlobalLLMCredentialRef()
+	}
+
+	os.Setenv("GLOBAL_LLM_PROVIDER", provider)
+	os.Setenv("GLOBAL_LLM_MODEL", model)
+	os.Setenv("GLOBAL_LLM_CREDENTIAL_REF", credentialRef)
 }
 
 // GetLLMAPIKey resolves a CredentialRef to its actual key value at runtime.
@@ -132,11 +156,18 @@ func GetIterationTimeout() time.Duration {
 	return time.Duration(envInt("ITERATION_TIMEOUT_SECONDS", 1800)) * time.Second
 }
 
-// GetAgentCallTimeout returns the HTTP timeout for a single A2A agent call.
-// LLM inference (especially Claude on large prompts) can take several minutes.
-// Defaults to 10 minutes. Set AGENT_CALL_TIMEOUT_SECONDS to override.
+// GetAgentCallTimeout returns the maximum wall-clock time for a single A2A agent
+// call (streaming or blocking). Defaults to 30 minutes.
+// Set AGENT_CALL_TIMEOUT_SECONDS to override.
 func GetAgentCallTimeout() time.Duration {
-	return time.Duration(envInt("AGENT_CALL_TIMEOUT_SECONDS", 600)) * time.Second
+	return time.Duration(envInt("AGENT_CALL_TIMEOUT_SECONDS", 1800)) * time.Second
+}
+
+// GetAgentStreamIdleTimeout returns how long a streaming agent call may go
+// without receiving tokens before the backend aborts it. Defaults to 10 minutes.
+// Set AGENT_STREAM_IDLE_TIMEOUT_SECONDS to override.
+func GetAgentStreamIdleTimeout() time.Duration {
+	return time.Duration(envInt("AGENT_STREAM_IDLE_TIMEOUT_SECONDS", 600)) * time.Second
 }
 
 // GetFinalizeTimeout returns the maximum duration allowed for one finalize

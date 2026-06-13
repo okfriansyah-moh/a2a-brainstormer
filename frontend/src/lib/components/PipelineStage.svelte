@@ -1,5 +1,14 @@
 <script lang="ts">
-  import type { PreviewResult, SessionAgent } from "$lib/types";
+  import { onDestroy } from "svelte";
+  import type { PreviewResult, SessionAgent, AgentPassContribution } from "$lib/types";
+  import {
+    AGENT_LOADING_PHRASES,
+    DEFAULT_LOADING_PHRASES,
+  } from "$lib/loadingPhrases";
+  import {
+    presentStreamBuffer,
+    waitingPresentation,
+  } from "$lib/streamPresenter";
 
   /** The agent represented by this stage. */
   export let agent: SessionAgent;
@@ -8,12 +17,21 @@
   export let position: number;
 
   /** Execution state of this stage. */
-  export let status: "done" | "running" | "waiting" = "waiting";
+  export let status: "done" | "running" | "waiting" | "error" = "waiting";
 
-  /** Mono log text emitted by this agent (shown when running or done). */
-  export let output: string = "";
+  /** Live phase label from the backend (e.g. drafting architecture). */
+  export let phaseDetail: string = "";
 
-  /** Live token stream while the agent is running — renders token-by-token inside the log box. */
+  /** Error message when status is error. */
+  export let errorMessage: string = "";
+
+  /** Completed contributions from earlier pipeline passes, oldest first. */
+  export let passHistory: AgentPassContribution[] = [];
+
+  /** Pipeline pass number shown while this agent is running (from SSE). */
+  export let activePass = 0;
+
+  /** Live token stream while the agent is running. */
   export let streamingText: string = "";
 
   /** Human-readable summary produced after completion. */
@@ -53,18 +71,61 @@
   $: roleCssClass = agent.role.replace(/_/g, "-").toLowerCase();
   $: badgeLabel = agent.role.replace(/_/g, " ").toUpperCase();
 
-  /** Normalise output text: collapse excess whitespace, limit length for display. */
-  $: displayOutput = output ? output.slice(0, 2000) : "";
-
   $: previewOutputText = preview
     ? JSON.stringify(preview.output, null, 2).slice(0, 1500)
     : "";
 
   $: canPreview = !pipelineRunning && !previewRunning;
   $: canApply = !pipelineRunning && !previewRunning && !!preview;
+
+  const ROTATE_MS = 2600;
+  let rotateIndex = 0;
+  let rotateTimer: ReturnType<typeof setInterval> | null = null;
+
+  $: loadingPhrases =
+    AGENT_LOADING_PHRASES[agent.role] ?? DEFAULT_LOADING_PHRASES;
+  $: showRotating =
+    status === "running" && !streamingText && !phaseDetail;
+  $: statusLine =
+    phaseDetail ||
+    (showRotating ? loadingPhrases[rotateIndex % loadingPhrases.length] : "");
+
+  $: agentInitials = agent.name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+
+  $: chatPresent =
+    status === "running"
+      ? streamingText
+        ? presentStreamBuffer(streamingText, statusLine, agent.role)
+        : waitingPresentation(statusLine, agent.role)
+      : null;
+
+  $: {
+    if (showRotating) {
+      if (!rotateTimer) {
+        rotateIndex = 0;
+        rotateTimer = setInterval(() => {
+          rotateIndex = (rotateIndex + 1) % loadingPhrases.length;
+        }, ROTATE_MS);
+      }
+    } else if (rotateTimer) {
+      clearInterval(rotateTimer);
+      rotateTimer = null;
+    }
+  }
+
+  onDestroy(() => {
+    if (rotateTimer) {
+      clearInterval(rotateTimer);
+      rotateTimer = null;
+    }
+  });
 </script>
 
-<div class="stage stage-{status}" role="region" aria-label={agent.name}>
+<div class="stage stage-{status}" class:stage-error={status === "error"} role="region" aria-label={agent.name}>
   <div class="stage-header">
     <div class="stage-left">
       <span class="stage-num">{position}</span>
@@ -106,6 +167,8 @@
         <span class="stage-status s-done">✓ Complete</span>
       {:else if status === "running"}
         <span class="stage-status s-run">⟳ Running</span>
+      {:else if status === "error"}
+        <span class="stage-status s-err">✕ Error</span>
       {:else}
         <span class="stage-status s-wait">◍ Waiting</span>
       {/if}
@@ -125,33 +188,78 @@
     </div>
   {/if}
 
-  {#if status !== "waiting" && (displayOutput || summary || streamingText || status === "running")}
+  {#if passHistory.length > 0 || status === "running" || status === "error" || (status === "done" && summary)}
     <div class="stage-body">
-      {#if displayOutput}
-        <div class="stage-log">{displayOutput}</div>
-      {:else if status === "running" && streamingText}
-        <div class="stage-log stream-log">
-          <span class="stream-cursor" aria-hidden="true"></span>{streamingText}
-        </div>
-      {:else if status === "running"}
-        <div class="stage-log">
-          <span class="dots">Processing...</span>
+      {#if passHistory.length > 0}
+        <div class="chat-history" aria-label="Previous pass contributions">
+          {#each passHistory as pass (pass.iteration)}
+            <div class="chat-thread chat-thread-past">
+              <div class="pass-chip">Pass {pass.iteration}</div>
+              <div class="chat-row">
+                <div class="chat-avatar chat-avatar-done" aria-hidden="true">{agentInitials}</div>
+                <div class="chat-bubble chat-bubble-past">
+                  <p class="chat-done-summary">{pass.headline}</p>
+                  {#if pass.bullets.length > 0}
+                    <ul class="chat-bullets">
+                      {#each pass.bullets as item}
+                        <li>{item}</li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </div>
+              </div>
+            </div>
+          {/each}
         </div>
       {/if}
-      {#if status === "done" && summary}
-        <div class="stage-summary">
-          <div class="stage-summary-head">
-            <strong>Contribution</strong>
-            <span class="stage-summary-text">{summary}</span>
-          </div>
-          {#if summaryBullets.length > 0}
-            <ul class="stage-summary-list">
-              {#each summaryBullets as item}
-                <li>{item}</li>
-              {/each}
-            </ul>
+
+      {#if status === "error" && errorMessage}
+        <div class="stage-log stage-error-log">{errorMessage}</div>
+      {:else if status === "running" && chatPresent}
+        <div class="chat-thread chat-thread-live" aria-live="polite">
+          {#if activePass > 0}
+            <div class="pass-chip pass-chip-live">Pass {activePass} · In progress</div>
           {/if}
+          <div class="chat-row">
+            <div class="chat-avatar" aria-hidden="true">{agentInitials}</div>
+            <div class="chat-bubble chat-bubble-live">
+              <p class="chat-headline">
+                {chatPresent.headline}<span class="stream-cursor" aria-hidden="true"></span>
+              </p>
+              {#if chatPresent.bullets.length > 0}
+                <ul class="chat-bullets">
+                  {#each chatPresent.bullets as item}
+                    <li>{item}</li>
+                  {/each}
+                </ul>
+              {:else if !chatPresent.hasContent}
+                <div class="chat-typing" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+              {/if}
+            </div>
+          </div>
         </div>
+      {:else if status === "done" && summary && passHistory.length === 0}
+        <div class="chat-thread chat-thread-done">
+          <div class="pass-chip">Pass {activePass > 0 ? activePass : "—"}</div>
+          <div class="chat-row">
+            <div class="chat-avatar chat-avatar-done" aria-hidden="true">{agentInitials}</div>
+            <div class="chat-bubble chat-bubble-done">
+              <p class="chat-done-label">Contribution</p>
+              <p class="chat-done-summary">{summary}</p>
+              {#if summaryBullets.length > 0}
+                <ul class="chat-bullets">
+                  {#each summaryBullets as item}
+                    <li>{item}</li>
+                  {/each}
+                </ul>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {:else if status === "waiting" && passHistory.length > 0 && pipelineRunning}
+        <p class="up-next">Up next in this pass…</p>
       {/if}
     </div>
   {/if}
@@ -375,50 +483,6 @@
     word-break: break-word;
   }
 
-  .stage-summary {
-    margin-top: 8px;
-    background: var(--ok-bg-soft);
-    border: 1px solid var(--ok-line);
-    border-radius: 9px;
-    padding: 10px 14px;
-    font-size: 0.8125rem;
-    color: var(--ok-ink);
-    word-break: break-word;
-    line-height: 1.55;
-  }
-
-  .stage-summary-head {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: baseline;
-  }
-
-  .stage-summary-head strong {
-    color: var(--ok-ink-strong);
-    font-weight: 600;
-  }
-
-  .stage-summary-head strong::after {
-    content: ":";
-  }
-
-  .stage-summary-text {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .stage-summary-list {
-    margin: 6px 0 0;
-    padding-left: 20px;
-    list-style: disc;
-  }
-
-  .stage-summary-list li {
-    margin: 2px 0;
-    line-height: 1.5;
-  }
-
   .stage-waiting {
     opacity: 0.45;
   }
@@ -427,8 +491,211 @@
     animation: blink 1.2s infinite;
   }
 
+  .status-pulse {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.75rem;
+    color: var(--ink-500);
+    animation: blink 1.4s infinite;
+  }
+
   .stream-log {
     position: relative;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  .chat-thread {
+    margin-top: 4px;
+  }
+
+  .chat-history {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .chat-thread-past {
+    opacity: 0.88;
+  }
+
+  .chat-thread-live {
+    margin-top: 2px;
+  }
+
+  .pass-chip {
+    display: inline-block;
+    margin: 0 0 6px 46px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-500);
+    background: var(--neutral-bg);
+    border: 1px solid var(--line-solid);
+    border-radius: 999px;
+    padding: 2px 8px;
+  }
+
+  .pass-chip-live {
+    color: var(--accent-2);
+    background: var(--accent-bg);
+    border-color: var(--accent-line);
+  }
+
+  .chat-bubble-past {
+    border-color: var(--ok-line);
+    background: rgba(255, 255, 255, 0.78);
+  }
+
+  .up-next {
+    margin: 8px 0 0 46px;
+    font-size: 0.75rem;
+    font-style: italic;
+    color: var(--ink-500);
+  }
+
+  .chat-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .chat-avatar {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--on-accent);
+    background: linear-gradient(145deg, var(--accent-2), var(--accent));
+    box-shadow: 0 2px 8px rgba(31, 122, 224, 0.25);
+  }
+
+  .chat-avatar-done {
+    background: linear-gradient(145deg, var(--ok), #2bc48a);
+    box-shadow: 0 2px 8px rgba(27, 159, 102, 0.25);
+  }
+
+  .chat-bubble {
+    flex: 1;
+    min-width: 0;
+    border-radius: 14px 14px 14px 4px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid var(--line-solid);
+    box-shadow: 0 2px 10px rgba(35, 46, 82, 0.06);
+  }
+
+  .chat-bubble-live {
+    border-color: var(--accent-line);
+    background: linear-gradient(180deg, #ffffff 0%, #f6faff 100%);
+  }
+
+  .chat-bubble-done {
+    border-color: var(--ok-line);
+    background: linear-gradient(180deg, #ffffff 0%, var(--ok-bg-soft) 100%);
+  }
+
+  .chat-headline {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--ink-700);
+    font-weight: 500;
+  }
+
+  .chat-bullets {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    list-style: disc;
+  }
+
+  .chat-bullets li {
+    margin: 3px 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--ink-500);
+  }
+
+  .chat-typing {
+    display: flex;
+    gap: 5px;
+    margin-top: 10px;
+    align-items: center;
+  }
+
+  .chat-typing span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-2);
+    opacity: 0.35;
+    animation: typing-bounce 1.2s infinite ease-in-out;
+  }
+
+  .chat-typing span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .chat-typing span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  .chat-done-label {
+    margin: 0 0 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ok-ink-strong);
+  }
+
+  .chat-done-summary {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--ok-ink);
+    font-weight: 500;
+  }
+
+  @keyframes typing-bounce {
+    0%,
+    80%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.35;
+    }
+    40% {
+      transform: translateY(-4px);
+      opacity: 1;
+    }
+  }
+
+  .stage-error-log {
+    color: #ffb4c4;
+    border-color: rgba(206, 49, 88, 0.35);
+    background: rgba(206, 49, 88, 0.12);
+  }
+
+  .s-err {
+    color: var(--danger);
+    background: rgba(206, 49, 88, 0.1);
+    border: 1px solid rgba(206, 49, 88, 0.25);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .stage-error {
+    border-left-color: var(--danger);
   }
 
   .stream-cursor {

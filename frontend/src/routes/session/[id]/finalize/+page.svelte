@@ -8,6 +8,7 @@
     generateDocument,
     listSessionArtifacts,
     API_BASE,
+    ApiError,
   } from "$lib/services/api";
   import { createSSEClient } from "$lib/services/sse";
   import type { SSEClient } from "$lib/services/sse";
@@ -141,6 +142,17 @@
             "⚠ Progress stream unavailable — generation continues.",
           ];
         }
+      },
+      {
+        beforeReconnect: async () => {
+          try {
+            await getSession(sid);
+            return true;
+          } catch (err) {
+            if (err instanceof ApiError && err.status === 404) return false;
+            return true;
+          }
+        },
       },
     );
 

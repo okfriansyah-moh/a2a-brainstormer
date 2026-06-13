@@ -175,13 +175,11 @@ func (e *BrainstormExecutor) Execute(
 			)
 		}
 		userMessage := fmt.Sprintf(
-			"CRITICAL INSTRUCTION: You MUST respond with ONLY one valid JSON object.\n"+
-				"Do NOT include any explanation, commentary, markdown, code fences, or text outside the JSON.\n"+
-				"Your entire response must start with { and end with }.\n"+
-				"No prose before or after. No ```json fences. No trailing commas. Pure JSON only.\n"+
-				"Before sending your answer, verify that it parses as JSON and contains no markdown wrappers.\n%s\n"+
-				"Current brainstorm state (JSON):\n%s\n\n"+
-				"Return the complete updated canonical state as a single JSON object.",
+			"%s\n%s\n%s\n"+
+				"Current brainstorm state (read-only context — do NOT echo unchanged fields):\n%s\n\n"+
+				"Return your role-scoped JSON delta now.",
+			deltaOutputPreamble,
+			roleDeltaInstruction(payload.Role),
 			feedbackSection,
 			string(stateJSON),
 		)
@@ -224,48 +222,16 @@ func (e *BrainstormExecutor) Execute(
 			Temperature:  0.15,
 		}
 
-		// Attempt streaming first. Each token is forwarded as a Working status
-		// update so the backend can relay it to the browser in real time.
-		// Fall back to blocking Generate when the provider does not support
-		// streaming or when the stream itself fails.
-		var rawContent string
-		if sp, streamOK := activeLLM.(llm.StreamingLLMProvider); streamOK {
-			chunks, streamErr := sp.GenerateStream(ctx, llmReq)
-			if streamErr == nil {
-				var sb strings.Builder
-				allOK := true
-				for chunk := range chunks {
-					if chunk.Err != nil {
-						e.logError(ctx, "LLM stream error, falling back to blocking Generate",
-							chunk.Err, slog.String("role", payload.Role))
-						allOK = false
-						break
-					}
-					if chunk.Text != "" {
-						sb.WriteString(chunk.Text)
-						tokenMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(chunk.Text))
-						if !yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateWorking, tokenMsg), nil) {
-							return
-						}
-					}
-				}
-				if allOK {
-					rawContent = sb.String()
-				}
-			}
-		}
-		// Blocking fallback when streaming is unavailable or failed.
-		if rawContent == "" {
-			resp, err := activeLLM.Generate(ctx, llmReq)
-			if err != nil {
-				e.logError(ctx, "LLM generate failed", err, slog.String("role", payload.Role))
-				errMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(
-					fmt.Sprintf("LLM generate failed: %s", err),
-				))
-				yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
-				return
-			}
-			rawContent = resp.Content
+		rawContent, genErr := e.generateStateContent(ctx, execCtx, activeLLM, llmReq, yield, payload.Role)
+		if genErr != nil {
+			e.logError(ctx, "LLM generate or parse state failed", genErr,
+				slog.String("content_prefix", truncate(rawContent, 200)),
+			)
+			errMsg := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(
+				fmt.Sprintf("LLM returned non-JSON: %s", genErr),
+			))
+			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
+			return
 		}
 
 		if e.logger != nil {
@@ -276,9 +242,6 @@ func (e *BrainstormExecutor) Execute(
 			)
 		}
 
-		// Parse the LLM JSON response as the updated CanonicalState.
-		// extractJSON handles responses where Claude wraps the JSON in prose or
-		// markdown code fences despite the explicit instruction.
 		updatedState, err := extractJSON(rawContent)
 		if err != nil {
 			e.logError(ctx, "parse LLM response as state failed", err,
@@ -290,8 +253,6 @@ func (e *BrainstormExecutor) Execute(
 			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
 			return
 		}
-
-		// Emit the updated state as a DataPart artifact.
 		if e.logger != nil {
 			// Extract key metrics from the parsed state map for observability.
 			confidence := 0.0
@@ -440,8 +401,73 @@ func candidatesForJSON(raw string) []string {
 	if start >= 0 && end > start {
 		candidates = append(candidates, raw[start:end+1])
 	}
+	if start >= 0 {
+		fragment := raw[start:]
+		if len(fragment) >= 32 && strings.Contains(fragment, `":`) {
+			if repaired := repairTruncatedJSONObject(fragment); repaired != "" {
+				candidates = append(candidates, repaired)
+			}
+		}
+	}
 
 	return candidates
+}
+
+// repairTruncatedJSONObject closes open strings/brackets when the model hits a
+// token limit mid-response. Returns "" when the input does not begin with "{".
+func repairTruncatedJSONObject(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "{") {
+		return ""
+	}
+
+	var stack []byte
+	inString := false
+	escape := false
+
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			if ch == '\\' {
+				escape = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) > 0 && stack[len(stack)-1] == ch {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	if len(stack) == 0 && !inString {
+		return ""
+	}
+
+	repaired := raw
+	if inString {
+		repaired += `"`
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		repaired += string(stack[i])
+	}
+	return repaired
 }
 
 func normalizeJSONCandidate(raw string) string {

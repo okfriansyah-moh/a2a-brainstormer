@@ -17,9 +17,9 @@
     applyAgentPreview,
     ApiError,
   } from "$lib/services/api";
-  import { createSSEClient } from "$lib/services/sse";
+  import { createSSEClient, type SSEClientOptions } from "$lib/services/sse";
   import { API_BASE } from "$lib/services/api";
-  import type { Agent, PreviewResult, SessionAgent } from "$lib/types";
+  import type { Agent, PreviewResult, SessionAgent, AgentPassContribution } from "$lib/types";
   import type { SSEClient } from "$lib/services/sse";
 
   /** True when the backend signals the session has converged. */
@@ -123,6 +123,13 @@
 
   /** agentId → accumulated LLM token stream, cleared when agent.complete arrives. */
   let agentTokenBuffers: Record<string, string> = {};
+  let agentErrorMessages: Record<string, string> = {};
+
+  /** agentId → contributions from each completed pipeline pass. */
+  let agentPassHistory: Record<string, AgentPassContribution[]> = {};
+
+  /** Live pipeline pass from SSE iteration.start (accurate while a pass runs). */
+  let pipelinePassNumber = 0;
 
   /**
    * Map of agentId → true while a preview dispatch is in flight for that agent.
@@ -148,8 +155,25 @@
     return Math.min(100, Math.round(raw > 1 ? raw : raw * 100));
   })();
 
+  /** Pass label: SSE live counter while running, else persisted meta.iteration. */
+  $: displayPass = pipelinePassNumber || currentIteration;
+
   /** Current iteration number (0 before first iteration). */
   $: currentIteration = $sessionStore.state?.meta?.iteration ?? 0;
+
+  function recordPassContribution(
+    agentId: string,
+    iteration: number,
+    agent: SessionAgent,
+  ) {
+    const { headline, bullets } = stageSummary(agent);
+    const prev = agentPassHistory[agentId] ?? [];
+    const next = [
+      ...prev.filter((p) => p.iteration !== iteration),
+      { iteration, headline, bullets },
+    ].sort((a, b) => a.iteration - b.iteration);
+    agentPassHistory = { ...agentPassHistory, [agentId]: next };
+  }
 
   /**
    * Per-stage status array driven by SSE agentStatuses.
@@ -173,6 +197,7 @@
       const live = $sessionStore.agentStatuses[agent.id];
       if (live === "running") return "running" as const;
       if (live === "done") return "done" as const;
+      if (live === "error") return "error" as const;
 
       if ($sessionStore.loading) {
         if (hasSSEData) {
@@ -192,29 +217,6 @@
       return "waiting" as const;
     });
   })();
-
-  /**
-   * Short log text for the stage body (shown while running or done).
-   * Emits a compact summary of counts without any raw LLM string dumps.
-   */
-  function stageOutputText(agent: SessionAgent): string {
-    if (!agent.output) return "";
-    const s = agent.output;
-    const lines: string[] = [];
-    if (s.execution_plan?.length) {
-      lines.push(`Plan steps: ${s.execution_plan.length}`);
-    }
-    if (s.risks?.length) {
-      lines.push(`Risks identified: ${s.risks.length}`);
-    }
-    if (s.open_questions?.length) {
-      lines.push(`Open questions: ${s.open_questions.length}`);
-    }
-    if (s.assumptions?.length) {
-      lines.push(`Assumptions: ${s.assumptions.length}`);
-    }
-    return lines.join("\n");
-  }
 
   /**
    * Pick the first non-empty string from a list of candidates. Handles raw
@@ -338,6 +340,120 @@
     return { headline, bullets };
   }
 
+  function sessionSSEOptions(): SSEClientOptions {
+    return {
+      beforeReconnect: async () => {
+        if (!sessionId) return false;
+        try {
+          await getSession(sessionId);
+          return true;
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) return false;
+          return true;
+        }
+      },
+    };
+  }
+
+  function connectSessionSSE() {
+    if (!sessionId || sseClient) return;
+    sseClient = createSSEClient(
+      `${API_BASE}/sessions/${sessionId}/events`,
+      (evt) => {
+        if (converged) {
+          if (
+            evt.type === "iteration.start" ||
+            evt.type === "agent.started" ||
+            evt.type === "agent.complete" ||
+            evt.type === "agent.error" ||
+            evt.type === "iteration.complete"
+          ) {
+            return;
+          }
+        }
+        sessionStore.applyEvent(evt);
+
+        if (evt.type === "iteration.start") {
+          const d = evt.data as { iteration?: number } | null;
+          if (d?.iteration) pipelinePassNumber = d.iteration;
+          agentTokenBuffers = {};
+          agentPhaseDetail = {};
+          agentErrorMessages = {};
+        }
+
+        if (evt.type === "agent.started") {
+          const d = evt.data as { agent_id?: string } | null;
+          if (d?.agent_id) {
+            const updatedErrors = { ...agentErrorMessages };
+            delete updatedErrors[d.agent_id];
+            agentErrorMessages = updatedErrors;
+            const updatedTokens = { ...agentTokenBuffers };
+            delete updatedTokens[d.agent_id];
+            agentTokenBuffers = updatedTokens;
+          }
+        }
+
+        if (evt.type === "agent.phase") {
+          const d = evt.data as { agent_id?: string; detail?: string } | null;
+          if (d?.agent_id && d?.detail) {
+            agentPhaseDetail = { ...agentPhaseDetail, [d.agent_id]: d.detail };
+          }
+        }
+        if (evt.type === "agent.error") {
+          const d = evt.data as { agent_id?: string; error?: string } | null;
+          if (d?.agent_id && d?.error) {
+            agentErrorMessages[d.agent_id] = d.error;
+            agentErrorMessages = agentErrorMessages;
+          }
+        }
+        if (evt.type === "agent.token") {
+          const d = evt.data as { agent_id?: string; token?: string } | null;
+          if (d?.agent_id && d?.token) {
+            agentTokenBuffers[d.agent_id] =
+              (agentTokenBuffers[d.agent_id] ?? "") + d.token;
+            agentTokenBuffers = agentTokenBuffers;
+          }
+        }
+        if (evt.type === "agent.complete") {
+          const d = evt.data as {
+            agent_id?: string;
+            iteration?: number;
+          } | null;
+          if (d?.agent_id) {
+            const iter = d.iteration ?? pipelinePassNumber;
+            const agent = get(sessionStore).agents.find(
+              (a) => a.id === d.agent_id,
+            );
+            if (agent?.output && iter > 0) {
+              recordPassContribution(d.agent_id, iter, agent);
+            }
+            const updatedPhase = { ...agentPhaseDetail };
+            delete updatedPhase[d.agent_id];
+            agentPhaseDetail = updatedPhase;
+            const updatedTokens = { ...agentTokenBuffers };
+            delete updatedTokens[d.agent_id];
+            agentTokenBuffers = updatedTokens;
+          }
+        }
+
+        if (evt.type === "iteration.complete") {
+          const d = evt.data as { converged?: boolean; iteration?: number } | null;
+          if (d?.iteration) pipelinePassNumber = d.iteration;
+          if (d?.converged) {
+            converged = true;
+            sessionStore.setLoading(false);
+          }
+        }
+        if (evt.type === "session.finalized") {
+          converged = true;
+          sessionStore.setLoading(false);
+        }
+      },
+      undefined,
+      sessionSSEOptions(),
+    );
+  }
+
   onMount(async () => {
     if (!sessionId) return;
     sessionStore.setLoading(true);
@@ -391,6 +507,10 @@
         });
         sessionStore.setAgents(agentsFromSlots);
       }
+      connectSessionSSE();
+      if (session.current_state?.meta?.iteration) {
+        pipelinePassNumber = session.current_state.meta.iteration;
+      }
     } catch (err) {
       loadError =
         err instanceof Error ? err.message : "Failed to load session.";
@@ -401,75 +521,6 @@
         sessionStore.setLoading(false);
       }
     }
-
-    // Open SSE stream for real-time agent progress events.
-    sseClient = createSSEClient(
-      `${API_BASE}/sessions/${sessionId}/events`,
-      (evt) => {
-        // Once convergence is confirmed, suppress ALL further engine progress
-        // events (iteration.start / agent.started / iteration.complete) that
-        // would reset the pipeline UI back to "running" — the engine has
-        // already returned a final state and the user is on the convergence
-        // screen waiting to finalize.
-        if (converged) {
-          if (
-            evt.type === "iteration.start" ||
-            evt.type === "agent.started" ||
-            evt.type === "agent.complete" ||
-            evt.type === "agent.error" ||
-            evt.type === "iteration.complete"
-          ) {
-            return;
-          }
-        }
-        sessionStore.applyEvent(evt);
-
-        // Capture agent phase detail for granular progress display.
-        if (evt.type === "agent.phase") {
-          const d = evt.data as { agent_id?: string; detail?: string } | null;
-          if (d?.agent_id && d?.detail) {
-            agentPhaseDetail = { ...agentPhaseDetail, [d.agent_id]: d.detail };
-          }
-        }
-        // Accumulate LLM tokens for the running agent.
-        if (evt.type === "agent.token") {
-          const d = evt.data as { agent_id?: string; token?: string } | null;
-          if (d?.agent_id && d?.token) {
-            agentTokenBuffers[d.agent_id] =
-              (agentTokenBuffers[d.agent_id] ?? "") + d.token;
-            // Svelte reactivity triggers on assignment; avoid per-token object copies.
-            agentTokenBuffers = agentTokenBuffers;
-          }
-        }
-        // Clear phase detail and token buffer when the agent finishes.
-        if (evt.type === "agent.complete") {
-          const d = evt.data as { agent_id?: string } | null;
-          if (d?.agent_id) {
-            const updatedPhase = { ...agentPhaseDetail };
-            delete updatedPhase[d.agent_id];
-            agentPhaseDetail = updatedPhase;
-            const updatedTokens = { ...agentTokenBuffers };
-            delete updatedTokens[d.agent_id];
-            agentTokenBuffers = updatedTokens;
-          }
-        }
-
-        // Track convergence from SSE so the page updates without a reload.
-        if (evt.type === "iteration.complete") {
-          const d = evt.data as { converged?: boolean } | null;
-          if (d?.converged) {
-            converged = true;
-            // Force loading off — engine has returned; any further events are
-            // residual / replayed and must not leave the UI "Running…".
-            sessionStore.setLoading(false);
-          }
-        }
-        if (evt.type === "session.finalized") {
-          converged = true;
-          sessionStore.setLoading(false);
-        }
-      },
-    );
 
     // Fallback: if the backend completed the iteration BEFORE we connected to
     // SSE (page reload after a run), the iteration.complete event was already
@@ -713,7 +764,7 @@
       <div>
         <div class="pass-label">
           Pipeline Pass
-          <span>{currentIteration > 0 ? currentIteration : "—"}</span>
+          <span>{displayPass > 0 ? displayPass : "—"}</span>
           {#if maxIterations > 0}
             / {maxIterations}
           {/if}
@@ -738,8 +789,11 @@
             {agent}
             position={i + 1}
             status={stageStatuses[i] ?? "waiting"}
-            output={stageOutputText(agent)}
+            passHistory={agentPassHistory[agent.id] ?? []}
+            activePass={stageStatuses[i] === "running" ? pipelinePassNumber : 0}
             streamingText={agentTokenBuffers[agent.id] ?? ""}
+            phaseDetail={agentPhaseDetail[agent.id] ?? ""}
+            errorMessage={agentErrorMessages[agent.id] ?? ""}
             summary={stageSummary(agent).headline}
             summaryBullets={stageSummary(agent).bullets}
             pipelineRunning={$sessionStore.loading}

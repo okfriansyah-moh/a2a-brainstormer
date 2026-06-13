@@ -285,15 +285,30 @@ func newGlobalLLMProvider() llm.LLMProvider {
 }
 
 // globalLLMConfigHandler returns the GET /api/config/global-llm handler.
-// The response reflects current env config and whether the credential is set.
+// The response reflects current config and whether the credential is set.
 func globalLLMConfigHandler() http.Handler {
-	type response struct {
+	type request struct {
 		Provider      string `json:"provider"`
 		Model         string `json:"model"`
 		CredentialRef string `json:"credential_ref"`
-		Available     bool   `json:"available"`
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	type response struct {
+		Provider  string `json:"provider"`
+		Model     string `json:"model"`
+		Available bool   `json:"available"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut || r.Method == http.MethodPatch {
+			var req request
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON body", http.StatusBadRequest)
+				return
+			}
+
+			config.SetGlobalLLMConfig(req.Provider, req.Model, req.CredentialRef)
+		}
+
 		provider := config.GetGlobalLLMProvider()
 		model := config.GetGlobalLLMModel()
 		credRef := config.GetGlobalLLMCredentialRef()
@@ -309,11 +324,10 @@ func globalLLMConfigHandler() http.Handler {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response{ //nolint:errcheck
-			Provider:      provider,
-			Model:         model,
-			CredentialRef: credRef,
-			Available:     available,
+		_ = json.NewEncoder(w).Encode(response{
+			Provider:  provider,
+			Model:     model,
+			Available: available,
 		})
 	})
 }

@@ -2,6 +2,26 @@ package config
 
 import "testing"
 
+func TestGetGlobalLLMProvider_DefaultsToDeepSeek(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_PROVIDER", "")
+	if got := GetGlobalLLMProvider(); got != "deepseek" {
+		t.Fatalf("GetGlobalLLMProvider() = %q, want %q", got, "deepseek")
+	}
+}
+
+func TestGetGlobalLLMModel_DefaultsToDeepSeekV4Flash(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_MODEL", "")
+	if got := GetGlobalLLMModel(); got != "deepseek-v4-flash" {
+		t.Fatalf("GetGlobalLLMModel() = %q, want %q", got, "deepseek-v4-flash")
+	}
+}
+
+func TestGetGlobalLLMCredentialRef_DefaultsToDeepSeekKey(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "")
+	if got := GetGlobalLLMCredentialRef(); got != "DEEPSEEK_API_KEY" {
+		t.Fatalf("GetGlobalLLMCredentialRef() = %q, want %q", got, "DEEPSEEK_API_KEY")
+	}
+}
 func TestGetMinConfidenceFloor_ClampsBounds(t *testing.T) {
 	t.Setenv("MIN_CONFIDENCE_FLOOR", "-0.5")
 	if got := GetMinConfidenceFloor(); got != 0 {

@@ -1,18 +1,17 @@
 // Package executor — §8.23 output-structure prompt fragment.
 //
 // This text is appended to every SystemPrompt before the LLM is called. It
-// describes the typed canonical-state schema the agent must emit so that the
-// long-form generators (architecture / roadmap / plan / readme) can render
-// structured per-phase blocks and Mermaid data-flow diagrams.
+// describes the typed canonical-state schema agents may emit in their delta.
+// Agents return role-scoped subsets only — omit unchanged keys.
 package executor
 
 const requiredOutputStructurePrompt = `
 
 # Required Output Structure (canonical state schema)
 
-You MUST return a single JSON object that conforms to the canonical brainstorm
-state. The following typed fields enable downstream document generation — emit
-them whenever the information is available.
+You MUST return a JSON object (a delta) that conforms to the canonical brainstorm
+state schema. Include only keys your role owns or changed — omit unchanged fields.
+The following typed fields enable downstream document generation:
 
 ## architecture (object)
 

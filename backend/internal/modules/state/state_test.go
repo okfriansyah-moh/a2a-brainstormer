@@ -366,6 +366,26 @@ func TestMerge_EmptyIncomingPreservesBase(t *testing.T) {
 	}
 }
 
+func TestMergeAgentDelta_PreservesMetricsWhenOmitted(t *testing.T) {
+	base := state.CanonicalState{
+		Metrics:      state.StateMetrics{Confidence: 0.72},
+		Architecture: map[string]any{"pattern": "hexagonal"},
+	}
+	delta := state.CanonicalState{
+		Risks: []state.Risk{{Text: "New risk", Severity: "high"}},
+	}
+	out := state.MergeAgentDelta(base, delta)
+	if out.Metrics.Confidence != 0.72 {
+		t.Errorf("metrics confidence = %g, want 0.72", out.Metrics.Confidence)
+	}
+	if out.Architecture["pattern"] != "hexagonal" {
+		t.Errorf("architecture not preserved")
+	}
+	if len(out.Risks) != 1 {
+		t.Errorf("risks = %d, want 1", len(out.Risks))
+	}
+}
+
 // ── Merge: persistent conflict detection ─────────────────────────────────────
 
 func TestMerge_DetectsPersistentConflictAtIteration3(t *testing.T) {

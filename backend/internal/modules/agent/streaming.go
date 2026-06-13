@@ -59,7 +59,7 @@ func DispatchWithTokens(
 		slog.Int("skill_count", len(activeSkills)),
 	)
 
-	client, err := platA2A.NewClient(ctx, agent.Endpoint)
+	client, err := platA2A.NewStreamingClient(ctx, agent.Endpoint)
 	if err != nil {
 		return state.CanonicalState{}, fmt.Errorf("dispatch agent %s (stream): new client: %w", agent.ID, err)
 	}
@@ -86,14 +86,15 @@ func DispatchWithTokens(
 	if err != nil {
 		return state.CanonicalState{}, fmt.Errorf("dispatch agent %s (stream): convert state: %w", agent.ID, err)
 	}
+	merged := state.MergeAgentDelta(currentState, updated)
 
 	slog.Default().InfoContext(ctx, "agent state extracted (streaming)",
 		slog.String("agent_id", agent.ID),
 		slog.String("agent_name", agent.Name),
 		slog.String("role", string(role)),
-		slog.Float64("confidence", updated.Metrics.Confidence),
-		slog.Int("execution_plan_steps", len(updated.ExecutionPlan)),
+		slog.Float64("confidence", merged.Metrics.Confidence),
+		slog.Int("execution_plan_steps", len(merged.ExecutionPlan)),
 	)
 
-	return updated, nil
+	return merged, nil
 }

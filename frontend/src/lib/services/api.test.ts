@@ -32,6 +32,8 @@ import {
   attachSkill,
   detachSkill,
   getAgentSkills,
+  getGlobalLLMConfig,
+  updateGlobalLLMConfig,
 } from "./api";
 
 // ── fetch mock helpers ────────────────────────────────────────────────────────
@@ -433,5 +435,36 @@ describe("getAgentSkills", () => {
     mockFetch(200, skills);
     const result = await getAgentSkills("a1");
     expect(result).toHaveLength(1);
+  });
+});
+
+describe("global LLM config", () => {
+  it("fetches the current global LLM settings", async () => {
+    mockFetch(200, {
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      available: true,
+    });
+
+    const result = await getGlobalLLMConfig();
+    expect(result.provider).toBe("deepseek");
+    expect(result.available).toBe(true);
+    expect("credential_ref" in result).toBe(false);
+  });
+
+  it("updates the global LLM settings", async () => {
+    mockFetch(200, {
+      provider: "openai",
+      model: "gpt-5.4",
+      available: true,
+    });
+
+    const result = await updateGlobalLLMConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+    });
+
+    expect(result.provider).toBe("openai");
+    expect(result.model).toBe("gpt-5.4");
   });
 });
