@@ -75,6 +75,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 	sessSvc.SetEmitter(broadcaster)
 
 	iterEngine := itermod.NewEngine(agentmod.Dispatch, agentSvc, sessRepo, broadcaster, log.Slog())
+	iterEngine.SetStreamDispatch(agentmod.DispatchWithTokens)
 	iterSvc := itermod.NewService(iterEngine, sessSvc, sessRepo, log.Slog())
 
 	// ── Markdown writer ─────────────────────────────────────────────────────
@@ -85,6 +86,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 	// ── Handlers ────────────────────────────────────────────────────────────
 	agentHandler := agentmod.NewHandler(agentSvc, log.Slog())
 	sessHandler := sessmod.NewHandler(sessSvc, mdWriter, hintsSvc, outputDir, log.Slog())
+	sessHandler.SetEmitter(broadcaster)
 	iterHandler := itermod.NewHandler(iterSvc, broadcaster, log.Slog())
 
 	// ── Router ──────────────────────────────────────────────────────────────

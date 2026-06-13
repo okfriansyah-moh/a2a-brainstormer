@@ -41,6 +41,21 @@ type DispatchFunc func(
 	userFeedback string,
 ) (state.CanonicalState, error)
 
+// StreamDispatchFunc extends DispatchFunc with a tokenFn callback that is
+// called for each text token the agent emits during its Working phase.
+// Production code sets this via Engine.SetStreamDispatch; tests leave it nil
+// so DispatchFunc is used instead (no signature change to DispatchFunc).
+type StreamDispatchFunc func(
+	ctx context.Context,
+	ag agentpkg.Agent,
+	role agentpkg.Role,
+	activeSkills []agentpkg.Skill,
+	llmOverride *llm.LLMConfig,
+	current state.CanonicalState,
+	userFeedback string,
+	tokenFn func(token string),
+) (state.CanonicalState, error)
+
 // agentProvider is the iteration engine's narrow view of the agent domain.
 // Satisfied by *agentpkg.Service in production.
 type agentProvider interface {
@@ -59,11 +74,12 @@ type sessionStore interface {
 
 // Engine executes the ordered N-agent iteration pipeline.
 type Engine struct {
-	dispatch DispatchFunc
-	agents   agentProvider
-	store    sessionStore
-	emitter  sse.EventEmitter
-	logger   *slog.Logger
+	dispatch       DispatchFunc
+	streamDispatch StreamDispatchFunc // optional; set via SetStreamDispatch
+	agents         agentProvider
+	store          sessionStore
+	emitter        sse.EventEmitter
+	logger         *slog.Logger
 }
 
 // NewEngine constructs an Engine with the given dependencies.
@@ -84,6 +100,14 @@ func NewEngine(dispatch DispatchFunc, agents agentProvider, store sessionStore, 
 		emitter:  emitter,
 		logger:   logger,
 	}
+}
+
+// SetStreamDispatch registers a streaming dispatch function. When set, the
+// engine uses streamDispatch instead of dispatch so that per-token SSE events
+// are forwarded to the browser. Call this once during server initialisation
+// after NewEngine returns.
+func (e *Engine) SetStreamDispatch(fn StreamDispatchFunc) {
+	e.streamDispatch = fn
 }
 
 // Run executes the full iteration loop for the given session, starting from
@@ -336,6 +360,13 @@ func (e *Engine) runPipelinePass(
 			"role":      sa.Role,
 			"position":  sa.Position,
 		})
+		e.emitter.Emit(sess.ID, EventAgentPhase, map[string]any{
+			"iteration": iterNum,
+			"agent_id":  sa.AgentID,
+			"role":      sa.Role,
+			"phase":     "dispatching",
+			"detail":    "Sending canonical state to agent…",
+		})
 
 		confBefore := current.Metrics.Confidence
 		dispatchStart := time.Now()
@@ -353,7 +384,23 @@ func (e *Engine) runPipelinePass(
 		// interrupting a long LLM call mid-stream produces no useful output.
 		agentCallTimeout := config.GetAgentCallTimeout()
 		agentCtx, agentCancel := context.WithTimeout(context.WithoutCancel(ctx), agentCallTimeout)
-		out, err := e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback)
+
+		var out state.CanonicalState
+		if e.streamDispatch != nil {
+			// Capture loop variables for the token closure.
+			agentID := sa.AgentID
+			iterN := iterNum
+			tokenFn := func(token string) {
+				e.emitter.Emit(sess.ID, EventAgentToken, map[string]any{
+					"iteration": iterN,
+					"agent_id":  agentID,
+					"token":     token,
+				})
+			}
+			out, err = e.streamDispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback, tokenFn)
+		} else {
+			out, err = e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback)
+		}
 		agentCancel()
 		if err != nil {
 			// Agent dispatch failure is non-fatal. Log the error, emit an error

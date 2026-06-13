@@ -46,4 +46,24 @@ const (
 	// EventSessionFinalized is emitted by session.Service after a session is
 	// successfully approved / finalized.
 	EventSessionFinalized = "session.finalized"
+
+	// EventAgentPhase is emitted within a single agent dispatch to report
+	// granular progress (e.g. "dispatching" before the A2A call is made).
+	EventAgentPhase = "agent.phase"
+
+	// EventDocPhase is emitted during generate-document to report per-step
+	// progress inside the AI generator (enricher, draft, repair, complete).
+	EventDocPhase = "doc.phase"
+
+	// EventDocToken is emitted for each streamed LLM token during document
+	// generation when the configured provider supports streaming.
+	EventDocToken = "doc.token"
+
+	// EventDocComplete is emitted when a single document has been fully generated.
+	EventDocComplete = "doc.complete"
+
+	// EventAgentToken is emitted for each text token streamed by an iteration
+	// agent during its LLM generation phase. Requires the agent's A2A server to
+	// support streaming and the LLM provider to support SSE output.
+	EventAgentToken = "agent.token"
 )

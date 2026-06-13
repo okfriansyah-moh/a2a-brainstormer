@@ -1955,7 +1955,7 @@ Task 3 (Platform: LLM)       Task 4 (Platform: A2A)                             
 
 ---
 
-### Task 38 — Finalize Progress Streaming: SSE Phase Events + LLM Token Streaming + Poll Fallback
+### Task 38 — Finalize Progress Streaming: SSE Phase Events + LLM Token Streaming + Poll Fallback ✅ Task 38 completed
 
 **Goal:** Add live generation visibility to the document finalization flow: (A) named `doc.phase` SSE events emitted at each enricher and generation step so the finalize page shows a live step log; (B) real LLM token streaming via a new `StreamingLLMProvider` interface + OpenCode implementation that forwards tokens as `doc.token` SSE events so the document renders character-by-character; and (C) a frontend poll fallback that calls `GET /sessions/{id}` every 3 s if SSE disconnects before receiving `doc.complete`. Must not alter iteration SSE events (`agent.started`, `agent.complete`, `iteration.complete`) or break any flow fixed in Tasks 35–37. See §8.33.
 
