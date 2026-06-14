@@ -1,374 +1,263 @@
-# a2a-brainstorm
+# A2A Brainstorm
 
-a2a-brainstorm is a deterministic multi-agent design IDE — not a chatbot.
+> Turn a raw product idea into structured architecture documents through a controlled multi-agent pipeline.
 
-![a2a Infographic](assets/a2a-infographic.png)
+[![License](https://img.shields.io/github/license/okfriansyah-moh/a2a-brainstorm)](LICENSE)
 
-Input an idea, run an ordered pipeline of LLM-backed agents, detect convergence, and emit reviewable engineering artifacts (`architecture.md`, `roadmap.md`, `plan.md`, `readme.md`).
+**A2A Brainstorm** is a local design workspace — not a chatbot. You describe a product idea, pick a team of specialized AI agents (architect, critic, refiner, devil's advocate), and let them iterate on a shared design state until it converges. At the end, you export reviewable Markdown artifacts: `architecture.md`, `plan.md`, and `readme.md`.
 
-The golden rule: same input + same config = identical output. Agents pass structured canonical state through a fixed-role pipeline until convergence — never free-form chat.
+The golden rule: agents pass a **canonical state** through a fixed-role pipeline. Same input + same config = identical output. No free-form chat, no randomness between runs.
 
-## When to use a2a-brainstorm
+---
 
-Use it when you need **structured design artifacts** produced by multiple specialized agents with distinct roles — not a single LLM conversation.
+## How it works
 
 ```mermaid
 flowchart LR
-  subgraph input["Input"]
-    IDEA["Product idea"]
-    AGENTS["≥ 2 agents with fixed roles"]
+  subgraph You
+    IDEA["Describe your idea"]
+    AGENTS["Pick ≥ 2 agents"]
   end
 
-  subgraph pipeline["Deterministic pipeline"]
-    ITER["Iteration loop"]
-    MERGE["State merge + convergence check"]
+  subgraph Pipeline
+    P1["Agent 1 — builds a draft"]
+    P2["Agent 2 — reviews + critiques"]
+    P3["Agent 3 — refines"]
+    P4["Agent 4 — challenges assumptions"]
   end
 
-  subgraph output["Artifacts"]
+  subgraph Output
     ARCH["architecture.md"]
-    ROAD["roadmap.md"]
     PLAN["plan.md"]
     README["readme.md"]
   end
 
-  IDEA --> ITER
-  AGENTS --> ITER
-  ITER --> MERGE
-  MERGE -->|converged| output
-  MERGE -->|not converged| ITER
+  IDEA --> P1
+  AGENTS --> P1
+  P1 --> P2 --> P3 --> P4
+  P4 -->|"Not converged? Run again"| P1
+  P4 -->|"Converged"| Output
 ```
 
-### Scenarios
+Each full pass through all agents is one **iteration**. After each pass the engine checks whether the design has stabilised (confidence score). When it has — or when you hit the max-iteration limit — you finalise the session and download your documents.
 
-**1. You have a product idea and need architecture + roadmap documents**
+---
 
-Create a session with at least two agents, run iterations until convergence, then finalize to download Markdown artifacts.
+## Scenarios
+
+**1. You have a product idea and need architecture + planning documents**
+
+Open the UI, type your idea, select agents, and hit **Start Session**. Run iterations until the confidence bar turns green, then click **Finalize Session** and generate your documents.
 
 ```sh
 make start
-# Register agents via UI at http://localhost:5173/settings
-# Create session → Run pipeline → Finalize
+# Open http://localhost:5173
 ```
 
-**2. You want multiple agents to challenge and refine a design**
+**2. You want multiple agents to challenge and refine your design**
 
-Each agent has a fixed role (builder, reviewer, refiner, devil's advocate). Roles are assigned at session creation and do not alternate at runtime.
+Agents have fixed roles — builder, reviewer, refiner, devil's advocate. During the session you can see exactly what each agent contributed to the canonical state after every pass.
+
+Each agent shows a summary like:
+
+> *"Contributed a 6-step execution plan, 8 risks, 15 assumptions, and 15 open questions."*
+
+**3. You want to inject your own feedback mid-session**
+
+Between iterations, use **Inject Feedback** to add notes, constraints, or corrections that get folded into the canonical state before the next pass starts.
+
+**4. You need a quick clarification step before agents start**
+
+The session wizard includes an optional **Clarify your idea** screen. Answer guided questions about who the users are, what must work at launch, and what the non-negotiables are. Skip any you don't need.
+
+**5. You want to guide the tech stack — or let agents decide**
+
+On the session creation form, expand **Tech Constraints** to pin must-use technologies (e.g. Go, PostgreSQL, Docker) or flip the toggle to **Let agents decide** and let the pipeline propose and validate the stack itself.
+
+**6. You want to use a different LLM provider**
+
+Agents default to DeepSeek. Switch to Anthropic Claude or GitHub Copilot by editing `.env`. No code changes needed — provider and credentials are config only.
+
+```env
+GLOBAL_LLM_PROVIDER=claude
+GLOBAL_LLM_MODEL=claude-sonnet-4-5
+GLOBAL_LLM_CREDENTIAL_REF=CLAUDE_API_KEY
+CLAUDE_API_KEY=sk-ant-...
+```
+
+---
+
+## Installation
+
+### What you need
+
+| Tool                  | Version              |
+| --------------------- | -------------------- |
+| Docker + Docker Compose | latest             |
+| GNU Make              | 3.81+                |
+| Go                    | 1.26+ (local dev only) |
+| Node.js               | 20+ (local dev only) |
+| pnpm                  | 9+ (local dev only)  |
+
+### Docker (recommended — one command)
 
 ```sh
-curl -X POST http://localhost:8080/sessions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "idea": "A real-time collaborative document editor with conflict resolution",
-    "agent_ids": ["<agent-1-id>", "<agent-2-id>"],
-    "max_iterations": 5
-  }'
+cp .env.example .env
+# Open .env and set at least one API key:
+#   DEEPSEEK_API_KEY  or  CLAUDE_API_KEY  or  COPILOT_API_KEY
+make start
 ```
 
-**3. Your team uses different LLM providers**
+That's it. Docker Compose starts PostgreSQL, the backend, the agent binary, and the SvelteKit frontend, then runs all database migrations.
 
-Configure per-agent or global LLM settings. Supported providers: GitHub Copilot, Claude, and OpenCode (Copilot OAuth proxy). Credentials are env-var references only — never stored in source or the database.
+| Service       | URL                                                |
+| ------------- | -------------------------------------------------- |
+| Frontend UI   | http://localhost:5173                              |
+| Backend API   | http://localhost:8080                              |
+| Agent card    | http://localhost:9090/.well-known/agent-card.json  |
+
+---
+
+## Quick Start
+
+```sh
+# 1. Clone and configure
+git clone https://github.com/okfriansyah-moh/a2a-brainstorm
+cd a2a-brainstorm
+cp .env.example .env
+# Set at least one API key in .env
+
+# 2. Start everything
+make start
+
+# 3. Open the UI
+open http://localhost:5173
+```
+
+Then in the browser:
+
+1. Go to **Settings** → **Agents** and create at least 2 agents with different roles (`build`, `review`, `refine`, `devils advocate`)
+2. Go back to the home page and fill in your product idea
+3. Select your agents in the **Agent Pool**
+4. Optionally answer the clarifying questions and set tech constraints
+5. Click **Start Session**
+6. Click **Run Next Iteration** until the confidence reaches 90%+
+7. Click **Finalize Session** → select documents → **Generate Documents**
+8. Copy or download the generated Markdown
+
+---
+
+## LLM Providers
+
+| Provider         | Config value | Credential env var   |
+| ---------------- | ------------ | -------------------- |
+| DeepSeek         | `deepseek`   | `DEEPSEEK_API_KEY`   |
+| Anthropic Claude | `claude`     | `CLAUDE_API_KEY`     |
+| GitHub Copilot   | `copilot`    | `COPILOT_API_KEY`    |
+| OpenCode proxy   | `opencode`   | (OAuth via OpenCode) |
+
+Set the provider in `.env`:
 
 ```env
 GLOBAL_LLM_PROVIDER=deepseek
 GLOBAL_LLM_MODEL=deepseek-v4-flash
 GLOBAL_LLM_CREDENTIAL_REF=DEEPSEEK_API_KEY
-DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_API_KEY=your-key-here
 ```
 
-**4. You want to preview one agent's output before applying it**
+> **Security:** API keys are never stored in the database or config files. The `*_CREDENTIAL_REF` variables hold only the **name** of the env var, not the key itself. A missing key makes that agent unavailable — no silent fallback.
 
-Run a single agent against the current state, inspect the preview, then apply or discard.
+### GitHub Copilot via OpenCode (OAuth)
 
-```sh
-curl -X POST http://localhost:8080/sessions/<id>/preview/<agent-id>
-curl http://localhost:8080/sessions/<id>/preview/<agent-id>
-curl -X POST http://localhost:8080/sessions/<id>/preview/<agent-id>/apply
-```
-
-**5. You need real-time pipeline progress in the UI**
-
-Subscribe to Server-Sent Events while the iteration engine runs. No WebSocket, no polling.
-
-```sh
-curl -N http://localhost:8080/sessions/<id>/events
-```
-
-**6. You want to scale agent capacity**
-
-Run multiple agent containers and point the backend at all endpoints.
-
-```sh
-make docker-scale SCALE=3
-# Update AGENT_ENDPOINTS in .env with all agent URLs
-```
-
-## Installation
-
-### Prerequisites
-
-| Tool                    | Version                      |
-| ----------------------- | ---------------------------- |
-| Docker + Docker Compose | latest                       |
-| GNU Make                | 3.81+                        |
-| Go                      | 1.26+ (local dev only)       |
-| Node.js                 | 20+ (local dev only)         |
-| pnpm                    | 9+ (local dev only)          |
-| PostgreSQL              | 16 (provided via Docker)     |
-| `psql` CLI              | any (used by `make migrate`) |
-
-Quick checks:
-
-```sh
-make --version
-docker compose version
-node --version
-pnpm --version
-psql --version
-```
-
-### Docker (recommended)
-
-One command starts postgres, backend, agent, frontend, and applies migrations:
-
-```sh
-cp .env.example .env
-# Edit .env — set at least one API key (COPILOT_API_KEY or CLAUDE_API_KEY)
-make start
-```
-
-Endpoints after startup:
-
-| Service        | URL                                               |
-| -------------- | ------------------------------------------------- |
-| Frontend UI    | http://localhost:5173                             |
-| Backend API    | http://localhost:8080                             |
-| Agent A2A card | http://localhost:9090/.well-known/agent-card.json |
-
-### Local development (without Docker for Go/frontend)
-
-Start infrastructure only, then run services locally:
-
-```sh
-docker compose up -d postgres
-make migrate
-make build && make build-agent
-make frontend   # SvelteKit dev server
-# Run backend and agent binaries separately — see docs/STARTUP_GUIDE.md
-```
-
-### OpenCode (optional — GitHub Copilot OAuth)
-
-OpenCode is a separate opt-in container for Copilot OAuth (no plain API key). See [docs/STARTUP_GUIDE.md §9](docs/STARTUP_GUIDE.md) for the full walkthrough.
+If you prefer not to use a plain API key, OpenCode provides a Copilot OAuth flow:
 
 ```sh
 make opencode-up
-make opencode-auth    # one-time browser OAuth
-make opencode-status  # confirm health
+make opencode-auth    # opens browser for one-time GitHub OAuth
+make opencode-status  # confirm it's healthy
 ```
 
-## Quick Start
+Then set `AGENT_LLM_PROVIDER=opencode` in `.env`.
 
-```sh
-cp .env.example .env
-# Set COPILOT_API_KEY or CLAUDE_API_KEY in .env
+---
 
-make start
+## Commands
 
-# Open http://localhost:5173
-# 1. Register ≥ 2 agents under /settings
-# 2. Create a session with your idea
-# 3. Run iterations until convergence
-# 4. Finalize and download artifacts
-```
+All Docker operations go through the Makefile — do not run `docker compose` directly.
 
-Quality gate before committing changes:
+| Command              | Description                                           |
+| -------------------- | ----------------------------------------------------- |
+| `make start`         | Rebuild images, start all services, apply migrations  |
+| `make start-fast`    | Start services + migrations (no rebuild)              |
+| `make docker-down`   | Stop and remove containers                            |
+| `make docker-logs`   | Tail logs from all services                           |
+| `make docker-scale`  | Scale agent service (default `SCALE=2`)               |
+| `make migrate`       | Apply SQL migrations from `migrations/`               |
+| `make test`          | Run backend + agent Go tests                          |
+| `make lint`          | `go vet` + frontend type check                        |
+| `make check`         | Full build + vet + frontend build                     |
+| `make frontend`      | Start SvelteKit dev server (local dev)                |
+| `make opencode-up`   | Start OpenCode container (Copilot OAuth)              |
+| `make opencode-auth` | One-time GitHub Copilot OAuth flow                    |
+| `make opencode-down` | Stop OpenCode container                               |
 
-```sh
-make test
-make lint
-make check
-```
-
-## Command Reference
-
-All Docker operations use Makefile targets — do not run `docker compose` directly.
-
-| Command                | Description                                        |
-| ---------------------- | -------------------------------------------------- |
-| `make start`           | Rebuild images, start all services, apply migrations |
-| `make start-fast`      | Start all services + migrations (no image rebuild)   |
-| `make rebuild`         | Rebuild images and restart containers (no migrations) |
-| `make docker-up`       | Rebuild images and start all services in background  |
-| `make docker-up-fast`  | Start all services without rebuilding images         |
-| `make docker-down`     | Stop and remove containers                         |
-| `make docker-restart`  | Stop then start all services                       |
-| `make docker-ps`       | List running containers                            |
-| `make docker-scale`    | Scale agent service (default `SCALE=2`)            |
-| `make docker-logs`     | Tail logs from all services                        |
-| `make migrate`         | Apply all SQL migrations from `migrations/`        |
-| `make build`           | Build backend binary                               |
-| `make build-agent`     | Build agent binary                                 |
-| `make test`            | Run backend + agent Go tests                       |
-| `make lint`            | `go vet` (backend + agent) + frontend `pnpm check` |
-| `make check`           | Full build + vet + frontend check/build            |
-| `make frontend`        | Start frontend dev server                          |
-| `make frontend-build`  | Build frontend production bundle                   |
-| `make opencode-up`     | Start OpenCode container (Copilot OAuth)           |
-| `make opencode-auth`   | One-time GitHub Copilot OAuth flow                 |
-| `make opencode-status` | Print OpenCode health JSON                         |
-| `make opencode-down`   | Stop OpenCode container (auth volume preserved)    |
-
-Scale example:
-
-```sh
-make docker-scale SCALE=3
-```
-
-## Provider Support
-
-| Provider         | Config value | Credential env var   | Notes                                |
-| ---------------- | ------------ | -------------------- | ------------------------------------ |
-| GitHub Copilot   | `copilot`    | `COPILOT_API_KEY`    | Direct API key or via OpenCode OAuth |
-| Anthropic Claude | `claude`     | `CLAUDE_API_KEY`     | Direct API key                       |
-| OpenCode proxy   | `opencode`   | (OAuth via OpenCode) | Requires `make opencode-up` + auth   |
-
-| Variable                    | Scope    | Required | Description                                    |
-| --------------------------- | -------- | -------- | ---------------------------------------------- |
-| `GLOBAL_LLM_PROVIDER`       | Backend  | ✅       | Default LLM provider                           |
-| `GLOBAL_LLM_MODEL`          | Backend  | ✅       | Default model name                             |
-| `GLOBAL_LLM_CREDENTIAL_REF` | Backend  | ✅       | Env var **name** holding the API key           |
-| `AGENT_LLM_PROVIDER`        | Agent    | ❌       | Per-agent provider override                    |
-| `AGENT_LLM_CREDENTIAL_REF`  | Agent    | ❌       | Env var name for agent's API key               |
-| `AGENT_ENDPOINTS`           | Backend  | ✅       | Comma-separated agent base URLs                |
-| `VITE_API_BASE_URL`         | Frontend | ❌       | Backend URL (default: `http://localhost:8080`) |
-
-> **Security rule:** API keys are never stored in source code, config files, or the database. `*_CREDENTIAL_REF` variables hold the env var name only; keys are resolved at runtime. Missing credentials → agent unavailable (no silent fallback).
+---
 
 ## Architecture
 
 ```text
-frontend/ (SvelteKit)
-       |
-       | HTTP + SSE
-       v
-backend/ (Go 1.26 modular monolith)
+Frontend (SvelteKit)
+    |  HTTP + SSE
+    v
+Backend (Go — modular monolith)
   session · iteration · agent · state · convergence · markdown
-       |
-       +--- pgx/v5 ---> PostgreSQL 16
-       |
-       +--- A2A (a2a-go/v2) ---> agent/ (Go BrainstormExecutor)
-                                      |
-                                      v
-                               LLMProvider (Copilot / Claude / OpenCode)
+    |              |
+    v              v
+PostgreSQL 16    Agent binary (Go — A2A executor)
+                    |
+                    v
+              LLM Provider (DeepSeek / Claude / Copilot)
 ```
 
-```mermaid
-flowchart TB
-  subgraph ui["Frontend — SvelteKit"]
-    HOME["/ — session creation"]
-    WORK["/session/:id — pipeline workspace"]
-    SET["/settings — agents, skills, roles"]
-    HIST["/history — past sessions"]
-  end
+The backend runs a **sequential pipeline**: each agent receives the full canonical state, appends its contribution, and passes it to the next agent. After every full pass, a convergence engine scores the delta. Pipeline progress streams to the frontend over **Server-Sent Events** (no WebSocket, no polling).
 
-  subgraph backend["Backend — Go modular monolith"]
-    SESS[session]
-    ITER[iteration]
-    AGT[agent]
-    STATE[state]
-    CONV[convergence]
-    MD[markdown]
-    SSE[sse broadcaster]
-  end
-
-  subgraph infra["Infrastructure"]
-    PG[(PostgreSQL 16)]
-    AGENT[Agent binary]
-    LLM[LLM Provider]
-  end
-
-  ui -->|REST + SSE| backend
-  backend --> PG
-  backend -->|A2A SendMessage| AGENT
-  AGENT --> LLM
-  ITER --> SSE
-  SSE --> ui
-```
-
-a2a-brainstorm is a **local design workspace** — a modular monolith with A2A agent dispatch. It is not a chat application, not an autonomous agent swarm, and not a provider-agnostic AI runtime framework.
-
-## Repository Format
+### Repository layout
 
 ```text
 a2a-brainstorm/
-  backend/                  Go modular monolith (REST API + orchestration)
-    cmd/server/             Backend entry point
-    internal/modules/       Vertical slices: session, iteration, agent, state, ...
-    internal/platform/      Config, DB, LLM, SSE, A2A client
-  agent/                    A2A executor binary (BrainstormExecutor)
-    cmd/server/             Agent entry point
-    internal/executor/      A2A message handler
-    internal/llm/           Copilot, OpenCode provider implementations
-  frontend/                 SvelteKit structured workspace (not chat UI)
-    src/routes/             Pages: /, /session/:id, /settings, /history
-    src/lib/components/     PipelineStage, CanonicalStatePanel, RiskBoard, ...
-  migrations/               Append-only SQL migrations (001–005+)
-  docs/
-    A2A-agent-Brainstorm.md Architecture blueprint (source of truth)
-    PLAN.md                   Implementation task plan
-    STARTUP_GUIDE.md          Beginner-friendly local setup
-  .github/
-    agents/                   Agent definitions (task-runner, Explore)
-    skills/                   Pre-digested knowledge packages
-    copilot-instructions.md   Copilot global rules
-  AGENTS.md                   Agent & skill governance
-  docker-compose.yml          postgres, backend, agent, frontend, opencode
-  Makefile                    All Docker and quality-gate commands
+  backend/               Go modular monolith (REST API + pipeline engine)
+  agent/                 A2A executor binary (one instance per agent slot)
+  frontend/              SvelteKit workspace UI
+  migrations/            Append-only SQL files (001–005+)
+  docs/                  Architecture blueprint + implementation plan
+  docker-compose.yml     postgres, backend, agent, frontend, opencode
+  Makefile               All Docker and quality-gate commands
+  .env.example           Copy to .env and fill in API keys
 ```
 
-### Frontend routes
+### Frontend pages
 
-| Route                   | Purpose                                            |
-| ----------------------- | -------------------------------------------------- |
-| `/`                     | Home — new session creation form                   |
-| `/session/:id`          | Session workspace — sequential agent pipeline view |
-| `/session/:id/finalize` | Export view — generation log + download artifacts  |
-| `/settings`             | Unified settings — Agents, Skills, Roles tabs      |
-| `/settings/agent/new`   | Create new agent                                   |
-| `/settings/agent/:id`   | Edit existing agent                                |
-| `/settings/skill/new`   | Create new skill                                   |
-| `/settings/skill/:id`   | Edit existing skill                                |
-| `/history`              | Session history — stats + past sessions table      |
-| `/agents`               | Redirects to `/settings?tab=agents`                |
-| `/skills`               | Redirects to `/settings?tab=skills`                |
+| Route              | What you do there                                         |
+| ------------------ | --------------------------------------------------------- |
+| `/`                | Create a new session (idea + agents + constraints)        |
+| `/session/:id`     | Watch the pipeline run, inject feedback, finalise         |
+| `/settings`        | Manage agents, skills, and roles                          |
+| `/history`         | Browse past sessions and their generated documents        |
 
-### API workflow
-
-```sh
-# Register at least 2 agents (via UI or API)
-curl -X POST http://localhost:8080/agents -H "Content-Type: application/json" -d '{...}'
-
-# Create a session
-curl -X POST http://localhost:8080/sessions -H "Content-Type: application/json" -d '{...}'
-
-# Run an iteration
-curl -X POST http://localhost:8080/sessions/<session-id>/iterate
-
-# Get current state
-curl http://localhost:8080/sessions/<session-id>
-
-# Finalize and export artifacts
-curl -X POST http://localhost:8080/sessions/<session-id>/finalize
-```
+---
 
 ## Contributing
 
-Read [docs/A2A-agent-Brainstorm.md](docs/A2A-agent-Brainstorm.md), [docs/PLAN.md](docs/PLAN.md), and [AGENTS.md](AGENTS.md) before changing behavior.
+Before changing behaviour, read:
 
-- Architecture invariants and API contracts live in `docs/A2A-agent-Brainstorm.md` (read-only after design lock).
-- Implementation tasks and deep knowledge reference live in `docs/PLAN.md`.
-- Agent and skill governance lives in `AGENTS.md` and `.github/skills/`.
-- Migrations are append-only — never modify existing files in `migrations/`.
-- Every change must pass the full quality gate: `make test` → `make lint` → `make check`.
+- `docs/A2A-agent-Brainstorm.md` — architecture source of truth (read-only after design lock)
+- `docs/PLAN.md` — implementation tasks and deep reference (§8 read-only during execution)
+- `AGENTS.md` — agent and skill governance
 
-See [docs/STARTUP_GUIDE.md](docs/STARTUP_GUIDE.md) for detailed local development setup.
+Rules:
+- Migrations are **append-only** — never modify existing files in `migrations/`
+- Every change must pass the full quality gate: `make test` → `make lint` → `make check`
+- No direct SQL in module code — use `repository.go` files only
+- No direct LLM SDK calls in modules — use the `LLMProvider` interface only
+
+For detailed local dev setup, see [docs/STARTUP_GUIDE.md](docs/STARTUP_GUIDE.md).

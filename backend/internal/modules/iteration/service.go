@@ -125,9 +125,8 @@ type PreviewResponse struct {
 }
 
 // TriggerIteration loads the session, seeds or continues the canonical state,
-// and runs the full iteration engine loop (which repeats until quality
-// convergence or the maxIter cap). It returns an IterationResult containing
-// the final CanonicalState and convergence status.
+// and runs exactly one iteration pass through the N-agent pipeline. Call again
+// to advance to the next pass until quality convergence or the maxIter cap.
 //
 // Returns ErrSessionTerminal if the session status is "approved".
 // Returns ErrIterationInFlight if another operation holds the session lock.
@@ -204,26 +203,25 @@ func (s *Service) TriggerIteration(ctx context.Context, sessionID string, userFe
 		)
 	}
 
-	result, err := s.engine.Run(ctx, sess, initial, userFeedback)
+	result, converged, err := s.engine.Run(ctx, sess, initial, userFeedback)
 	if err != nil {
 		// Reset to active so the session can be retried.
 		_ = s.store.UpdateStatus(context.Background(), sessionID, session.StatusActive)
 		return IterationResult{}, fmt.Errorf("trigger iteration: run engine: %w", err)
 	}
 
-	s.logger.InfoContext(ctx, "iteration completed",
+	s.logger.InfoContext(ctx, "iteration pass completed",
 		slog.String("session_id", sessionID),
 		slog.Int("iteration", result.Meta.Iteration),
 		slog.Float64("confidence", result.Metrics.Confidence),
+		slog.Bool("converged", converged),
 	)
 
-	// The engine always marks the session "converged" on a successful run
-	// (either by quality convergence or by exhausting max iterations).
 	return IterationResult{
 		SessionID: sessionID,
 		Iteration: result.Meta.Iteration,
 		State:     result,
-		Converged: true,
+		Converged: converged,
 	}, nil
 }
 

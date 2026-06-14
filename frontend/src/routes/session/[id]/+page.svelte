@@ -131,6 +131,18 @@
   /** Live pipeline pass from SSE iteration.start (accurate while a pass runs). */
   let pipelinePassNumber = 0;
 
+  /** Agent currently executing (from agent.started SSE). */
+  let activeAgentId: string | null = null;
+
+  /** Shown briefly between iteration.complete and the next agent.started. */
+  let passTransitionMessage = "";
+  let awaitingPassStart = false;
+
+  /** Wall-clock tick for elapsed-time labels while an agent runs. */
+  let activityClock = Date.now();
+  let activityClockTimer: ReturnType<typeof setInterval> | null = null;
+  let agentActivityStartedAt: number | null = null;
+
   /**
    * Map of agentId → true while a preview dispatch is in flight for that agent.
    * Used to disable per-agent buttons during the request.
@@ -155,11 +167,127 @@
     return Math.min(100, Math.round(raw > 1 ? raw : raw * 100));
   })();
 
-  /** Pass label: SSE live counter while running, else persisted meta.iteration. */
-  $: displayPass = pipelinePassNumber || currentIteration;
+  /**
+   * Pass label shown in headers, banners, and the run bar.
+   * While loading, use the live SSE pass counter. When idle, use persisted meta.
+   */
+  $: displayPass = $sessionStore.loading
+    ? pipelinePassNumber > 0
+      ? pipelinePassNumber
+      : Math.max(1, currentIteration + 1)
+    : currentIteration;
 
   /** Current iteration number (0 before first iteration). */
   $: currentIteration = $sessionStore.state?.meta?.iteration ?? 0;
+
+  /** Monotonic live pass counter from SSE — never regress to a completed pass. */
+  function syncLivePass(iteration: number | undefined, force = false) {
+    if (!iteration || iteration <= 0) return;
+    if (force) {
+      pipelinePassNumber = iteration;
+      return;
+    }
+    pipelinePassNumber = Math.max(pipelinePassNumber, iteration);
+  }
+
+  $: activeAgent = activeAgentId
+    ? ($sessionStore.agents.find((a) => a.id === activeAgentId) ?? null)
+    : null;
+
+  function agentCompletedPass(agentId: string, pass: number): boolean {
+    if (pass <= 0) return false;
+    return (agentPassHistory[agentId] ?? []).some((p) => p.iteration === pass);
+  }
+
+  /** True when live SSE says "done" for the current in-flight pass (not a stale badge). */
+  function agentDoneForCurrentPass(agentId: string): boolean {
+    const live = $sessionStore.agentStatuses[agentId];
+    if (live !== "done") return false;
+    if ($sessionStore.loading && pipelinePassNumber > 0) {
+      return agentCompletedPass(agentId, pipelinePassNumber);
+    }
+    return true;
+  }
+
+  function formatRole(role: string): string {
+    return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function formatElapsed(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    if (min > 0) return `${min}m ${sec}s`;
+    return `${sec}s`;
+  }
+
+  $: passIdleSummary = (() => {
+    if ($sessionStore.loading || converged || currentIteration <= 0) return "";
+    const next = currentIteration + 1;
+    if (maxIterations > 0 && next > maxIterations) {
+      return `Pass ${currentIteration} complete · max passes reached`;
+    }
+    return `Pass ${currentIteration} complete · ${confidencePct}% confidence · ready for pass ${next}`;
+  })();
+
+  $: pipelineActivityTitle = (() => {
+    if (!$sessionStore.loading || converged) return "";
+    if (passTransitionMessage) return passTransitionMessage;
+    const pass = displayPass > 0 ? displayPass : 1;
+    if (activeAgent) return `Pass ${pass} · ${activeAgent.name}`;
+    const runningIdx = stageStatuses.findIndex((s) => s === "running");
+    if (runningIdx >= 0) {
+      return `Pass ${pass} · ${$sessionStore.agents[runningIdx].name}`;
+    }
+    return `Pass ${pass} in progress`;
+  })();
+
+  $: pipelineActivityDetail = (() => {
+    if (!$sessionStore.loading || converged || passTransitionMessage) return "";
+    if (activeAgent) {
+      const detail = agentPhaseDetail[activeAgent.id];
+      const elapsed =
+        agentActivityStartedAt != null
+          ? formatElapsed(activityClock - agentActivityStartedAt)
+          : "";
+      if (detail && elapsed) return `${detail} · ${elapsed}`;
+      if (detail) return detail;
+      if (elapsed) {
+        return `${formatRole(activeAgent.role)} · thinking · ${elapsed}`;
+      }
+      return `${formatRole(activeAgent.role)} · waiting for model output…`;
+    }
+    const runningIdx = stageStatuses.findIndex((s) => s === "running");
+    if (runningIdx >= 0) {
+      return `${formatRole($sessionStore.agents[runningIdx].role)} · preparing…`;
+    }
+    return "Advancing to the next agent in sequence…";
+  })();
+
+  $: runningButtonLabel = (() => {
+    const pass = displayPass > 0 ? displayPass : 1;
+    return `Running pass ${pass}…`;
+  })();
+
+  $: runStatusPrimary = (() => {
+    if (!$sessionStore.loading) return "";
+    const pass = displayPass > 0 ? displayPass : 1;
+    return `Pass ${pass} in progress`;
+  })();
+
+  $: runStatusSecondary = (() => {
+    if (!$sessionStore.loading) return "";
+    if (passTransitionMessage) return passTransitionMessage;
+    if (activeAgent) {
+      const detail = agentPhaseDetail[activeAgent.id];
+      return detail || `${activeAgent.name} is working`;
+    }
+    const runningIdx = stageStatuses.findIndex((s) => s === "running");
+    if (runningIdx >= 0) {
+      return `${$sessionStore.agents[runningIdx].name} is running`;
+    }
+    return "Waiting for the next agent";
+  })();
 
   function recordPassContribution(
     agentId: string,
@@ -196,19 +324,18 @@
     return $sessionStore.agents.map((agent, i) => {
       const live = $sessionStore.agentStatuses[agent.id];
       if (live === "running") return "running" as const;
-      if (live === "done") return "done" as const;
       if (live === "error") return "error" as const;
+      if (agentDoneForCurrentPass(agent.id)) return "done" as const;
 
       if ($sessionStore.loading) {
         if (hasSSEData) {
-          // Infer "running" when all previous agents are confirmed "done".
+          // Infer "running" when all previous agents finished this pass.
           const allPrevDone = $sessionStore.agents
             .slice(0, i)
-            .every((a) => $sessionStore.agentStatuses[a.id] === "done");
+            .every((a) => agentDoneForCurrentPass(a.id));
           if (allPrevDone) return "running" as const;
-        } else {
-          // No SSE data yet — best-guess: first agent is running.
-          if (i === 0) return "running" as const;
+        } else if (i === 0) {
+          return "running" as const;
         }
       }
 
@@ -375,15 +502,24 @@
 
         if (evt.type === "iteration.start") {
           const d = evt.data as { iteration?: number } | null;
-          if (d?.iteration) pipelinePassNumber = d.iteration;
+          syncLivePass(d?.iteration, true);
+          activeAgentId = null;
           agentTokenBuffers = {};
           agentPhaseDetail = {};
           agentErrorMessages = {};
         }
 
         if (evt.type === "agent.started") {
-          const d = evt.data as { agent_id?: string } | null;
+          const d = evt.data as { agent_id?: string; iteration?: number } | null;
+          syncLivePass(d?.iteration);
           if (d?.agent_id) {
+            activeAgentId = d.agent_id;
+            agentActivityStartedAt = Date.now();
+            activityClock = agentActivityStartedAt;
+            if (awaitingPassStart) {
+              passTransitionMessage = "";
+              awaitingPassStart = false;
+            }
             const updatedErrors = { ...agentErrorMessages };
             delete updatedErrors[d.agent_id];
             agentErrorMessages = updatedErrors;
@@ -394,7 +530,12 @@
         }
 
         if (evt.type === "agent.phase") {
-          const d = evt.data as { agent_id?: string; detail?: string } | null;
+          const d = evt.data as {
+            agent_id?: string;
+            detail?: string;
+            iteration?: number;
+          } | null;
+          syncLivePass(d?.iteration);
           if (d?.agent_id && d?.detail) {
             agentPhaseDetail = { ...agentPhaseDetail, [d.agent_id]: d.detail };
           }
@@ -419,6 +560,7 @@
             agent_id?: string;
             iteration?: number;
           } | null;
+          syncLivePass(d?.iteration);
           if (d?.agent_id) {
             const iter = d.iteration ?? pipelinePassNumber;
             const agent = get(sessionStore).agents.find(
@@ -426,6 +568,9 @@
             );
             if (agent?.output && iter > 0) {
               recordPassContribution(d.agent_id, iter, agent);
+            }
+            if (d.agent_id === activeAgentId) {
+              activeAgentId = null;
             }
             const updatedPhase = { ...agentPhaseDetail };
             delete updatedPhase[d.agent_id];
@@ -438,10 +583,15 @@
 
         if (evt.type === "iteration.complete") {
           const d = evt.data as { converged?: boolean; iteration?: number } | null;
-          if (d?.iteration) pipelinePassNumber = d.iteration;
+          if (d?.iteration) {
+            syncLivePass(d.iteration, true);
+          }
+          activeAgentId = null;
+          agentActivityStartedAt = null;
+          passTransitionMessage = "";
+          awaitingPassStart = false;
           if (d?.converged) {
             converged = true;
-            sessionStore.setLoading(false);
           }
         }
         if (evt.type === "session.finalized") {
@@ -455,15 +605,24 @@
   }
 
   onMount(async () => {
+    activityClockTimer = setInterval(() => {
+      activityClock = Date.now();
+    }, 1000);
+
     if (!sessionId) return;
-    sessionStore.setLoading(true);
     loadError = "";
+    const shouldAutoStart = $page.url.searchParams.get("autostart") === "1";
     // Track whether the server reports an iteration is actively running so we
     // can stay in loading mode and watch SSE instead of re-enabling the button.
     let iterationInFlight = false;
+    let loadedIteration = 0;
     try {
       const session = await getSession(sessionId);
       iterationInFlight = session.status === "running";
+      if (iterationInFlight) {
+        sessionStore.setLoading(true);
+      }
+      loadedIteration = session.current_state?.meta?.iteration ?? 0;
       sessionStore.setSession(session.id, session.idea);
       maxIterations = session.max_iterations;
       if (session.current_state) {
@@ -509,7 +668,14 @@
       }
       connectSessionSSE();
       if (session.current_state?.meta?.iteration) {
-        pipelinePassNumber = session.current_state.meta.iteration;
+        const persisted = session.current_state.meta.iteration;
+        // While the server is still running, meta.iteration is the last *completed*
+        // pass — the live pass is usually one ahead.
+        if (iterationInFlight) {
+          syncLivePass(persisted + 1, true);
+        } else {
+          syncLivePass(persisted, true);
+        }
       }
     } catch (err) {
       loadError =
@@ -550,9 +716,27 @@
         }
       }, 5000);
     }
+
+    if (
+      shouldAutoStart &&
+      !loadError &&
+      !converged &&
+      !iterationInFlight &&
+      loadedIteration === 0
+    ) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("autostart");
+      const nextPath = url.pathname + (url.search ? url.search : "");
+      history.replaceState({}, "", nextPath);
+      await handleNextIteration();
+    }
   });
 
   onDestroy(() => {
+    if (activityClockTimer !== null) {
+      clearInterval(activityClockTimer);
+      activityClockTimer = null;
+    }
     sseClient?.close();
     clearIterRetry();
   });
@@ -569,9 +753,7 @@
       const result = await iterate(sessionId);
       sessionStore.updateState(result.state);
       converged = result.converged;
-      // Engine returned — clear loading regardless of any in-flight SSE
-      // events that may still be queued in the ring buffer.
-      if (result.converged) sessionStore.setLoading(false);
+      syncLivePass(result.state.meta?.iteration, true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // Another iteration is already running. Stay in loading state and let
@@ -641,7 +823,7 @@
       const result = await iterate(sessionId, feedback);
       sessionStore.updateState(result.state);
       converged = result.converged;
-      if (result.converged) sessionStore.setLoading(false);
+      syncLivePass(result.state.meta?.iteration, true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         // The backend still has an iteration in flight for this session.
@@ -757,6 +939,22 @@
       </button>
     </div>
   {/if}
+  {#if $sessionStore.loading && !converged && pipelineActivityTitle}
+    <div class="banner banner-activity" role="status" aria-live="polite">
+      <span class="dot-live"></span>
+      <div class="activity-copy">
+        <div class="activity-title">{pipelineActivityTitle}</div>
+        {#if pipelineActivityDetail}
+          <div class="activity-detail">{pipelineActivityDetail}</div>
+        {/if}
+      </div>
+    </div>
+  {:else if !$sessionStore.loading && passIdleSummary && !converged}
+    <div class="banner banner-pass-complete" role="status">
+      <span class="chip-ok">✓</span>
+      <span>{passIdleSummary}</span>
+    </div>
+  {/if}
 
   <div class="workspace">
     <!-- ── Pass summary bar ──────────────────────────────────────────── -->
@@ -768,9 +966,16 @@
           {#if maxIterations > 0}
             / {maxIterations}
           {/if}
+          {#if $sessionStore.loading && !converged}
+            <span class="pass-live-tag">Live</span>
+          {/if}
         </div>
         <div class="pass-sub">
-          Sequential · {$sessionStore.agents.length} agents · Ordered by position
+          {#if $sessionStore.loading && !converged && pipelineActivityDetail}
+            {pipelineActivityDetail}
+          {:else}
+            Sequential · {$sessionStore.agents.length} agents · Ordered by position
+          {/if}
         </div>
       </div>
       <div class="pass-actions">
@@ -790,7 +995,7 @@
             position={i + 1}
             status={stageStatuses[i] ?? "waiting"}
             passHistory={agentPassHistory[agent.id] ?? []}
-            activePass={stageStatuses[i] === "running" ? pipelinePassNumber : 0}
+            activePass={stageStatuses[i] === "running" ? displayPass : 0}
             streamingText={agentTokenBuffers[agent.id] ?? ""}
             phaseDetail={agentPhaseDetail[agent.id] ?? ""}
             errorMessage={agentErrorMessages[agent.id] ?? ""}
@@ -872,7 +1077,7 @@
             on:click={handleNextIteration}
             disabled={$sessionStore.loading}
           >
-            {$sessionStore.loading ? "Running…" : "Run Next Iteration"}
+            {$sessionStore.loading ? runningButtonLabel : "Run Next Iteration"}
           </button>
           <button
             class="btn-ghost"
@@ -914,12 +1119,16 @@
           <span class="chip-ok">✓ Converged — ready to finalize</span>
         {:else if $sessionStore.loading}
           <span class="chip-live">
-            <span class="dot-live"></span> Running pipeline…
+            <span class="dot-live"></span>
+            <span class="run-status-text">
+              <span class="run-status-primary">{runStatusPrimary}</span>
+              {#if runStatusSecondary}
+                <span class="run-status-secondary">{runStatusSecondary}</span>
+              {/if}
+            </span>
           </span>
         {:else if currentIteration > 0}
-          <span style="color:var(--ink-500);font-size:0.8125rem;">
-            Pass {currentIteration} complete · confidence {confidencePct}%
-          </span>
+          <span class="chip-ok">{passIdleSummary || `Pass ${currentIteration} complete · ${confidencePct}%`}</span>
         {:else}
           <span style="color:var(--ink-300);font-size:0.8125rem;">
             Not started
@@ -1127,6 +1336,82 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .banner-pass-complete {
+    background: var(--ok-bg);
+    color: var(--ok);
+    border: 1px solid var(--ok-line);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.875rem;
+  }
+
+  .banner-activity {
+    background: var(--accent-bg);
+    color: var(--accent-2);
+    border: 1px solid var(--accent-line);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .activity-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .activity-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--ink-900);
+  }
+
+  .activity-detail {
+    font-size: 0.8125rem;
+    color: var(--ink-600);
+  }
+
+  .pass-live-tag {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: var(--accent-bg);
+    color: var(--accent-2);
+    border: 1px solid var(--accent-line);
+    vertical-align: middle;
+  }
+
+  .run-status-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+  }
+
+  .run-status-primary {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--accent-2);
+  }
+
+  .run-status-secondary {
+    font-size: 0.75rem;
+    color: var(--ink-500);
+    max-width: 280px;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .btn-xs {
