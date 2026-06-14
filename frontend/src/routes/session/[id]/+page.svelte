@@ -1075,7 +1075,7 @@
             class="btn-primary"
             type="button"
             on:click={handleNextIteration}
-            disabled={$sessionStore.loading}
+            disabled={$sessionStore.loading || showFeedback}
           >
             {$sessionStore.loading ? runningButtonLabel : "Run Next Iteration"}
           </button>
@@ -1083,7 +1083,7 @@
             class="btn-ghost"
             type="button"
             on:click={handleToggleFeedback}
-            disabled={$sessionStore.loading}
+            disabled={$sessionStore.loading || showFeedback}
           >
             Inject Feedback
           </button>
@@ -1091,7 +1091,7 @@
             class="btn-ghost"
             type="button"
             on:click={handleFinalize}
-            disabled={$sessionStore.loading}
+            disabled={$sessionStore.loading || showFeedback}
           >
             Finalize Session
           </button>
@@ -1100,7 +1100,7 @@
             class="btn-primary"
             type="button"
             on:click={handleFinalize}
-            disabled={$sessionStore.loading}
+            disabled={$sessionStore.loading || showFeedback}
           >
             Finalize Session →
           </button>
@@ -1108,7 +1108,7 @@
             class="btn-ghost"
             type="button"
             on:click={handleToggleFeedback}
-            disabled={$sessionStore.loading}
+            disabled={$sessionStore.loading || showFeedback}
           >
             Inject Feedback
           </button>
