@@ -165,7 +165,9 @@ func (p *openAICompatProvider) GenerateStream(ctx context.Context, req LLMReques
 
 // readSSEStream parses `data: {json}` lines from the SSE body.
 func (p *openAICompatProvider) readSSEStream(ctx context.Context, body io.Reader, ch chan<- TokenChunk) {
+	const sseBufSize = 512 * 1024
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, sseBufSize), sseBufSize)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():

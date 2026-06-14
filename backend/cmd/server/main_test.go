@@ -26,15 +26,28 @@ func TestNewGlobalLLMProvider_UsesOpenCodeWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestNewGlobalLLMProvider_FallsBackToCopilot(t *testing.T) {
+func TestNewGlobalLLMProvider_ResolvesCopilotViaRegistry(t *testing.T) {
 	t.Setenv("GLOBAL_LLM_PROVIDER", "copilot")
 	t.Setenv("GLOBAL_LLM_MODEL", "gpt-4o")
 	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "TEST_COPILOT_KEY")
 	t.Setenv("TEST_COPILOT_KEY", "test-key")
 
 	provider := newGlobalLLMProvider()
+	if provider == nil {
+		t.Fatal("newGlobalLLMProvider() = nil, want Copilot provider")
+	}
 	if _, ok := provider.(*llm.CopilotProvider); !ok {
 		t.Fatalf("newGlobalLLMProvider() type = %T, want *llm.CopilotProvider", provider)
+	}
+}
+
+func TestNewGlobalLLMProvider_ReturnsNilOnUnknownProvider(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_PROVIDER", "not-a-real-provider")
+	t.Setenv("GLOBAL_LLM_MODEL", "gpt-4o")
+	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "TEST_COPILOT_KEY")
+
+	if provider := newGlobalLLMProvider(); provider != nil {
+		t.Fatalf("newGlobalLLMProvider() = %T, want nil for unknown provider", provider)
 	}
 }
 
@@ -78,7 +91,7 @@ func TestGlobalLLMConfigHandler_PutUpdatesEnvVars(t *testing.T) {
 	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "DEEPSEEK_API_KEY")
 
 	handler := globalLLMConfigHandler()
-	req := httptest.NewRequest(http.MethodPut, "/api/config/global-llm", strings.NewReader(`{"provider":"openai","model":"gpt-5.4","credential_ref":"OPENAI_API_KEY"}`))
+	req := httptest.NewRequest(http.MethodPut, "/api/config/global-llm", strings.NewReader(`{"provider":"openai","model":"gpt-5.4"}`))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -120,8 +133,8 @@ func TestGlobalLLMConfigHandler_PutPreservesCredentialRefWhenOmitted(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ServeHTTP() status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if gotCred := os.Getenv("GLOBAL_LLM_CREDENTIAL_REF"); gotCred != "DEEPSEEK_API_KEY" {
-		t.Fatalf("GLOBAL_LLM_CREDENTIAL_REF = %q, want %q", gotCred, "DEEPSEEK_API_KEY")
+	if gotCred := os.Getenv("GLOBAL_LLM_CREDENTIAL_REF"); gotCred != "OPENAI_API_KEY" {
+		t.Fatalf("GLOBAL_LLM_CREDENTIAL_REF = %q, want %q", gotCred, "OPENAI_API_KEY")
 	}
 }
 
@@ -131,7 +144,7 @@ func TestGlobalLLMConfigHandler_PutDefaultsToDeepSeek(t *testing.T) {
 	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "")
 
 	handler := globalLLMConfigHandler()
-	req := httptest.NewRequest(http.MethodPut, "/api/config/global-llm", strings.NewReader(`{"provider":"","model":"","credential_ref":""}`))
+	req := httptest.NewRequest(http.MethodPut, "/api/config/global-llm", strings.NewReader(`{"provider":"","model":""}`))
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)

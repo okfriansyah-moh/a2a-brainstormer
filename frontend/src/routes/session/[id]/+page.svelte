@@ -167,27 +167,40 @@
     return Math.min(100, Math.round(raw > 1 ? raw : raw * 100));
   })();
 
-  /**
-   * Pass label shown in headers, banners, and the run bar.
-   * While loading, use the live SSE pass counter. When idle, use persisted meta.
-   */
-  $: displayPass = $sessionStore.loading
-    ? pipelinePassNumber > 0
-      ? pipelinePassNumber
-      : Math.max(1, currentIteration + 1)
-    : currentIteration;
-
   /** Current iteration number (0 before first iteration). */
   $: currentIteration = $sessionStore.state?.meta?.iteration ?? 0;
 
+  /**
+   * Pass label shown in headers, banners, and the run bar.
+   * Idle: mirror persisted meta.iteration (same source as passIdleSummary).
+   * Loading: show the in-flight pass from SSE, never below completed + 1.
+   */
+  $: displayPass = $sessionStore.loading
+    ? Math.max(pipelinePassNumber, currentIteration + 1)
+    : currentIteration;
+
   /** Monotonic live pass counter from SSE — never regress to a completed pass. */
-  function syncLivePass(iteration: number | undefined, force = false) {
+  function syncLivePass(iteration: number | undefined) {
     if (!iteration || iteration <= 0) return;
-    if (force) {
-      pipelinePassNumber = iteration;
-      return;
-    }
     pipelinePassNumber = Math.max(pipelinePassNumber, iteration);
+  }
+
+  /** Align the live counter with persisted meta when a pass finishes or page idles. */
+  function snapPipelinePassToState() {
+    const completed = get(sessionStore).state?.meta?.iteration ?? 0;
+    if (completed > 0) {
+      pipelinePassNumber = completed;
+    }
+  }
+
+  /** Shared preflight for normal iteration and feedback-injection runs. */
+  function beginPipelinePass() {
+    const nextPass = (get(sessionStore).state?.meta?.iteration ?? 0) + 1;
+    syncLivePass(nextPass);
+    sessionStore.setLoading(true);
+    plainIterPending = true;
+    actionError = "";
+    previewMap = {};
   }
 
   $: activeAgent = activeAgentId
@@ -203,8 +216,8 @@
   function agentDoneForCurrentPass(agentId: string): boolean {
     const live = $sessionStore.agentStatuses[agentId];
     if (live !== "done") return false;
-    if ($sessionStore.loading && pipelinePassNumber > 0) {
-      return agentCompletedPass(agentId, pipelinePassNumber);
+    if ($sessionStore.loading && displayPass > 0) {
+      return agentCompletedPass(agentId, displayPass);
     }
     return true;
   }
@@ -502,7 +515,7 @@
 
         if (evt.type === "iteration.start") {
           const d = evt.data as { iteration?: number } | null;
-          syncLivePass(d?.iteration, true);
+          syncLivePass(d?.iteration);
           activeAgentId = null;
           agentTokenBuffers = {};
           agentPhaseDetail = {};
@@ -562,7 +575,7 @@
           } | null;
           syncLivePass(d?.iteration);
           if (d?.agent_id) {
-            const iter = d.iteration ?? pipelinePassNumber;
+            const iter = d.iteration ?? displayPass;
             const agent = get(sessionStore).agents.find(
               (a) => a.id === d.agent_id,
             );
@@ -584,7 +597,7 @@
         if (evt.type === "iteration.complete") {
           const d = evt.data as { converged?: boolean; iteration?: number } | null;
           if (d?.iteration) {
-            syncLivePass(d.iteration, true);
+            syncLivePass(d.iteration);
           }
           activeAgentId = null;
           agentActivityStartedAt = null;
@@ -672,9 +685,9 @@
         // While the server is still running, meta.iteration is the last *completed*
         // pass — the live pass is usually one ahead.
         if (iterationInFlight) {
-          syncLivePass(persisted + 1, true);
+          syncLivePass(persisted + 1);
         } else {
-          syncLivePass(persisted, true);
+          syncLivePass(persisted);
         }
       }
     } catch (err) {
@@ -741,45 +754,63 @@
     clearIterRetry();
   });
 
-  async function handleNextIteration() {
-    if ($sessionStore.loading || !sessionId || converged) return;
-    sessionStore.setLoading(true);
-    plainIterPending = true;
-    actionError = "";
-    // Clear any local previews — a full pipeline pass supersedes them.
-    previewMap = {};
+  async function runPipelinePass(userFeedback?: string) {
+    if ($sessionStore.loading || !sessionId) return;
+    if (converged && !userFeedback) return;
+
+    const previousConverged = converged;
+    const feedback = userFeedback?.trim();
+    if (userFeedback !== undefined && !feedback) return;
+
+    if (feedback) {
+      converged = false;
+    }
+
+    beginPipelinePass();
+
     let iterInFlight = false;
     try {
-      const result = await iterate(sessionId);
+      const result = await iterate(sessionId, feedback);
       sessionStore.updateState(result.state);
       converged = result.converged;
-      syncLivePass(result.state.meta?.iteration, true);
+      syncLivePass(result.state.meta?.iteration);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        // Another iteration is already running. Stay in loading state and let
-        // the SSE iteration.complete event clear it once the pass finishes.
         iterInFlight = true;
+        if (feedback) {
+          feedbackText = feedback;
+          showFeedback = true;
+          actionError =
+            "An iteration is already running. Your feedback has been saved — submit again when the current pass completes.";
+        }
       } else if (
         err instanceof TypeError &&
         /failed to fetch|networkerror|fetch/i.test(err.message)
       ) {
-        // Browser dropped the long-running connection or it never reached the
-        // server (offline, CORS, DNS). Start a background retry loop that polls
-        // getSession() to confirm whether the pipeline is running.
         iterInFlight = true;
-        startIterRetry(sessionId, false);
+        startIterRetry(sessionId, feedback ? previousConverged : false);
+      } else if (feedback) {
+        converged = previousConverged;
+        actionError =
+          err instanceof ApiError && err.body
+            ? err.body
+            : err instanceof Error
+              ? err.message
+              : "Iteration with feedback failed.";
       } else {
         actionError = err instanceof Error ? err.message : "Iteration failed.";
       }
     } finally {
-      // Always reset the pending flag — HTTP call is complete.
       plainIterPending = false;
-      // Only clear loading if the engine isn't already in-flight. For the 409
-      // case the SSE stream will fire iteration.complete which clears loading.
       if (!iterInFlight) {
         sessionStore.setLoading(false);
+        snapPipelinePassToState();
       }
     }
+  }
+
+  async function handleNextIteration() {
+    await runPipelinePass();
   }
 
   async function handleFinalize() {
@@ -809,60 +840,9 @@
     if ($sessionStore.loading) return;
 
     const feedback = feedbackText.trim();
-    const previousConverged = converged;
-    actionError = "";
     showFeedback = false;
     feedbackText = "";
-    // Optimistically un-converge so the UI immediately shows "running" state
-    // rather than staying on the finalize prompt during the long iterate call.
-    converged = false;
-    sessionStore.setLoading(true);
-    previewMap = {};
-    let iterInFlight = false;
-    try {
-      const result = await iterate(sessionId, feedback);
-      sessionStore.updateState(result.state);
-      converged = result.converged;
-      syncLivePass(result.state.meta?.iteration, true);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        // The backend still has an iteration in flight for this session.
-        // Restore the feedback text and re-show the panel so the user can
-        // resubmit once the current pass completes. Do NOT clear loading —
-        // the SSE iteration.complete event will do that.
-        iterInFlight = true;
-        feedbackText = feedback;
-        showFeedback = true;
-        converged = false;
-        actionError =
-          "An iteration is already running. Your feedback has been saved — submit again when the current pass completes.";
-      } else if (
-        err instanceof TypeError &&
-        /failed to fetch|networkerror|fetch/i.test(err.message)
-      ) {
-        // Browser dropped the long-running connection or it never reached the
-        // server (offline, CORS, DNS). Start a background retry loop; if the
-        // server never received the request, restore previousConverged so the
-        // UI is not stuck on an optimistically cleared converged flag.
-        iterInFlight = true;
-        startIterRetry(sessionId, previousConverged);
-      } else {
-        // If the backend rejects the feedback run, restore the converged state
-        // so the UI returns to the finalize prompt. Prefer the response body
-        // over the generic status message so the user sees the actual reason.
-        converged = previousConverged;
-        actionError =
-          err instanceof ApiError && err.body
-            ? err.body
-            : err instanceof Error
-              ? err.message
-              : "Iteration with feedback failed.";
-      }
-    } finally {
-      if (!iterInFlight) {
-        sessionStore.setLoading(false);
-      }
-    }
+    await runPipelinePass(feedback);
   }
 
   async function handlePreviewAgent(agentId: string) {

@@ -18,6 +18,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"a2a-brainstorm/backend/internal/platform/config"
 )
 
 const (
@@ -32,7 +34,7 @@ func init() {
 
 func newClaudeProvider(cfg LLMConfig, kr func(string) (string, error)) (LLMProvider, error) {
 	return &claudeProvider{
-		baseURL:       defaultAnthropicBaseURL,
+		baseURL:       config.GetAnthropicBaseURL(),
 		model:         cfg.Model,
 		credentialRef: cfg.CredentialRef,
 		keyResolver:   kr,
@@ -173,7 +175,9 @@ func (p *claudeProvider) GenerateStream(ctx context.Context, req LLMRequest) (<-
 // content_block_delta with delta.type=="text_delta" → emit text.
 // message_stop → emit Done:true and return.
 func (p *claudeProvider) readClaudeSSEStream(ctx context.Context, body io.Reader, ch chan<- TokenChunk) {
+	const sseBufSize = 512 * 1024
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, sseBufSize), sseBufSize)
 	var eventType string
 
 	for scanner.Scan() {

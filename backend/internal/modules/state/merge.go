@@ -59,13 +59,21 @@ func Merge(base, incoming CanonicalState) CanonicalState {
 
 // ── internal helpers ──────────────────────────────────────────────────────────
 
-// mergeMap merges two map[string]any values. If both are non-empty and equal,
-// the base is returned (stability). Otherwise the incoming value wins.
+// mergeMap unions two map[string]any values. Keys present only in base are
+// preserved; keys in incoming overwrite the same key in base. Empty incoming
+// returns a clone of base unchanged.
 func mergeMap(base, incoming map[string]any) map[string]any {
 	if len(incoming) == 0 {
 		return cloneMap(base)
 	}
-	return cloneMap(incoming)
+	if len(base) == 0 {
+		return cloneMap(incoming)
+	}
+	out := cloneMap(base)
+	for k, v := range incoming {
+		out[k] = v
+	}
+	return out
 }
 
 // cloneMap returns a shallow copy of m; returns nil if m is nil.

@@ -49,9 +49,10 @@ func NewRouter(deps Deps) http.Handler {
 	deps.SessionHandler.RegisterRoutes(mux)
 	deps.IterationHandler.RegisterRoutes(mux)
 
-	// Global LLM config — read-only env var reflection for the settings UI.
+	// Global LLM config — env reflection + runtime updates for the settings UI.
 	if deps.GlobalLLMHandler != nil {
 		mux.Handle("GET /api/config/global-llm", deps.GlobalLLMHandler)
+		mux.Handle("PUT /api/config/global-llm", deps.GlobalLLMHandler)
 	}
 
 	// Health check — no DB ping; just confirms the process is alive.

@@ -170,7 +170,9 @@ func (p *claudeProvider) GenerateStream(ctx context.Context, req LLMRequest) (<-
 }
 
 func (p *claudeProvider) readClaudeSSEStream(ctx context.Context, body io.Reader, ch chan<- TokenChunk) {
+	const sseBufSize = 512 * 1024
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, sseBufSize), sseBufSize)
 	var eventType string
 
 	for scanner.Scan() {

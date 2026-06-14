@@ -255,7 +255,8 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 		genCtx, genCancel := context.WithTimeout(r.Context(), config.GetFinalizeTimeout())
 		defer genCancel()
 
-		docs, merr := h.markdown.GenerateAll(genCtx, *sess.CurrentState, keys)
+		genState := state.EnrichIdeaFromSession(*sess.CurrentState, sess.Idea)
+		docs, merr := h.markdown.GenerateAll(genCtx, genState, keys)
 		if merr != nil {
 			if h.logger != nil {
 				h.logger.ErrorContext(r.Context(), "markdown generation failed",
@@ -280,7 +281,7 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 			// Pass the same context + keys used by GenerateAll so the writer
 			// honours the handler's finalize timeout and persists every selected
 			// document (not just architecture/roadmap).
-			if werr := h.markdown.WriteArtifacts(genCtx, *sess.CurrentState, h.outputDir, keys); werr != nil {
+			if werr := h.markdown.WriteArtifacts(genCtx, genState, h.outputDir, keys); werr != nil {
 				if h.logger != nil {
 					h.logger.ErrorContext(r.Context(), "markdown artifact write failed",
 						slog.String("session_id", id),
@@ -372,15 +373,17 @@ func (h *Handler) generateDocument(w http.ResponseWriter, r *http.Request) {
 	genCtx, cancel := context.WithTimeout(r.Context(), config.GetFinalizeTimeout())
 	defer cancel()
 
+	genState := state.EnrichIdeaFromSession(*sess.CurrentState, sess.Idea)
+
 	var docs map[string]shared.GeneratedDocument
 	if h.emitter != nil {
 		if pw, ok := h.markdown.(progressAwareMarkdownWriter); ok {
-			docs, err = pw.GenerateAllWithProgress(genCtx, *sess.CurrentState, []string{req.Key}, h.emitter, id)
+			docs, err = pw.GenerateAllWithProgress(genCtx, genState, []string{req.Key}, h.emitter, id)
 		} else {
-			docs, err = h.markdown.GenerateAll(genCtx, *sess.CurrentState, []string{req.Key})
+			docs, err = h.markdown.GenerateAll(genCtx, genState, []string{req.Key})
 		}
 	} else {
-		docs, err = h.markdown.GenerateAll(genCtx, *sess.CurrentState, []string{req.Key})
+		docs, err = h.markdown.GenerateAll(genCtx, genState, []string{req.Key})
 	}
 	if err != nil {
 		if h.logger != nil {

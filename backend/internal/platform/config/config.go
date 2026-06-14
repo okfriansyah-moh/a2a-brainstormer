@@ -76,9 +76,9 @@ func GetGlobalLLMCredentialRef() string {
 }
 
 // SetGlobalLLMConfig writes the global LLM defaults back to the runtime env.
-// Empty values fall back to the same DeepSeek defaults used at startup so the
-// settings page can always restore a valid provider/model/credential_ref pair.
-func SetGlobalLLMConfig(provider, model, credentialRef string) {
+// Empty values fall back to the same DeepSeek defaults used at startup.
+// CredentialRef is derived from the provider — never accepted from API callers.
+func SetGlobalLLMConfig(provider, model string) {
 	provider = strings.TrimSpace(provider)
 	if provider == "" {
 		provider = "deepseek"
@@ -87,15 +87,30 @@ func SetGlobalLLMConfig(provider, model, credentialRef string) {
 	if model == "" {
 		model = "deepseek-v4-flash"
 	}
-	credentialRef = strings.TrimSpace(credentialRef)
-	if credentialRef == "" {
-		// Preserve the current runtime/env credential ref when callers omit it.
-		credentialRef = GetGlobalLLMCredentialRef()
-	}
+	credentialRef := DefaultGlobalCredentialRef(provider)
 
 	os.Setenv("GLOBAL_LLM_PROVIDER", provider)
 	os.Setenv("GLOBAL_LLM_MODEL", model)
 	os.Setenv("GLOBAL_LLM_CREDENTIAL_REF", credentialRef)
+}
+
+// DefaultGlobalCredentialRef returns the canonical env var name for a provider's
+// API key. Used when persisting global LLM settings from the settings UI.
+func DefaultGlobalCredentialRef(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "copilot":
+		return "COPILOT_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "claude":
+		return "ANTHROPIC_API_KEY"
+	case "deepseek":
+		return "DEEPSEEK_API_KEY"
+	case "opencode":
+		return GetOpenCodeServerPasswordRef()
+	default:
+		return GetGlobalLLMCredentialRef()
+	}
 }
 
 // GetLLMAPIKey resolves a CredentialRef to its actual key value at runtime.

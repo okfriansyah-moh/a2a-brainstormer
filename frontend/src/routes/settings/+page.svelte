@@ -219,10 +219,6 @@
     } finally {
       agentRegistryStore.setLoading(false);
     }
-
-    if (activeTab === "global-llm") {
-      await loadGlobalLLM();
-    }
   });
 
   onDestroy(() => {

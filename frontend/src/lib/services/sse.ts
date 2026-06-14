@@ -80,7 +80,8 @@ export function createSSEClient(
           return;
         }
       } catch {
-        // Transient probe failure — retry on next error cycle.
+        // Transient probe failure — schedule another reconnect attempt.
+        scheduleReconnect();
         return;
       }
     }
@@ -141,6 +142,7 @@ export function createSSEClient(
     }
 
     onEvent({ id, type, data });
+    reconnectAttempts = 0;
   }
 
   connect();

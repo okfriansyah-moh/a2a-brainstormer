@@ -46,10 +46,10 @@ services:
       GLOBAL_OPENCODE_BASE_URL: ${GLOBAL_OPENCODE_BASE_URL:-http://opencode:4096}
       GLOBAL_OPENCODE_MODEL: ${GLOBAL_OPENCODE_MODEL:-github-copilot/claude-sonnet-4.6}
       FINALIZE_MODE: ${FINALIZE_MODE:-hybrid}
-      # Single-shot per doc: no rubric repair loop. Each retry doubles wall-clock
-      # time against a slow LLM (OpenCode + Claude ~5 min/turn). Override to 1-5
-      # only when you accept that cost.
-      AIGEN_MAX_REPAIRS: ${AIGEN_MAX_REPAIRS:-0}
+      # Rubric repair passes after the initial AI draft (0–5). Each retry adds
+      # one LLM call per document. When repairs are exhausted, the last AI draft
+      # is still returned (not the deterministic template).
+      AIGEN_MAX_REPAIRS: ${AIGEN_MAX_REPAIRS:-3}
       AIGEN_TEMPERATURE: ${AIGEN_TEMPERATURE:-0.2}
     depends_on:
       postgres:

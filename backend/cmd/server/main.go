@@ -278,8 +278,8 @@ func newGlobalLLMProvider() llm.LLMProvider {
 	}
 	p, err := llm.New(llmCfg, config.GetLLMAPIKey)
 	if err != nil {
-		// Unknown provider — fall back to copilot so the server still starts.
-		return llm.NewCopilotProvider(llmCfg, "", nil)
+		// Unknown provider — disable LLM-backed hints rather than silently falling back.
+		return nil
 	}
 	return p
 }
@@ -288,9 +288,8 @@ func newGlobalLLMProvider() llm.LLMProvider {
 // The response reflects current config and whether the credential is set.
 func globalLLMConfigHandler() http.Handler {
 	type request struct {
-		Provider      string `json:"provider"`
-		Model         string `json:"model"`
-		CredentialRef string `json:"credential_ref"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
 	}
 	type response struct {
 		Provider  string `json:"provider"`
@@ -306,7 +305,7 @@ func globalLLMConfigHandler() http.Handler {
 				return
 			}
 
-			config.SetGlobalLLMConfig(req.Provider, req.Model, req.CredentialRef)
+			config.SetGlobalLLMConfig(req.Provider, req.Model)
 		}
 
 		provider := config.GetGlobalLLMProvider()
