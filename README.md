@@ -1,6 +1,7 @@
 # A2A Brainstorm
 
 > Turn a raw product idea into structured architecture documents through a controlled multi-agent pipeline.
+![A2A Brainstorm infographic](assets/a2a-infographics.png)
 
 [![License](https://img.shields.io/github/license/okfriansyah-moh/a2a-brainstorm)](LICENSE)
 
