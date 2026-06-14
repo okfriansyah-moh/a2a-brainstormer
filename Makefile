@@ -1,7 +1,7 @@
 SCALE ?= 2
 
-.PHONY: start build build-agent \
-        docker-up docker-down docker-restart docker-ps \
+.PHONY: start start-fast rebuild build build-agent \
+        docker-up docker-up-fast docker-down docker-restart docker-ps \
         docker-logs docker-logs-postgres docker-logs-backend docker-logs-agent docker-logs-frontend \
         docker-scale \
         opencode-up opencode-down opencode-auth opencode-auth-check opencode-status opencode-logs \
@@ -13,8 +13,21 @@ export
 endif
 
 # ── One-command startup ──────────────────────────────────────────────────────
-# Starts all services (postgres, backend, agent, frontend) and applies migrations.
+# Starts all services (postgres, backend, agent, frontend), rebuilds images,
+# and applies migrations. Use start-fast to skip image rebuilds.
 start:
+	docker compose up -d --build
+	@echo "Waiting for postgres to be healthy..."
+	@until docker compose exec postgres pg_isready -U postgres > /dev/null 2>&1; do sleep 1; done
+	@$(MAKE) --no-print-directory migrate
+	@echo ""
+	@echo "All services started (images rebuilt):"
+	@echo "  Frontend : http://localhost:${FRONTEND_HOST_PORT:-5173}"
+	@echo "  Backend  : http://localhost:${BACKEND_HOST_PORT:-8080}"
+	@echo "  Agent    : http://localhost:${AGENT_HOST_PORT:-9090}"
+
+# Same as start but reuses existing images (faster when code has not changed).
+start-fast:
 	docker compose up -d
 	@echo "Waiting for postgres to be healthy..."
 	@until docker compose exec postgres pg_isready -U postgres > /dev/null 2>&1; do sleep 1; done
@@ -25,6 +38,10 @@ start:
 	@echo "  Backend  : http://localhost:${BACKEND_HOST_PORT:-8080}"
 	@echo "  Agent    : http://localhost:${AGENT_HOST_PORT:-9090}"
 
+# Rebuild and restart containers without running migrations.
+rebuild:
+	docker compose up -d --build
+
 # ── Go ──────────────────────────────────────────────────────────────────────
 build:
 	cd backend && go build ./...
@@ -34,6 +51,9 @@ build-agent:
 
 # ── Docker ──────────────────────────────────────────────────────────────────
 docker-up:
+	docker compose up -d --build
+
+docker-up-fast:
 	docker compose up -d
 
 docker-down:
@@ -45,7 +65,7 @@ docker-ps:
 	docker compose ps
 
 docker-scale:
-	docker compose up -d --scale agent=$(SCALE)
+	docker compose up -d --build --scale agent=$(SCALE)
 
 docker-logs:
 	docker compose logs -f

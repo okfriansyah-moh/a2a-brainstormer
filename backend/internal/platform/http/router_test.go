@@ -115,3 +115,17 @@ func TestRequestLoggerMiddleware_NilLoggerPassesThrough(t *testing.T) {
 		t.Errorf("nil logger passthrough: want 204, got %d", rec.Code)
 	}
 }
+
+func TestRequestLogLevel_SessionEventsNotFoundIsInfo(t *testing.T) {
+	level := requestLogLevel(http.MethodGet, "/sessions/abc/events", http.StatusNotFound)
+	if level != slog.LevelInfo {
+		t.Fatalf("session events 404: want INFO, got %v", level)
+	}
+}
+
+func TestRequestLogLevel_OtherNotFoundStaysWarn(t *testing.T) {
+	level := requestLogLevel(http.MethodGet, "/sessions/missing", http.StatusNotFound)
+	if level != slog.LevelWarn {
+		t.Fatalf("session GET 404: want WARN, got %v", level)
+	}
+}

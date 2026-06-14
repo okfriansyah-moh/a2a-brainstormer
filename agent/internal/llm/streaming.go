@@ -5,9 +5,10 @@ import "context"
 
 // TokenChunk is a single token emitted during a streaming LLM generation.
 type TokenChunk struct {
-	Text string
-	Done bool
-	Err  error
+	Text         string
+	Done         bool
+	Err          error
+	FinishReason string
 }
 
 // StreamingLLMProvider extends LLMProvider with a streaming generation method.

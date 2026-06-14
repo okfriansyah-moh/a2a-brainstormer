@@ -240,6 +240,25 @@ func TestGenerator_Enhance_RepairThenSuccess(t *testing.T) {
 	}
 }
 
+func TestGenerator_Enhance_HybridReturnsAIDraftWhenRubricFails(t *testing.T) {
+	bundle := aigen.SkillBundle{Skills: []aigen.Skill{{Name: "x", Prompt: "p"}}}
+	short := "# r\n\n## Overview\n\n" + strings.Repeat("a ", 200) + "\n"
+	stub := &stubProvider{responses: []string{short}}
+	g := aigen.New(stub, bundle, 0, 0.2, aigen.ModeHybrid, slog.Default())
+
+	scaffold := newReadmeScaffold()
+	out, err := g.Enhance(context.Background(), state.CanonicalState{}, map[string]shared.GeneratedDocument{"readme": scaffold})
+	if err != nil {
+		t.Fatalf("hybrid mode must return AI draft on rubric failure: %v", err)
+	}
+	if out["readme"].Content == scaffold.Content {
+		t.Errorf("expected AI draft content, got deterministic scaffold")
+	}
+	if out["readme"].Source != "ai" {
+		t.Errorf("source = %q, want ai", out["readme"].Source)
+	}
+}
+
 func TestGenerator_Enhance_HybridFallbackOnLLMError(t *testing.T) {
 	bundle := aigen.SkillBundle{Skills: []aigen.Skill{{Name: "x", Prompt: "p"}}}
 	stub := &stubProvider{errs: []error{errors.New("boom")}}

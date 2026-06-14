@@ -1,6 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"a2a-brainstorm/backend/internal/platform/llm"
@@ -21,15 +26,28 @@ func TestNewGlobalLLMProvider_UsesOpenCodeWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestNewGlobalLLMProvider_FallsBackToCopilot(t *testing.T) {
+func TestNewGlobalLLMProvider_ResolvesCopilotViaRegistry(t *testing.T) {
 	t.Setenv("GLOBAL_LLM_PROVIDER", "copilot")
 	t.Setenv("GLOBAL_LLM_MODEL", "gpt-4o")
 	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "TEST_COPILOT_KEY")
 	t.Setenv("TEST_COPILOT_KEY", "test-key")
 
 	provider := newGlobalLLMProvider()
+	if provider == nil {
+		t.Fatal("newGlobalLLMProvider() = nil, want Copilot provider")
+	}
 	if _, ok := provider.(*llm.CopilotProvider); !ok {
 		t.Fatalf("newGlobalLLMProvider() type = %T, want *llm.CopilotProvider", provider)
+	}
+}
+
+func TestNewGlobalLLMProvider_ReturnsNilOnUnknownProvider(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_PROVIDER", "not-a-real-provider")
+	t.Setenv("GLOBAL_LLM_MODEL", "gpt-4o")
+	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "TEST_COPILOT_KEY")
+
+	if provider := newGlobalLLMProvider(); provider != nil {
+		t.Fatalf("newGlobalLLMProvider() = %T, want nil for unknown provider", provider)
 	}
 }
 
@@ -64,5 +82,89 @@ func TestHasDiscoveryHintsCredentials_CopilotMissingCredential(t *testing.T) {
 
 	if got := hasDiscoveryHintsCredentials("copilot"); got {
 		t.Fatalf("hasDiscoveryHintsCredentials(copilot) = %v, want false when credential is missing", got)
+	}
+}
+
+func TestGlobalLLMConfigHandler_PutUpdatesEnvVars(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_PROVIDER", "deepseek")
+	t.Setenv("GLOBAL_LLM_MODEL", "deepseek-v4-flash")
+	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "DEEPSEEK_API_KEY")
+
+	handler := globalLLMConfigHandler()
+	req := httptest.NewRequest(http.MethodPut, "/api/config/global-llm", strings.NewReader(`{"provider":"openai","model":"gpt-5.4"}`))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ServeHTTP() status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var got struct {
+		Provider  string `json:"provider"`
+		Model     string `json:"model"`
+		Available bool   `json:"available"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got.Provider != "openai" || got.Model != "gpt-5.4" {
+		t.Fatalf("Decode() = %+v, want provider=openai model=gpt-5.4", got)
+	}
+	if gotEnv := os.Getenv("GLOBAL_LLM_PROVIDER"); gotEnv != "openai" {
+		t.Fatalf("GLOBAL_LLM_PROVIDER = %q, want %q", gotEnv, "openai")
+	}
+	if gotCred := os.Getenv("GLOBAL_LLM_CREDENTIAL_REF"); gotCred != "OPENAI_API_KEY" {
+		t.Fatalf("GLOBAL_LLM_CREDENTIAL_REF = %q, want %q", gotCred, "OPENAI_API_KEY")
+	}
+}
+
+func TestGlobalLLMConfigHandler_PutPreservesCredentialRefWhenOmitted(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_PROVIDER", "deepseek")
+	t.Setenv("GLOBAL_LLM_MODEL", "deepseek-v4-flash")
+	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "DEEPSEEK_API_KEY")
+
+	handler := globalLLMConfigHandler()
+	req := httptest.NewRequest(http.MethodPut, "/api/config/global-llm", strings.NewReader(`{"provider":"openai","model":"gpt-5.4"}`))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ServeHTTP() status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if gotCred := os.Getenv("GLOBAL_LLM_CREDENTIAL_REF"); gotCred != "OPENAI_API_KEY" {
+		t.Fatalf("GLOBAL_LLM_CREDENTIAL_REF = %q, want %q", gotCred, "OPENAI_API_KEY")
+	}
+}
+
+func TestGlobalLLMConfigHandler_PutDefaultsToDeepSeek(t *testing.T) {
+	t.Setenv("GLOBAL_LLM_PROVIDER", "")
+	t.Setenv("GLOBAL_LLM_MODEL", "")
+	t.Setenv("GLOBAL_LLM_CREDENTIAL_REF", "")
+
+	handler := globalLLMConfigHandler()
+	req := httptest.NewRequest(http.MethodPut, "/api/config/global-llm", strings.NewReader(`{"provider":"","model":""}`))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ServeHTTP() status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var got struct {
+		Provider  string `json:"provider"`
+		Model     string `json:"model"`
+		Available bool   `json:"available"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if got.Provider != "deepseek" || got.Model != "deepseek-v4-flash" {
+		t.Fatalf("Decode() = %+v, want provider=deepseek model=deepseek-v4-flash", got)
+	}
+	if gotCred := os.Getenv("GLOBAL_LLM_CREDENTIAL_REF"); gotCred != "DEEPSEEK_API_KEY" {
+		t.Fatalf("GLOBAL_LLM_CREDENTIAL_REF = %q, want %q", gotCred, "DEEPSEEK_API_KEY")
 	}
 }

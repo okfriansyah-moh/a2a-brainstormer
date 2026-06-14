@@ -158,14 +158,19 @@ func TestEngineConvergence(t *testing.T) {
 		Idea: map[string]any{"text": "test idea"},
 	}
 
-	result, err := eng.Run(context.Background(), sess, initial, "")
-	if err != nil {
-		t.Fatalf("Run returned unexpected error: %v", err)
+	current := initial
+	var err error
+	var converged bool
+	for pass := 1; pass <= 10 && !converged; pass++ {
+		current, converged, err = eng.Run(context.Background(), sess, current, "")
+		if err != nil {
+			t.Fatalf("Run pass %d returned unexpected error: %v", pass, err)
+		}
 	}
 
 	// Convergence must trigger at iteration 3.
-	if result.Meta.Iteration != 3 {
-		t.Errorf("expected convergence at iteration 3, got iteration %d", result.Meta.Iteration)
+	if current.Meta.Iteration != 3 {
+		t.Errorf("expected convergence at iteration 3, got iteration %d", current.Meta.Iteration)
 	}
 
 	// Session status must be updated to "converged".
@@ -237,9 +242,13 @@ func TestEnginePipelineOrder(t *testing.T) {
 		Idea: map[string]any{"text": "test idea"},
 	}
 
-	_, err := eng.Run(context.Background(), sess, initial, "")
-	if err != nil {
-		t.Fatalf("Run returned unexpected error: %v", err)
+	current := initial
+	var err error
+	for pass := 1; pass <= 2; pass++ {
+		current, _, err = eng.Run(context.Background(), sess, current, "")
+		if err != nil {
+			t.Fatalf("Run pass %d returned unexpected error: %v", pass, err)
+		}
 	}
 
 	// Must have at least 4 calls (2 passes × 2 agents).
@@ -295,16 +304,25 @@ func TestEngineMaxIterations(t *testing.T) {
 	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, maxIter)
 
-	result, err := eng.Run(context.Background(), sess, state.CanonicalState{
+	current := state.CanonicalState{
 		Idea: map[string]any{"text": "test idea"},
-	}, "")
-	if err != nil {
-		t.Fatalf("Run returned unexpected error: %v", err)
+	}
+	var err error
+	var converged bool
+	for pass := 1; pass <= maxIter; pass++ {
+		current, converged, err = eng.Run(context.Background(), sess, current, "")
+		if err != nil {
+			t.Fatalf("Run pass %d returned unexpected error: %v", pass, err)
+		}
 	}
 
 	// Engine ran all maxIter passes.
-	if result.Meta.Iteration != maxIter {
-		t.Errorf("expected iteration %d at max, got %d", maxIter, result.Meta.Iteration)
+	if current.Meta.Iteration != maxIter {
+		t.Errorf("expected iteration %d at max, got %d", maxIter, current.Meta.Iteration)
+	}
+
+	if !converged {
+		t.Error("expected converged=true when max iterations cap is reached")
 	}
 
 	// Session status must be updated to "converged" even when maxIter is reached.
@@ -386,11 +404,14 @@ func TestEngineMetaAgentsPopulated(t *testing.T) {
 	eng := NewEngine(mockDispatch, agentProvWithSkills, store, NoopEmitter{}, testLogger())
 	sess := twoAgentSession(sessID, agentAID, agentBID, 5)
 
-	result, err := eng.Run(context.Background(), sess, state.CanonicalState{
+	result, converged, err := eng.Run(context.Background(), sess, state.CanonicalState{
 		Idea: map[string]any{"text": "test idea"},
 	}, "")
 	if err != nil {
 		t.Fatalf("Run returned unexpected error: %v", err)
+	}
+	if converged {
+		t.Log("single pass converged in meta-agents test")
 	}
 
 	if len(result.Meta.Agents) != 2 {

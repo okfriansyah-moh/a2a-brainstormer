@@ -3,7 +3,12 @@
   import { goto } from "$app/navigation";
   import { agentRegistryStore } from "$lib/stores/agentRegistryStore";
   import { getSkills, createAgent, attachSkill } from "$lib/services/api";
-  import type { CreateAgentRequest } from "$lib/types";
+  import type { CreateAgentRequest, ProviderKind } from "$lib/types";
+  import {
+    ALL_PROVIDER_KINDS,
+    PROVIDER_CREDENTIAL_HINT,
+    PROVIDER_MODEL_PLACEHOLDER,
+  } from "$lib/types";
 
   // ── Form state ───────────────────────────────────────────────────────────
 
@@ -21,7 +26,13 @@
   let error = "";
 
   const roleOptions = ["build", "review", "refine", "devils_advocate"];
-  const providerOptions = ["copilot", "opencode", "claude"];
+  const providerOptions: ProviderKind[] = ALL_PROVIDER_KINDS;
+
+  let credentialHint = "";
+  let modelPlaceholder = "";
+
+  $: credentialHint = PROVIDER_CREDENTIAL_HINT[provider as ProviderKind] ?? "";
+  $: modelPlaceholder = PROVIDER_MODEL_PLACEHOLDER[provider as ProviderKind] ?? "e.g. gpt-4o";
 
   // ── Validation ───────────────────────────────────────────────────────────
 
@@ -155,7 +166,7 @@
         <input
           class="form-input"
           type="text"
-          placeholder="e.g. github-copilot/claude-sonnet-4.6 or gpt-4.1"
+          placeholder={modelPlaceholder}
           bind:value={model}
         />
       </div>
@@ -199,6 +210,9 @@
         bind:value={credentialRef}
         autocomplete="off"
       />
+      {#if credentialHint}
+        <div class="credential-hint">{credentialHint}</div>
+      {/if}
     </div>
 
     <!-- System Prompt -->
@@ -313,6 +327,16 @@
     font-size: 0.75rem;
     color: var(--ink-500);
     margin-bottom: 6px;
+  }
+
+  .credential-hint {
+    margin-top: 6px;
+    font-size: 0.75rem;
+    color: var(--ink-500);
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(11, 182, 217, 0.06);
+    border: 1px solid rgba(11, 182, 217, 0.15);
   }
 
   .muted-label {

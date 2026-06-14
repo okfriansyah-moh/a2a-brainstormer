@@ -112,22 +112,26 @@ function createSessionStore() {
           case "iteration.complete": {
             // The backend embeds the merged CanonicalState in this event so the
             // frontend can update in real-time without an extra GET /sessions/{id}.
-            // Only clear loading when the pipeline has converged — intermediate
-            // passes fire iteration.complete with converged=false before immediately
-            // emitting iteration.start for the next pass. Setting loading=false
-            // in that window creates a race where the UI briefly shows "idle" and
-            // allows a duplicate iterate/feedback call to slip through.
             const isConverged = payload?.["converged"] as boolean | undefined;
             const newState = payload?.["state"] as CanonicalState | undefined;
+            const doneStatuses: Record<string, AgentStatus> = {};
+            for (const agent of s.agents) {
+              doneStatuses[agent.id] = "done";
+            }
             if (newState) {
               return {
                 ...s,
                 state: newState,
                 iteration: newState.meta?.iteration ?? s.iteration,
-                loading: isConverged === true ? false : s.loading,
+                loading: false,
+                agentStatuses: doneStatuses,
               };
             }
-            return { ...s, loading: isConverged === true ? false : s.loading };
+            return {
+              ...s,
+              loading: false,
+              agentStatuses: doneStatuses,
+            };
           }
           case "agent.started": {
             if (!agentID) return s;

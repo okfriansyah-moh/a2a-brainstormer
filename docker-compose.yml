@@ -28,25 +28,28 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/a2a_brainstorm?sslmode=disable
       BACKEND_PORT: ${BACKEND_PORT:-8080}
-      GLOBAL_LLM_PROVIDER: ${GLOBAL_LLM_PROVIDER:-opencode}
-      GLOBAL_LLM_MODEL: ${GLOBAL_LLM_MODEL:-gpt-4o}
-      GLOBAL_LLM_CREDENTIAL_REF: ${GLOBAL_LLM_CREDENTIAL_REF:-COPILOT_API_KEY}
+      GLOBAL_LLM_PROVIDER: ${GLOBAL_LLM_PROVIDER:-deepseek}
+      GLOBAL_LLM_MODEL: ${GLOBAL_LLM_MODEL:-deepseek-v4-flash}
+      GLOBAL_LLM_CREDENTIAL_REF: ${GLOBAL_LLM_CREDENTIAL_REF:-DEEPSEEK_API_KEY}
       AGENT_ENDPOINTS: ${AGENT_ENDPOINTS:-http://agent:${AGENT_PORT:-9090}}
       MAX_ITERATIONS: ${MAX_ITERATIONS:-10}
       CONVERGENCE_THRESHOLD: ${CONVERGENCE_THRESHOLD:-0.02}
       ITERATION_TIMEOUT_SECONDS: ${ITERATION_TIMEOUT_SECONDS:-1800}
-      AGENT_CALL_TIMEOUT_SECONDS: ${AGENT_CALL_TIMEOUT_SECONDS:-600}
+      AGENT_CALL_TIMEOUT_SECONDS: ${AGENT_CALL_TIMEOUT_SECONDS:-1800}
+      AGENT_STREAM_IDLE_TIMEOUT_SECONDS: ${AGENT_STREAM_IDLE_TIMEOUT_SECONDS:-600}
       COPILOT_API_KEY: ${COPILOT_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
       OPENCODE_SERVER_USERNAME: ${OPENCODE_SERVER_USERNAME:-opencode}
       GLOBAL_OPENCODE_BASE_URL: ${GLOBAL_OPENCODE_BASE_URL:-http://opencode:4096}
       GLOBAL_OPENCODE_MODEL: ${GLOBAL_OPENCODE_MODEL:-github-copilot/claude-sonnet-4.6}
       FINALIZE_MODE: ${FINALIZE_MODE:-hybrid}
-      # Single-shot per doc: no rubric repair loop. Each retry doubles wall-clock
-      # time against a slow LLM (OpenCode + Claude ~5 min/turn). Override to 1-5
-      # only when you accept that cost.
-      AIGEN_MAX_REPAIRS: ${AIGEN_MAX_REPAIRS:-0}
+      # Rubric repair passes after the initial AI draft (0–5). Each retry adds
+      # one LLM call per document. When repairs are exhausted, the last AI draft
+      # is still returned (not the deterministic template).
+      AIGEN_MAX_REPAIRS: ${AIGEN_MAX_REPAIRS:-3}
       AIGEN_TEMPERATURE: ${AIGEN_TEMPERATURE:-0.2}
     depends_on:
       postgres:
@@ -72,15 +75,17 @@ services:
       - "${AGENT_HOST_PORT:-9090}:${AGENT_PORT:-9090}"
     environment:
       AGENT_PORT: ${AGENT_PORT:-9090}
-      AGENT_LLM_PROVIDER: ${AGENT_LLM_PROVIDER:-copilot}
-      AGENT_LLM_MODEL: ${AGENT_LLM_MODEL:-gpt-4o}
-      AGENT_LLM_CREDENTIAL_REF: ${AGENT_LLM_CREDENTIAL_REF:-COPILOT_API_KEY}
+      AGENT_LLM_PROVIDER: ${AGENT_LLM_PROVIDER:-deepseek}
+      AGENT_LLM_MODEL: ${AGENT_LLM_MODEL:-deepseek-v4-flash}
+      AGENT_LLM_CREDENTIAL_REF: ${AGENT_LLM_CREDENTIAL_REF:-DEEPSEEK_API_KEY}
       # AGENT_PUBLIC_URL is the URL the backend uses to call this container over the Docker network.
       # It is embedded in the A2A AgentCard's SupportedInterfaces so the backend's a2aclient
       # follows the correct internal hostname instead of localhost.
       AGENT_PUBLIC_URL: http://agent:${AGENT_PORT:-9090}
       COPILOT_API_KEY: ${COPILOT_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # OpenCode proxy (only used when AGENT_LLM_PROVIDER=opencode)
       AGENT_OPENCODE_BASE_URL: ${AGENT_OPENCODE_BASE_URL:-http://opencode:4096}
       AGENT_OPENCODE_MODEL: ${AGENT_OPENCODE_MODEL:-github/gpt-4o}

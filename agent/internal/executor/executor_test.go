@@ -318,6 +318,33 @@ func TestExtractJSON_ToleratesTrailingCommasInsideFencedJSON(t *testing.T) {
 	}
 }
 
+func TestExtractJSON_RepairsTruncatedObject(t *testing.T) {
+	raw := `{
+  "architecture": {
+    "layers": [
+      {
+        "name": "Frontend",
+        "responsibility": "User-facing web application for player profiles`
+
+	got, err := extractJSON(raw)
+	if err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+
+	state, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("extractJSON() type = %T, want map[string]any", got)
+	}
+	arch, ok := state["architecture"].(map[string]any)
+	if !ok {
+		t.Fatalf("architecture = %#v, want object", state["architecture"])
+	}
+	layers, ok := arch["layers"].([]any)
+	if !ok || len(layers) != 1 {
+		t.Fatalf("layers = %#v, want one layer", arch["layers"])
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	cases := []struct {
 		input string

@@ -92,7 +92,7 @@
         skill_overrides:
           Object.keys(skillOverrides).length > 0 ? skillOverrides : undefined,
       });
-      await goto(`/session/${response.id}`);
+      await goto(`/session/${response.id}?autostart=1`);
     } catch (err) {
       error = err instanceof Error ? err.message : "Failed to create session.";
     } finally {

@@ -21,6 +21,7 @@ import (
 	"a2a-brainstorm/backend/internal/modules/session"
 	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/config"
+	"a2a-brainstorm/backend/internal/platform/ctxidle"
 	"a2a-brainstorm/backend/internal/platform/llm"
 	"a2a-brainstorm/backend/internal/platform/sse"
 )
@@ -110,25 +111,26 @@ func (e *Engine) SetStreamDispatch(fn StreamDispatchFunc) {
 	e.streamDispatch = fn
 }
 
-// Run executes the full iteration loop for the given session, starting from
-// initialState, and returns the final CanonicalState regardless of the stop
-// reason (convergence, maxIter cap, or a fatal dispatch error).
+// Run executes exactly one iteration pass for the given session, starting from
+// initialState, and returns the merged CanonicalState plus whether the session
+// has reached a terminal state (quality convergence or max-iterations cap).
 //
-// Algorithm (§8.4 of docs/PLAN.md):
+// Each POST /sessions/{id}/iterate triggers one call to Run. The next pass
+// number is initialState.Meta.Iteration + 1. When the pass completes without
+// terminal convergence the session status is reset to "active" so the user can
+// review results and trigger the next pass manually.
 //
-//  1. For i = 1 … maxIter:
-//     a. Pass state through all session agents in ascending Position order.
-//     Each agent receives the cumulative output of the previous agent.
-//     b. Merge pipeline output with the pre-pass state (state.Merge).
-//     c. Set Meta.Iteration = i on the merged state.
-//     d. Persist the merged state (sessionStore.UpdateState).
-//     e. Evaluate convergence.Check(prev, merged). Break if converged.
-//  2. On convergence or maxIter: update session status to "converged".
+// Algorithm (§8.4 of docs/PLAN.md) — single pass per invocation:
+//  1. Pass state through all session agents in ascending Position order.
+//  2. Merge pipeline output with the pre-pass state (state.Merge).
+//  3. Set Meta.Iteration = pass number on the merged state.
+//  4. Persist the merged state (sessionStore.UpdateState).
+//  5. Evaluate convergence.Check(prev, merged) and max-iterations cap.
 //
 // Roles are read from sess.Agents[i].Role and are NEVER modified here.
-func (e *Engine) Run(ctx context.Context, sess session.Session, initialState state.CanonicalState, userFeedback string) (state.CanonicalState, error) {
+func (e *Engine) Run(ctx context.Context, sess session.Session, initialState state.CanonicalState, userFeedback string) (state.CanonicalState, bool, error) {
 	if len(sess.Agents) < 2 {
-		return initialState, fmt.Errorf("iteration engine: session %s requires at least 2 agents, got %d",
+		return initialState, false, fmt.Errorf("iteration engine: session %s requires at least 2 agents, got %d",
 			sess.ID, len(sess.Agents))
 	}
 
@@ -137,145 +139,127 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 		maxIter = config.GetMaxIterations()
 	}
 
-	e.logger.InfoContext(ctx, "pipeline starting",
+	current := initialState
+	passNum := current.Meta.Iteration + 1
+	if passNum < 1 {
+		passNum = 1
+	}
+	if passNum > maxIter {
+		return current, true, fmt.Errorf("iteration engine: session %s already reached max iterations (%d)",
+			sess.ID, maxIter)
+	}
+
+	e.logger.InfoContext(ctx, "pipeline pass starting",
 		slog.String("session_id", sess.ID),
 		slog.Int("agent_count", len(sess.Agents)),
 		slog.Int("max_iterations", maxIter),
-		slog.Int("resume_from_iteration", initialState.Meta.Iteration),
+		slog.Int("pass", passNum),
+		slog.Int("completed_passes", current.Meta.Iteration),
 	)
 
-	current := initialState
-
-	// stalledIter counts consecutive passes where every agent failed (confidence
-	// stays 0 and execution_plan remains empty). Two consecutive stalled passes
-	// mean no LLM is reachable — abort early rather than wasting all maxIter.
-	stalledIter := 0
-
-	for i := 1; i <= maxIter; i++ {
-		// Check if the session was finalized (approved) from another request
-		// (e.g. the user clicked Finalize while this iteration was in-flight).
-		// If so, stop immediately — continuing would waste LLM quota and write
-		// stale state on top of a session the user already approved.
-		// Use a fresh context so an exhausted iterCtx does not suppress the check.
-		statusCtx, statusCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		liveStatus, statusErr := e.store.GetStatus(statusCtx, sess.ID)
-		statusCancel()
-		if statusErr == nil {
-			if liveStatus == session.StatusApproved {
-				e.logger.InfoContext(ctx, "iteration aborted: session approved mid-run",
-					slog.String("session_id", sess.ID),
-					slog.Int("aborted_at_iteration", i),
-				)
-				return current, nil
-			}
-		}
-
-		// Build the agents list for the iteration.start event.
-		agentMetas := make([]map[string]any, len(sess.Agents))
-		for j, sa := range sess.Agents {
-			agentMetas[j] = map[string]any{
-				"agent_id": sa.AgentID,
-				"role":     sa.Role,
-				"position": sa.Position,
-			}
-		}
-		e.emitter.Emit(sess.ID, EventIterationStart, map[string]any{
-			"iteration": i,
-			"agents":    agentMetas,
-		})
-
-		pipelineOut, successCount, err := e.runPipelinePass(ctx, sess, current, i, userFeedback)
-		if err != nil {
-			return current, fmt.Errorf("iteration %d: pipeline pass: %w", i, err)
-		}
-
-		// Merge pipeline output with the pre-pass state (§8.5).
-		merged := state.Merge(current, pipelineOut)
-		merged.Meta.Iteration = i
-
-		// Persist after each full pass — not per-agent within a pass (§8.4).
-		// Use a fresh context so that an exhausted iterCtx does not prevent
-		// the state from being written before the next iteration starts.
-		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		persistErr := e.store.UpdateState(persistCtx, sess.ID, &merged)
-		persistCancel()
-		if persistErr != nil {
-			return merged, fmt.Errorf("iteration %d: persist state: %w", i, persistErr)
-		}
-
-		e.logger.InfoContext(ctx, "iteration pass complete",
+	// Check if the session was finalized (approved) from another request.
+	statusCtx, statusCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	liveStatus, statusErr := e.store.GetStatus(statusCtx, sess.ID)
+	statusCancel()
+	if statusErr == nil && liveStatus == session.StatusApproved {
+		e.logger.InfoContext(ctx, "iteration aborted: session approved mid-run",
 			slog.String("session_id", sess.ID),
-			slog.Int("iteration", i),
-			slog.Float64("confidence", merged.Metrics.Confidence),
-			slog.Int("execution_plan_steps", len(merged.ExecutionPlan)),
-			slog.Int("risks_count", len(merged.Risks)),
-			slog.Int("open_questions_count", len(merged.OpenQuestions)),
+			slog.Int("aborted_at_iteration", passNum),
 		)
-
-		converged := convergence.Check(current, merged)
-		e.emitter.Emit(sess.ID, EventIterationComplete, map[string]any{
-			"iteration":  i,
-			"converged":  converged,
-			"confidence": merged.Metrics.Confidence,
-			"state":      merged, // embed state so the frontend updates in real-time
-		})
-
-		// Quality convergence check (§8.6 conditions 1–3).
-		if converged {
-			e.logger.InfoContext(ctx, "convergence detected",
-				slog.String("session_id", sess.ID),
-				slog.Int("iteration", i),
-			)
-			convCtx, convCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if err := e.store.UpdateStatus(convCtx, sess.ID, session.StatusConverged); err != nil {
-				// Log the failure but do not mask the successful convergence result.
-				e.logger.WarnContext(ctx, "failed to update session status to converged",
-					slog.String("session_id", sess.ID),
-					slog.String("error", err.Error()),
-				)
-			}
-			convCancel()
-			return merged, nil
-		}
-
-		// Stall detection: if no agents succeeded in this pass (all LLM calls
-		// failed), there is no point running further iterations. After 2
-		// consecutive stalled passes abort early — no amount of retrying will
-		// produce useful output until the LLM provider is reachable again.
-		if successCount == 0 {
-			stalledIter++
-			if stalledIter >= 2 {
-				e.logger.WarnContext(ctx, "pipeline stalled: no agents succeeded for 2 consecutive iterations; aborting early",
-					slog.String("session_id", sess.ID),
-					slog.Int("stalled_iterations", stalledIter),
-				)
-				// Update current to the already-persisted merged state before
-				// breaking so the returned state matches what the engine wrote.
-				current = merged
-				break
-			}
-		} else {
-			stalledIter = 0
-		}
-
-		current = merged
+		return current, true, nil
 	}
 
-	// Max-iterations cap reached (§8.6 condition 5). Transition to "converged"
-	// so the user can still review and approve the final state.
-	e.logger.InfoContext(ctx, "max iterations reached without quality convergence",
+	agentMetas := make([]map[string]any, len(sess.Agents))
+	for j, sa := range sess.Agents {
+		agentMetas[j] = map[string]any{
+			"agent_id": sa.AgentID,
+			"role":     sa.Role,
+			"position": sa.Position,
+		}
+	}
+	e.emitter.Emit(sess.ID, EventIterationStart, map[string]any{
+		"iteration": passNum,
+		"agents":    agentMetas,
+	})
+
+	pipelineOut, successCount, err := e.runPipelinePass(ctx, sess, current, passNum, userFeedback)
+	if err != nil {
+		return current, false, fmt.Errorf("iteration %d: pipeline pass: %w", passNum, err)
+	}
+
+	merged := state.Merge(current, pipelineOut)
+	merged.Meta.Iteration = passNum
+
+	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	persistErr := e.store.UpdateState(persistCtx, sess.ID, &merged)
+	persistCancel()
+	if persistErr != nil {
+		return merged, false, fmt.Errorf("iteration %d: persist state: %w", passNum, persistErr)
+	}
+
+	e.logger.InfoContext(ctx, "iteration pass complete",
 		slog.String("session_id", sess.ID),
-		slog.Int("max_iterations", maxIter),
+		slog.Int("iteration", passNum),
+		slog.Float64("confidence", merged.Metrics.Confidence),
+		slog.Int("execution_plan_steps", len(merged.ExecutionPlan)),
+		slog.Int("risks_count", len(merged.Risks)),
+		slog.Int("open_questions_count", len(merged.OpenQuestions)),
+		slog.Int("agents_succeeded", successCount),
 	)
-	maxIterCtx, maxIterCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := e.store.UpdateStatus(maxIterCtx, sess.ID, session.StatusConverged); err != nil {
-		e.logger.WarnContext(ctx, "failed to update session status after max iterations",
+
+	qualityConverged := convergence.Check(current, merged)
+	atCap := passNum >= maxIter
+	terminal := qualityConverged || atCap
+
+	e.emitter.Emit(sess.ID, EventIterationComplete, map[string]any{
+		"iteration":  passNum,
+		"converged":  terminal,
+		"confidence": merged.Metrics.Confidence,
+		"state":      merged,
+	})
+
+	statusCtx2, statusCancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer statusCancel2()
+
+	switch {
+	case qualityConverged:
+		e.logger.InfoContext(ctx, "convergence detected",
 			slog.String("session_id", sess.ID),
-			slog.String("error", err.Error()),
+			slog.Int("iteration", passNum),
 		)
+		if err := e.store.UpdateStatus(statusCtx2, sess.ID, session.StatusConverged); err != nil {
+			e.logger.WarnContext(ctx, "failed to update session status to converged",
+				slog.String("session_id", sess.ID),
+				slog.String("error", err.Error()),
+			)
+		}
+	case atCap:
+		e.logger.InfoContext(ctx, "max iterations reached without quality convergence",
+			slog.String("session_id", sess.ID),
+			slog.Int("max_iterations", maxIter),
+		)
+		if err := e.store.UpdateStatus(statusCtx2, sess.ID, session.StatusConverged); err != nil {
+			e.logger.WarnContext(ctx, "failed to update session status after max iterations",
+				slog.String("session_id", sess.ID),
+				slog.String("error", err.Error()),
+			)
+		}
+	default:
+		if successCount == 0 {
+			e.logger.WarnContext(ctx, "pipeline pass finished with no successful agents",
+				slog.String("session_id", sess.ID),
+				slog.Int("iteration", passNum),
+			)
+		}
+		if err := e.store.UpdateStatus(statusCtx2, sess.ID, session.StatusActive); err != nil {
+			e.logger.WarnContext(ctx, "failed to reset session status to active",
+				slog.String("session_id", sess.ID),
+				slog.String("error", err.Error()),
+			)
+		}
 	}
-	maxIterCancel()
-	return current, nil
+
+	return merged, terminal, nil
 }
 
 // runPipelinePass executes one ordered pass through all session agents.
@@ -364,8 +348,8 @@ func (e *Engine) runPipelinePass(
 			"iteration": iterNum,
 			"agent_id":  sa.AgentID,
 			"role":      sa.Role,
-			"phase":     "dispatching",
-			"detail":    "Sending canonical state to agent…",
+			"phase":     "generating",
+			"detail":    "Waiting for model response…",
 		})
 
 		confBefore := current.Metrics.Confidence
@@ -383,22 +367,54 @@ func (e *Engine) runPipelinePass(
 		// (config.GetAgentCallTimeout) is the effective upper bound, and
 		// interrupting a long LLM call mid-stream produces no useful output.
 		agentCallTimeout := config.GetAgentCallTimeout()
-		agentCtx, agentCancel := context.WithTimeout(context.WithoutCancel(ctx), agentCallTimeout)
+		totalCtx, totalCancel := context.WithTimeout(context.WithoutCancel(ctx), agentCallTimeout)
 
 		var out state.CanonicalState
+		var agentCtx context.Context
+		var agentCancel func()
 		if e.streamDispatch != nil {
+			// Streaming calls may run longer than a fixed HTTP client timeout when
+			// tokens keep arriving. Idle timeout arms on the first streamed token
+			// (see ctxidle) so a long time-to-first-token does not abort the call.
+			streamCtx, bumpIdle := ctxidle.WithIdleTimeout(totalCtx, config.GetAgentStreamIdleTimeout())
+			agentCtx = streamCtx
+			agentCancel = totalCancel
 			// Capture loop variables for the token closure.
 			agentID := sa.AgentID
 			iterN := iterNum
-			tokenFn := func(token string) {
+			batcher := newAgentTokenBatcher()
+			streamChars := 0
+			emitTokens := func(text string) {
+				if text == "" {
+					return
+				}
+				streamChars += len(text)
 				e.emitter.Emit(sess.ID, EventAgentToken, map[string]any{
 					"iteration": iterN,
 					"agent_id":  agentID,
-					"token":     token,
+					"token":     text,
+				})
+				e.emitter.Emit(sess.ID, EventAgentPhase, map[string]any{
+					"iteration": iterN,
+					"agent_id":  agentID,
+					"role":      sa.Role,
+					"phase":     "generating",
+					"detail":    fmt.Sprintf("Streaming model output… %d characters received", streamChars),
 				})
 			}
+			tokenFn := func(token string) {
+				bumpIdle()
+				if batched := batcher.append(token); batched != "" {
+					emitTokens(batched)
+				}
+			}
 			out, err = e.streamDispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback, tokenFn)
+			if flushed := batcher.flush(); flushed != "" {
+				emitTokens(flushed)
+			}
 		} else {
+			agentCtx = totalCtx
+			agentCancel = totalCancel
 			out, err = e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback)
 		}
 		agentCancel()

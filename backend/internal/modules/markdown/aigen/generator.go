@@ -287,7 +287,18 @@ func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold
 			return wrapDocument(scaffold.Filename, draft), nil
 		}
 		if attempt == g.maxRepairs {
-			return shared.GeneratedDocument{}, fmt.Errorf("rubric failed after %d repair attempts: %d findings", g.maxRepairs, len(findings))
+			// Prefer the AI draft over the deterministic scaffold when the LLM
+			// produced content but the rubric is still incomplete. Operators see
+			// AI-generated output instead of the template fallback badge.
+			g.logger.WarnContext(ctx, "aigen_rubric_incomplete",
+				slog.String("doc_key", key),
+				slog.Int("findings", len(findings)),
+				slog.Int("repair_attempts", g.maxRepairs),
+			)
+			if opts.ProgressFn != nil {
+				opts.ProgressFn(key, DocStepComplete, "Document generated (rubric warnings remain).")
+			}
+			return wrapDocument(scaffold.Filename, draft), nil
 		}
 		if opts.ProgressFn != nil {
 			opts.ProgressFn(key, DocStepRepair, fmt.Sprintf("Repair pass %d/%d — fixing %d rubric finding(s)…", attempt+1, g.maxRepairs, len(findings)))

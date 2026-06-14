@@ -37,26 +37,26 @@ func GetPublicURL() string {
 
 // ── LLM Provider ──────────────────────────────────────────────────────────────
 
-// GetLLMProvider returns the LLM provider identifier (e.g. "copilot", "claude").
-// Reads AGENT_LLM_PROVIDER; defaults to "copilot" when unset.
+// GetLLMProvider returns the LLM provider identifier (e.g. "deepseek", "claude").
+// Reads AGENT_LLM_PROVIDER; defaults to "deepseek" when unset.
 func GetLLMProvider() string {
 	if v := os.Getenv("AGENT_LLM_PROVIDER"); v != "" {
 		return v
 	}
-	return "copilot"
+	return "deepseek"
 }
 
-// GetLLMModel returns the LLM model identifier (e.g. "gpt-4o", "claude-opus-4").
-// Reads AGENT_LLM_MODEL; defaults to "gpt-4o" when unset.
+// GetLLMModel returns the LLM model identifier (e.g. "deepseek-v4-flash", "claude-opus-4").
+// Reads AGENT_LLM_MODEL; defaults to "deepseek-v4-flash" when unset.
 func GetLLMModel() string {
 	if v := os.Getenv("AGENT_LLM_MODEL"); v != "" {
 		return v
 	}
-	return "gpt-4o"
+	return "deepseek-v4-flash"
 }
 
 // GetLLMCredentialRef returns the env var NAME that holds the LLM API key.
-// Reads AGENT_LLM_CREDENTIAL_REF; defaults to "COPILOT_API_KEY" when unset.
+// Reads AGENT_LLM_CREDENTIAL_REF; defaults to "DEEPSEEK_API_KEY" when unset.
 //
 // Security invariant: this function returns the env var *name*, never its value.
 // To resolve the actual key call GetLLMAPIKey(GetLLMCredentialRef()).
@@ -64,7 +64,7 @@ func GetLLMCredentialRef() string {
 	if v := os.Getenv("AGENT_LLM_CREDENTIAL_REF"); v != "" {
 		return v
 	}
-	return "COPILOT_API_KEY"
+	return "DEEPSEEK_API_KEY"
 }
 
 // GetLLMAPIKey resolves the actual API key stored in the env var whose name is

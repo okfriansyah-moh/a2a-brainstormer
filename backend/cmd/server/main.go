@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -94,6 +95,7 @@ func run(ctx context.Context, log *logger.Logger) error {
 		AgentHandler:     agentHandler,
 		SessionHandler:   sessHandler,
 		IterationHandler: iterHandler,
+		GlobalLLMHandler: globalLLMConfigHandler(),
 		Logger:           log.Slog(),
 	})
 
@@ -252,8 +254,8 @@ func hasDiscoveryHintsCredentials(provider string) bool {
 }
 
 func newGlobalLLMProvider() llm.LLMProvider {
-	switch config.GetGlobalLLMProvider() {
-	case "opencode":
+	providerName := config.GetGlobalLLMProvider()
+	if providerName == "opencode" {
 		rawModel := config.GetGlobalOpenCodeModel()
 		providerID, modelID := splitOpenCodeModel(rawModel)
 		return llm.NewOpenCodeProvider(
@@ -267,14 +269,66 @@ func newGlobalLLMProvider() llm.LLMProvider {
 			nil,
 			config.GetLLMAPIKey,
 		)
-	default:
-		llmCfg := llm.LLMConfig{
-			Provider:      config.GetGlobalLLMProvider(),
-			Model:         config.GetGlobalLLMModel(),
-			CredentialRef: config.GetGlobalLLMCredentialRef(),
-		}
-		return llm.NewCopilotProvider(llmCfg, "", nil)
 	}
+
+	llmCfg := llm.LLMConfig{
+		Provider:      providerName,
+		Model:         config.GetGlobalLLMModel(),
+		CredentialRef: config.GetGlobalLLMCredentialRef(),
+	}
+	p, err := llm.New(llmCfg, config.GetLLMAPIKey)
+	if err != nil {
+		// Unknown provider — disable LLM-backed hints rather than silently falling back.
+		return nil
+	}
+	return p
+}
+
+// globalLLMConfigHandler returns the GET /api/config/global-llm handler.
+// The response reflects current config and whether the credential is set.
+func globalLLMConfigHandler() http.Handler {
+	type request struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+	}
+	type response struct {
+		Provider  string `json:"provider"`
+		Model     string `json:"model"`
+		Available bool   `json:"available"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut || r.Method == http.MethodPatch {
+			var req request
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON body", http.StatusBadRequest)
+				return
+			}
+
+			config.SetGlobalLLMConfig(req.Provider, req.Model)
+		}
+
+		provider := config.GetGlobalLLMProvider()
+		model := config.GetGlobalLLMModel()
+		credRef := config.GetGlobalLLMCredentialRef()
+
+		var available bool
+		if provider == "opencode" {
+			_, errU := config.GetLLMAPIKey(config.GetOpenCodeServerUsernameRef())
+			_, errP := config.GetLLMAPIKey(config.GetOpenCodeServerPasswordRef())
+			available = errU == nil && errP == nil
+		} else {
+			_, err := config.GetLLMAPIKey(credRef)
+			available = err == nil
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response{
+			Provider:  provider,
+			Model:     model,
+			Available: available,
+		})
+	})
 }
 
 // splitOpenCodeModel splits a "providerID/modelID" string into its two parts.

@@ -1,56 +1,52 @@
 /**
  * sse.ts — SSE EventSource client with automatic reconnection and
  * Last-Event-ID tracking.
- *
- * Usage:
- *   const client = createSSEClient(url, (evt) => handleEvent(evt));
- *   // ...later:
- *   client.close();
- *
- * Design notes (§8.22 docs/PLAN.md):
- *   - Uses the native browser EventSource API (no WebSocket, no polling).
- *   - Tracks the last received event ID and passes it as `Last-Event-ID` on
- *     reconnect so the server can replay missed events from its ring buffer.
- *   - Auto-reconnects with a 2-second delay on any `onerror` event.
- *   - close() tears down the connection and cancels any pending reconnect.
  */
 
 /** Parsed SSE event delivered to the application. */
 export interface SSEEvent {
-  /** Monotonically increasing per-session event counter from the server. */
   id: number;
-  /** Event type string (e.g. "agent.started", "iteration.complete"). */
   type: string;
-  /** JSON-decoded event payload. */
   data: unknown;
 }
 
-/** Callback invoked for every received SSEEvent. */
 export type SSEEventHandler = (evt: SSEEvent) => void;
 
-/** Returned handle — call close() to disconnect. */
+export interface SSEClientOptions {
+  /**
+   * Called before each reconnect attempt. Return false to stop reconnecting
+   * (e.g. session deleted / 404).
+   */
+  beforeReconnect?: () => Promise<boolean>;
+  /** Max reconnect attempts after errors. 0 = unlimited. Default: 60. */
+  maxReconnectAttempts?: number;
+  /** Delay between reconnect attempts in ms. Default: 2000. */
+  reconnectDelayMs?: number;
+}
+
 export interface SSEClient {
   close: () => void;
 }
 
-/**
- * createSSEClient opens a server-sent events connection to `url` and invokes
- * `onEvent` for each received event.
- *
- * @param url     - Absolute or relative URL of the SSE endpoint.
- * @param onEvent - Called with each parsed SSEEvent.
- * @param onError - Optional callback invoked when the connection is lost
- *                  (before the automatic reconnect attempt).
- */
+const DEFAULT_MAX_RECONNECTS = 60;
+const DEFAULT_RECONNECT_DELAY_MS = 2000;
+
 export function createSSEClient(
   url: string,
   onEvent: SSEEventHandler,
   onError?: () => void,
+  options?: SSEClientOptions,
 ): SSEClient {
   let es: EventSource | null = null;
   let lastEventID = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
+  let reconnectAttempts = 0;
+
+  const maxReconnects = options?.maxReconnectAttempts ?? DEFAULT_MAX_RECONNECTS;
+  const reconnectDelayMs =
+    options?.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
+  const beforeReconnect = options?.beforeReconnect;
 
   function buildURL(): string {
     if (lastEventID === 0) return url;
@@ -58,20 +54,50 @@ export function createSSEClient(
     return `${url}${sep}lastEventId=${lastEventID}`;
   }
 
+  function scheduleReconnect(): void {
+    if (closed) return;
+
+    reconnectAttempts++;
+    if (maxReconnects > 0 && reconnectAttempts > maxReconnects) {
+      closed = true;
+      return;
+    }
+
+    reconnectTimer = setTimeout(() => {
+      void attemptReconnect();
+    }, reconnectDelayMs);
+  }
+
+  async function attemptReconnect(): Promise<void> {
+    reconnectTimer = null;
+    if (closed) return;
+
+    if (beforeReconnect) {
+      try {
+        const ok = await beforeReconnect();
+        if (!ok) {
+          closed = true;
+          return;
+        }
+      } catch {
+        // Transient probe failure — schedule another reconnect attempt.
+        scheduleReconnect();
+        return;
+      }
+    }
+
+    connect();
+  }
+
   function connect(): void {
     if (closed) return;
 
-    // EventSource does not natively send Last-Event-ID as a query param —
-    // the browser handles it via the `Last-Event-ID` header on reconnect, but
-    // since we manage reconnects ourselves we encode it in the URL.
     es = new EventSource(buildURL());
 
     es.onmessage = (raw: MessageEvent) => {
-      // Generic message handler (no event type set).
       handleRaw(raw, "");
     };
 
-    // Attach named event listeners for the known event types.
     const knownTypes = [
       "iteration.start",
       "agent.started",
@@ -96,11 +122,7 @@ export function createSSEClient(
       es?.close();
       es = null;
       onError?.();
-      // Reconnect after 2 s.
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        connect();
-      }, 2000);
+      scheduleReconnect();
     };
   }
 
@@ -120,6 +142,7 @@ export function createSSEClient(
     }
 
     onEvent({ id, type, data });
+    reconnectAttempts = 0;
   }
 
   connect();
@@ -135,4 +158,19 @@ export function createSSEClient(
       es = null;
     },
   };
+}
+
+/** True when the URL targets GET /sessions/{id}/events. */
+export function isSessionEventsURL(url: string): boolean {
+  try {
+    const path = new URL(url, "http://localhost").pathname;
+    const parts = path.split("/").filter(Boolean);
+    return (
+      parts.length === 3 &&
+      parts[0] === "sessions" &&
+      parts[2] === "events"
+    );
+  } catch {
+    return false;
+  }
 }

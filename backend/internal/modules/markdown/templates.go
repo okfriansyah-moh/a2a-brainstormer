@@ -26,25 +26,34 @@ var suffixForKey = map[string]string{
 // ── title / slug helpers ─────────────────────────────────────────────────────
 
 // shortTitle returns a concise human-readable title for the project.
-// Priority: s.Idea["name"] → first sentence of s.Idea["text"] truncated at the
-// nearest word boundary up to 60 runes → "Untitled Brainstorm".
+// Priority: name/title/summary → first sentence of text/context/problem →
+// "Untitled Brainstorm".
 func shortTitle(s state.CanonicalState) string {
-	if name, ok := s.Idea["name"]; ok {
-		if str := strings.TrimSpace(fmt.Sprintf("%v", name)); str != "" {
-			return truncateAtWord(str, 60)
+	for _, key := range []string{"name", "title"} {
+		if v := ideaString(s.Idea, key); v != "" {
+			return truncateAtWord(firstSentence(v, 120), 60)
 		}
 	}
-	if text, ok := s.Idea["text"]; ok {
-		raw := strings.TrimSpace(fmt.Sprintf("%v", text))
-		if raw != "" {
-			cut := strings.IndexAny(raw, ".!?\n")
-			if cut > 0 {
-				raw = raw[:cut]
-			}
-			return truncateAtWord(strings.TrimSpace(raw), 60)
+	if v := ideaString(s.Idea, "summary"); v != "" {
+		return truncateAtWord(firstSentence(v, 120), 60)
+	}
+	for _, key := range []string{"text", "context", "problem", "problem_statement", "value_proposition"} {
+		if v := ideaString(s.Idea, key); v != "" {
+			return truncateAtWord(firstSentence(v, 120), 60)
 		}
 	}
 	return "Untitled Brainstorm"
+}
+
+func ideaString(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", v))
 }
 
 // truncateAtWord cuts s at the nearest word boundary ≤ max runes.

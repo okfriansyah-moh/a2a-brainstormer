@@ -9,11 +9,25 @@
     getSkills,
     deleteAgent,
     deleteSkill,
+    getGlobalLLMConfig,
+    updateGlobalLLMConfig,
   } from "$lib/services/api";
-  import type { Agent, Skill } from "$lib/types";
+  import type { Agent, GlobalLLMConfig, ProviderKind, Skill } from "$lib/types";
+  import {
+    ALL_PROVIDER_KINDS,
+    PROVIDER_MODEL_PLACEHOLDER,
+  } from "$lib/types";
 
   // Tab state driven by URL search param; default to 'agents'
   $: activeTab = $page.url.searchParams.get("tab") ?? "agents";
+
+  $: if (
+    activeTab === "global-llm" &&
+    globalLLM === null &&
+    !globalLLMLoading
+  ) {
+    void loadGlobalLLM();
+  }
 
   function switchTab(tab: string): void {
     goto(`?tab=${tab}`, { replaceState: true, noScroll: true });
@@ -125,6 +139,74 @@
     ).length;
   }
 
+  // ── Global LLM state ─────────────────────────────────────────────────────
+
+  let globalLLM: GlobalLLMConfig | null = null;
+  let globalLLMError = "";
+  let globalLLMLoading = false;
+  let globalLLMSaving = false;
+  let globalLLMProvider = "deepseek";
+  let globalLLMModel = "deepseek-v4-flash";
+
+  const providerOptions: ProviderKind[] = ALL_PROVIDER_KINDS;
+
+  $: modelPlaceholder =
+    PROVIDER_MODEL_PLACEHOLDER[globalLLMProvider as ProviderKind] ??
+    "e.g. gpt-4o";
+
+  function applyGlobalLLMForm(config: GlobalLLMConfig | null): void {
+    const configuredProvider = (config?.provider ?? "deepseek")
+      .trim()
+      .toLowerCase();
+    globalLLMProvider = (providerOptions as string[]).includes(
+      configuredProvider,
+    )
+      ? configuredProvider
+      : "deepseek";
+
+    const fallbackModel =
+      PROVIDER_MODEL_PLACEHOLDER[globalLLMProvider as ProviderKind] ??
+      "deepseek-v4-flash";
+
+    globalLLMModel = config?.model?.trim() || fallbackModel;
+  }
+
+  async function loadGlobalLLM(): Promise<void> {
+    globalLLMLoading = true;
+    globalLLMError = "";
+    try {
+      globalLLM = await getGlobalLLMConfig();
+      applyGlobalLLMForm(globalLLM);
+    } catch (err) {
+      globalLLMError =
+        err instanceof Error
+          ? err.message
+          : "Failed to load global LLM config.";
+    } finally {
+      globalLLMLoading = false;
+    }
+  }
+
+  async function saveGlobalLLM(): Promise<void> {
+    globalLLMSaving = true;
+    globalLLMError = "";
+    try {
+      globalLLM = await updateGlobalLLMConfig({
+        provider: globalLLMProvider,
+        model: globalLLMModel.trim(),
+      });
+      applyGlobalLLMForm(globalLLM);
+      successMessage = "Global LLM defaults updated.";
+    } catch (err) {
+      globalLLMError =
+        err instanceof Error
+          ? err.message
+          : "Failed to update global LLM config.";
+    } finally {
+      globalLLMSaving = false;
+    }
+  }
+
   onMount(async () => {
     agentRegistryStore.setLoading(true);
     error = "";
@@ -192,6 +274,14 @@
         on:click={() => switchTab("roles")}
       >
         Roles
+      </button>
+      <button
+        class="stab"
+        class:stab-active={activeTab === "global-llm"}
+        type="button"
+        on:click={() => switchTab("global-llm")}
+      >
+        Global LLM
       </button>
     </div>
 
@@ -420,6 +510,101 @@
             {/each}
           </tbody>
         </table>
+      {/if}
+    {/if}
+
+    <!-- ── Global LLM Tab ───────────────────────────────────────────── -->
+    {#if activeTab === "global-llm"}
+      {#if globalLLMLoading}
+        <p class="loading-msg">Loading global LLM settings…</p>
+      {:else if !globalLLM && globalLLMError}
+        <div class="feedback-error" role="alert">{globalLLMError}</div>
+      {:else if globalLLM}
+        <div class="llm-header">
+          <div>
+            <h3 class="llm-title">Global LLM Configuration</h3>
+            <p class="llm-desc">
+              Default provider, model, and credential for agents without
+              per-agent overrides.
+            </p>
+          </div>
+          {#if globalLLM.available}
+            <span class="chip-ok">Credential available</span>
+          {:else}
+            <span class="chip-err">Missing credential</span>
+          {/if}
+        </div>
+
+        {#if globalLLMError}
+          <div class="feedback-error llm-feedback" role="alert">
+            {globalLLMError}
+          </div>
+        {/if}
+
+        <div class="llm-form">
+          <div class="form-grid">
+            <div class="field">
+              <div class="field-label">Provider</div>
+              <select
+                class="form-input select-input"
+                bind:value={globalLLMProvider}
+              >
+                {#each providerOptions as p}
+                  <option value={p}>{p}</option>
+                {/each}
+              </select>
+            </div>
+            <div class="field">
+              <div class="field-label">Model</div>
+              <input
+                class="form-input"
+                type="text"
+                placeholder={modelPlaceholder}
+                bind:value={globalLLMModel}
+              />
+            </div>
+          </div>
+
+          <div class="field credential-field">
+            <div class="field-label">API Key</div>
+            {#if globalLLM.available}
+              <div class="credential-status credential-status-ok">
+                Configured via environment. Key values are never stored or
+                displayed in this UI.
+              </div>
+            {:else}
+              <div class="credential-status credential-status-missing">
+                No API key detected. Add the provider key to your
+                <code>.env</code> file and ensure
+                <code>GLOBAL_LLM_CREDENTIAL_REF</code> points at the correct
+                env var name.
+              </div>
+            {/if}
+          </div>
+
+          <div class="llm-actions">
+            <button
+              class="btn-primary"
+              type="button"
+              on:click={saveGlobalLLM}
+              disabled={globalLLMSaving}
+            >
+              {globalLLMSaving ? "Saving…" : "Save Settings"}
+            </button>
+            <p class="llm-save-note">
+              Updates provider and model in the running backend. API keys stay in
+              <code>.env</code> only.
+            </p>
+          </div>
+        </div>
+
+        <details class="env-details">
+          <summary>Startup environment variables</summary>
+          <pre
+            class="env-block"
+          ><code>GLOBAL_LLM_PROVIDER={globalLLM.provider}
+GLOBAL_LLM_MODEL={globalLLM.model}</code></pre>
+        </details>
       {/if}
     {/if}
   </div>
@@ -678,7 +863,235 @@
     margin-bottom: 0;
   }
 
+  /* ─── Global LLM tab ────────────────────────────────────────────── */
+  .llm-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .llm-title {
+    margin: 0;
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink-900);
+  }
+
+  .llm-desc {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--ink-500);
+    max-width: 520px;
+    line-height: 1.45;
+  }
+
+  .llm-feedback {
+    margin-bottom: 16px;
+  }
+
+  .llm-form {
+    max-width: 640px;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  .field {
+    margin-bottom: 18px;
+  }
+
+  .form-grid .field {
+    margin-bottom: 0;
+  }
+
+  .field-label {
+    font-weight: 500;
+    font-size: 0.8125rem;
+    color: var(--ink-700);
+    margin-bottom: 6px;
+  }
+
+  .field-hint {
+    font-size: 0.75rem;
+    color: var(--ink-500);
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+
+  .form-input {
+    width: 100%;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 0.875rem;
+    background: rgba(255, 255, 255, 0.8);
+    outline: none;
+    transition: border-color 0.15s;
+    color: var(--ink-900);
+  }
+
+  .form-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(11, 182, 217, 0.1);
+  }
+
+  .credential-status {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+
+  .credential-status code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.75rem;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid var(--line);
+  }
+
+  .credential-status-ok {
+    color: var(--ok-ink);
+    background: var(--ok-bg-soft);
+    border: 1px solid var(--ok-line);
+  }
+
+  .credential-status-missing {
+    color: var(--ink-700);
+    background: rgba(206, 49, 88, 0.05);
+    border: 1px solid rgba(206, 49, 88, 0.2);
+  }
+
+  .credential-field {
+    margin-bottom: 0;
+  }
+
+  .select-input {
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235a6282' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    appearance: none;
+  }
+
+  .llm-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 4px;
+    padding-top: 4px;
+  }
+
+  .llm-save-note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-500);
+    line-height: 1.45;
+    max-width: 480px;
+  }
+
+  .llm-save-note code {
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+  }
+
+  .chip-err {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: rgba(206, 49, 88, 0.1);
+    color: var(--danger);
+    border: 1px solid rgba(206, 49, 88, 0.25);
+  }
+
+  .env-details {
+    margin-top: 28px;
+    max-width: 640px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+  }
+
+  .env-details summary {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-500);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+  }
+
+  .env-details summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .env-details summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.15s;
+  }
+
+  .env-details[open] summary::before {
+    transform: rotate(90deg);
+  }
+
+  .env-details summary:hover {
+    color: var(--ink-700);
+  }
+
+  .env-block {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    background: var(--bg-1);
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--ink-700);
+    white-space: pre;
+    overflow-x: auto;
+    margin: 10px 0 0;
+  }
+
+  .env-block code {
+    font-family: inherit;
+    font-size: inherit;
+  }
+
   @media (max-width: 640px) {
+    .llm-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .form-grid .field {
+      margin-bottom: 18px;
+    }
+
+    .form-grid .field:last-child {
+      margin-bottom: 0;
+    }
+
     .toast-ok {
       left: 16px;
       right: 16px;

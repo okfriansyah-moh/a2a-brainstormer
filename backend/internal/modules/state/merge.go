@@ -18,6 +18,21 @@ import (
 	"strings"
 )
 
+// MergeAgentDelta applies a sparse agent output onto the running pipeline state.
+// Agents emit role-scoped deltas; empty sections in delta are preserved from base.
+func MergeAgentDelta(base, delta CanonicalState) CanonicalState {
+	out := Merge(base, delta)
+	if isZeroMetrics(delta.Metrics) {
+		out.Metrics = base.Metrics
+	}
+	out.Meta = base.Meta
+	return out
+}
+
+func isZeroMetrics(m StateMetrics) bool {
+	return m.Confidence == 0 && m.TestCoverageTarget == 0 && m.LatencyBudgetMs == 0
+}
+
 // Merge combines the base state (before the pipeline pass) with the incoming
 // state (the cumulative output of all agents in the pass) and returns a new
 // CanonicalState. Neither base nor incoming is mutated.
@@ -44,13 +59,21 @@ func Merge(base, incoming CanonicalState) CanonicalState {
 
 // ── internal helpers ──────────────────────────────────────────────────────────
 
-// mergeMap merges two map[string]any values. If both are non-empty and equal,
-// the base is returned (stability). Otherwise the incoming value wins.
+// mergeMap unions two map[string]any values. Keys present only in base are
+// preserved; keys in incoming overwrite the same key in base. Empty incoming
+// returns a clone of base unchanged.
 func mergeMap(base, incoming map[string]any) map[string]any {
 	if len(incoming) == 0 {
 		return cloneMap(base)
 	}
-	return cloneMap(incoming)
+	if len(base) == 0 {
+		return cloneMap(incoming)
+	}
+	out := cloneMap(base)
+	for k, v := range incoming {
+		out[k] = v
+	}
+	return out
 }
 
 // cloneMap returns a shallow copy of m; returns nil if m is nil.

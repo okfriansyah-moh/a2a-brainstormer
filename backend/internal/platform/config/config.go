@@ -57,21 +57,60 @@ func GetMinConfidenceFloor() float64 {
 // ── Global LLM defaults ───────────────────────────────────────────────────────
 
 // GetGlobalLLMProvider returns the default LLM provider name.
-// Allowed values: "copilot" | "claude" | "opencode". Defaults to "opencode".
+// Allowed values: "copilot" | "claude" | "opencode" | "deepseek".
+// Defaults to "deepseek".
 func GetGlobalLLMProvider() string {
-	return envString("GLOBAL_LLM_PROVIDER", "opencode")
+	return envString("GLOBAL_LLM_PROVIDER", "deepseek")
 }
 
-// GetGlobalLLMModel returns the default LLM model name. Defaults to "gpt-4o".
+// GetGlobalLLMModel returns the default LLM model name. Defaults to "deepseek-v4-flash".
 func GetGlobalLLMModel() string {
-	return envString("GLOBAL_LLM_MODEL", "gpt-4o")
+	return envString("GLOBAL_LLM_MODEL", "deepseek-v4-flash")
 }
 
 // GetGlobalLLMCredentialRef returns the env var NAME that holds the global LLM
 // API key. This is a reference (env var name), never the raw key value.
-// Defaults to "COPILOT_API_KEY".
+// Defaults to "DEEPSEEK_API_KEY".
 func GetGlobalLLMCredentialRef() string {
-	return envString("GLOBAL_LLM_CREDENTIAL_REF", "COPILOT_API_KEY")
+	return envString("GLOBAL_LLM_CREDENTIAL_REF", "DEEPSEEK_API_KEY")
+}
+
+// SetGlobalLLMConfig writes the global LLM defaults back to the runtime env.
+// Empty values fall back to the same DeepSeek defaults used at startup.
+// CredentialRef is derived from the provider — never accepted from API callers.
+func SetGlobalLLMConfig(provider, model string) {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "deepseek"
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = "deepseek-v4-flash"
+	}
+	credentialRef := DefaultGlobalCredentialRef(provider)
+
+	os.Setenv("GLOBAL_LLM_PROVIDER", provider)
+	os.Setenv("GLOBAL_LLM_MODEL", model)
+	os.Setenv("GLOBAL_LLM_CREDENTIAL_REF", credentialRef)
+}
+
+// DefaultGlobalCredentialRef returns the canonical env var name for a provider's
+// API key. Used when persisting global LLM settings from the settings UI.
+func DefaultGlobalCredentialRef(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "copilot":
+		return "COPILOT_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "claude":
+		return "ANTHROPIC_API_KEY"
+	case "deepseek":
+		return "DEEPSEEK_API_KEY"
+	case "opencode":
+		return GetOpenCodeServerPasswordRef()
+	default:
+		return GetGlobalLLMCredentialRef()
+	}
 }
 
 // GetLLMAPIKey resolves a CredentialRef to its actual key value at runtime.
@@ -132,11 +171,18 @@ func GetIterationTimeout() time.Duration {
 	return time.Duration(envInt("ITERATION_TIMEOUT_SECONDS", 1800)) * time.Second
 }
 
-// GetAgentCallTimeout returns the HTTP timeout for a single A2A agent call.
-// LLM inference (especially Claude on large prompts) can take several minutes.
-// Defaults to 10 minutes. Set AGENT_CALL_TIMEOUT_SECONDS to override.
+// GetAgentCallTimeout returns the maximum wall-clock time for a single A2A agent
+// call (streaming or blocking). Defaults to 30 minutes.
+// Set AGENT_CALL_TIMEOUT_SECONDS to override.
 func GetAgentCallTimeout() time.Duration {
-	return time.Duration(envInt("AGENT_CALL_TIMEOUT_SECONDS", 600)) * time.Second
+	return time.Duration(envInt("AGENT_CALL_TIMEOUT_SECONDS", 1800)) * time.Second
+}
+
+// GetAgentStreamIdleTimeout returns how long a streaming agent call may go
+// without receiving tokens before the backend aborts it. Defaults to 10 minutes.
+// Set AGENT_STREAM_IDLE_TIMEOUT_SECONDS to override.
+func GetAgentStreamIdleTimeout() time.Duration {
+	return time.Duration(envInt("AGENT_STREAM_IDLE_TIMEOUT_SECONDS", 600)) * time.Second
 }
 
 // GetFinalizeTimeout returns the maximum duration allowed for one finalize
@@ -179,6 +225,25 @@ var defaultSkillBundlePaths = []string{
 	".github/skills/api-design/SKILL.md",
 	".github/skills/roadmap-spec/SKILL.md",
 	".github/skills/plan-management/SKILL.md",
+}
+
+// GetDeepSeekBaseURL returns the DeepSeek API base URL.
+// Reads DEEPSEEK_BASE_URL; defaults to "https://api.deepseek.com".
+func GetDeepSeekBaseURL() string {
+	return envString("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+}
+
+// GetOpenAIBaseURL returns the OpenAI API base URL.
+// Reads OPENAI_BASE_URL; defaults to "https://api.openai.com/v1".
+// Override for Azure OpenAI or proxy deployments.
+func GetOpenAIBaseURL() string {
+	return envString("OPENAI_BASE_URL", "https://api.openai.com/v1")
+}
+
+// GetAnthropicBaseURL returns the Anthropic API base URL.
+// Reads ANTHROPIC_BASE_URL; defaults to "https://api.anthropic.com".
+func GetAnthropicBaseURL() string {
+	return envString("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 }
 
 // ── OpenCode (used when GLOBAL_LLM_PROVIDER=opencode) ────────────────────────
