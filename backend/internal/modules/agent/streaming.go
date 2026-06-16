@@ -29,6 +29,7 @@ func DispatchWithTokens(
 	sessionLLMOverride *llm.LLMConfig,
 	currentState state.CanonicalState,
 	userFeedback string,
+	dispatchCtx DispatchContext,
 	tokenFn func(token string),
 ) (state.CanonicalState, error) {
 	// 1. Resolve tiered LLM config.
@@ -49,6 +50,9 @@ func DispatchWithTokens(
 		LLMConfig:    effectiveCfg,
 		State:        currentState,
 		UserFeedback: userFeedback,
+		SessionID:    dispatchCtx.SessionID,
+		AgentID:      dispatchCtx.AgentID,
+		OutputDocs:   dispatchCtx.OutputDocs,
 	}
 
 	slog.Default().InfoContext(ctx, "resolving A2A agent endpoint (streaming)",

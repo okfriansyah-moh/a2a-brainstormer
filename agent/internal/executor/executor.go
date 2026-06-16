@@ -27,7 +27,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
-	"a2a-brainstorm/agent/internal/executor/prompts"
 	"a2a-brainstorm/agent/internal/llm"
 )
 
@@ -60,6 +59,10 @@ type BrainstormPayload struct {
 	// format prompt is injected into the system prompt. omitempty keeps the
 	// wire format backward-compatible with sessions that do not set this field.
 	OutputDocs []string `json:"output_docs,omitempty"`
+
+	// SessionID and AgentID identify the prompt thread for multi-turn caching.
+	SessionID string `json:"session_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 }
 
 // LLMConfig is the per-dispatch LLM configuration embedded in BrainstormPayload.
@@ -155,34 +158,18 @@ func (e *BrainstormExecutor) Execute(
 				slog.String("role", payload.Role),
 				slog.String("provider", payload.LLMConfig.Provider),
 				slog.String("model", payload.LLMConfig.Model),
+				slog.String("session_id", payload.SessionID),
+				slog.String("agent_id", payload.AgentID),
 			)
 		}
 
-		// Serialize the current state as the user message for the LLM.
-		stateJSON, err := json.Marshal(payload.State)
-		if err != nil {
-			stateJSON = []byte("{}")
-		}
+		RunShadowEquivalenceCheck(ctx, payload, e.logger)
 
-		// Construct the user message with a strict JSON-only instruction.
-		// Claude may still add prose unless we are very explicit; we also apply
-		// JSON extraction as a fallback in parsing (see extractJSON below).
-		var feedbackSection string
-		if payload.UserFeedback != "" {
-			feedbackSection = fmt.Sprintf(
-				"\n\nUSER FEEDBACK (highest priority — address this in your response):\n%s\n",
-				payload.UserFeedback,
-			)
+		assembled := AssemblePrompt(payload, defaultThreadStore)
+		llmReq := assembled.Legacy
+		if assembled.Tiered != nil {
+			llmReq.Tiered = assembled.Tiered
 		}
-		userMessage := fmt.Sprintf(
-			"%s\n%s\n%s\n"+
-				"Current brainstorm state (read-only context — do NOT echo unchanged fields):\n%s\n\n"+
-				"Return your role-scoped JSON delta now.",
-			deltaOutputPreamble,
-			roleDeltaInstruction(payload.Role),
-			feedbackSection,
-			string(stateJSON),
-		)
 
 		// Call the LLM through the LLMProvider interface.
 		// Temperature 0.15 enforces near-deterministic output (blueprint §8.4).
@@ -211,18 +198,8 @@ func (e *BrainstormExecutor) Execute(
 			yield(a2a.NewStatusUpdateEvent(execCtx, a2a.TaskStateFailed, errMsg), nil)
 			return
 		}
-		// Inject plan format into system prompt when the session generates a plan.
-		systemPrompt := prompts.InjectIfPlanOutput(payload.OutputDocs, payload.SystemPrompt)
-		// Inject readme format into system prompt when the session generates a readme.
-		systemPrompt = prompts.InjectIfReadmeOutput(systemPrompt, payload.OutputDocs)
 
-		llmReq := llm.LLMRequest{
-			SystemPrompt: systemPrompt + requiredOutputStructurePrompt,
-			UserMessage:  userMessage,
-			Temperature:  0.15,
-		}
-
-		rawContent, genErr := e.generateStateContent(ctx, execCtx, activeLLM, llmReq, yield, payload.Role)
+		rawContent, genErr := e.generateStateContent(ctx, execCtx, activeLLM, llmReq, yield, payload)
 		if genErr != nil {
 			e.logError(ctx, "LLM generate or parse state failed", genErr,
 				slog.String("content_prefix", truncate(rawContent, 200)),

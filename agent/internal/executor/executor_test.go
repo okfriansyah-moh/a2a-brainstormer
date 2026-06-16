@@ -80,6 +80,7 @@ func hasStatusState(events []a2a.Event, want a2a.TaskState) bool {
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 func TestExecute_SuccessSequence(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_MODE", "legacy")
 	updatedState := map[string]any{
 		"idea":    map[string]any{"text": "updated"},
 		"metrics": map[string]any{"confidence": 0.8},
@@ -368,6 +369,7 @@ func TestTruncate(t *testing.T) {
 // API requirement that at least one message must include "json" when
 // response_format=json_object is specified.
 func TestExecute_UserMessageContainsJSON(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_MODE", "legacy")
 	updatedState := map[string]any{"metrics": map[string]any{"confidence": 0.9}}
 	respJSON, _ := json.Marshal(updatedState)
 
@@ -392,6 +394,8 @@ func TestExecute_UserMessageContainsJSON(t *testing.T) {
 // the name is empty, and fails fast (no silent fallback) when the requested
 // provider is not registered.
 func TestExecute_ProviderSelection(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_ENABLED", "false")
+	defaultResponseCache.Reset()
 	copilotResp, _ := json.Marshal(map[string]any{"metrics": map[string]any{"confidence": 0.5}})
 	openCodeResp, _ := json.Marshal(map[string]any{"metrics": map[string]any{"confidence": 0.9}})
 

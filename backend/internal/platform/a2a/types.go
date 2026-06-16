@@ -34,4 +34,11 @@ type BrainstormPayload struct {
 	// LLM user message for the current iteration pass. Empty string means no
 	// feedback was queued. The agent must honour this over default behaviour.
 	UserFeedback string `json:"user_feedback,omitempty"`
+
+	// SessionID and AgentID identify the prompt thread for multi-turn caching.
+	SessionID string `json:"session_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+
+	// OutputDocs lists document keys the session will generate at finalize.
+	OutputDocs []string `json:"output_docs,omitempty"`
 }

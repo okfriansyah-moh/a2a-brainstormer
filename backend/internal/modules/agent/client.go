@@ -26,6 +26,13 @@ import (
 	"a2a-brainstorm/backend/internal/platform/llm"
 )
 
+// DispatchContext carries session metadata for prompt-cache thread keys.
+type DispatchContext struct {
+	SessionID  string
+	AgentID    string
+	OutputDocs []string
+}
+
 // Dispatch executes one pipeline pass for a single agent:
 //
 //  1. Resolves the effective LLM config (tiered: session override → agent-level → global).
@@ -43,6 +50,7 @@ func Dispatch(
 	sessionLLMOverride *llm.LLMConfig,
 	currentState state.CanonicalState,
 	userFeedback string,
+	dispatchCtx DispatchContext,
 ) (state.CanonicalState, error) {
 	// 1. Resolve tiered LLM config.
 	globalCfg := &llm.LLMConfig{
@@ -62,6 +70,9 @@ func Dispatch(
 		LLMConfig:    effectiveCfg,
 		State:        currentState,
 		UserFeedback: userFeedback,
+		SessionID:    dispatchCtx.SessionID,
+		AgentID:      dispatchCtx.AgentID,
+		OutputDocs:   dispatchCtx.OutputDocs,
 	}
 
 	slog.Default().InfoContext(ctx, "resolving A2A agent endpoint",

@@ -185,10 +185,11 @@ func (p *OpenCodeProvider) doSendMessage(ctx context.Context, sessionID string, 
 		System string        `json:"system"`
 	}
 
+	sys, user := ResolvePromptFields(req)
 	body := messageRequest{
-		Parts:  []messagePart{{Type: "text", Text: req.UserMessage}},
+		Parts:  []messagePart{{Type: "text", Text: user}},
 		Model:  modelRef{ProviderID: p.cfg.ProviderID, ModelID: p.cfg.ModelID},
-		System: req.SystemPrompt,
+		System: sys,
 	}
 
 	bodyBytes, err := json.Marshal(body)

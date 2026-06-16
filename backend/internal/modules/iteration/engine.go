@@ -40,6 +40,7 @@ type DispatchFunc func(
 	llmOverride *llm.LLMConfig,
 	current state.CanonicalState,
 	userFeedback string,
+	dispatchCtx agentpkg.DispatchContext,
 ) (state.CanonicalState, error)
 
 // StreamDispatchFunc extends DispatchFunc with a tokenFn callback that is
@@ -54,6 +55,7 @@ type StreamDispatchFunc func(
 	llmOverride *llm.LLMConfig,
 	current state.CanonicalState,
 	userFeedback string,
+	dispatchCtx agentpkg.DispatchContext,
 	tokenFn func(token string),
 ) (state.CanonicalState, error)
 
@@ -354,6 +356,11 @@ func (e *Engine) runPipelinePass(
 
 		confBefore := current.Metrics.Confidence
 		dispatchStart := time.Now()
+		dispatchCtx := agentpkg.DispatchContext{
+			SessionID:  sess.ID,
+			AgentID:    sa.AgentID,
+			OutputDocs: sess.OutputDocs,
+		}
 		// Give each agent call an independent per-call timeout that is NOT
 		// inherited from the parent iterCtx budget. Without WithoutCancel, a
 		// long first-agent LLM call exhausts iterCtx and leaves every subsequent
@@ -408,14 +415,14 @@ func (e *Engine) runPipelinePass(
 					emitTokens(batched)
 				}
 			}
-			out, err = e.streamDispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback, tokenFn)
+			out, err = e.streamDispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback, dispatchCtx, tokenFn)
 			if flushed := batcher.flush(); flushed != "" {
 				emitTokens(flushed)
 			}
 		} else {
 			agentCtx = totalCtx
 			agentCancel = totalCancel
-			out, err = e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback)
+			out, err = e.dispatch(agentCtx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, current, userFeedback, dispatchCtx)
 		}
 		agentCancel()
 		if err != nil {
@@ -566,7 +573,11 @@ func (e *Engine) RunSingleAgent(
 	})
 
 	confBefore := currentState.Metrics.Confidence
-	out, err := e.dispatch(ctx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, currentState, "")
+	out, err := e.dispatch(ctx, ag, agentpkg.Role(sa.Role), activeSkills, sa.LLMOverride, currentState, "", agentpkg.DispatchContext{
+		SessionID:  sess.ID,
+		AgentID:    sa.AgentID,
+		OutputDocs: sess.OutputDocs,
+	})
 	if err != nil {
 		e.emitter.Emit(sess.ID, EventAgentError, map[string]any{
 			"iteration": currentState.Meta.Iteration,

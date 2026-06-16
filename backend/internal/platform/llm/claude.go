@@ -59,18 +59,9 @@ func (p *claudeProvider) Generate(ctx context.Context, req LLMRequest) (LLMRespo
 		return LLMResponse{}, fmt.Errorf("claude.Generate: %w", err)
 	}
 
-	body, err := json.Marshal(claudeRequest{
-		Model:     p.model,
-		MaxTokens: claudeMaxTokens,
-		System:    req.SystemPrompt,
-		Messages: []claudeMessage{
-			{Role: "user", Content: req.UserMessage},
-		},
-		Temperature: req.Temperature,
-		Stream:      false,
-	})
+	body, err := buildClaudeWireRequest(p.model, claudeMaxTokens, req, false)
 	if err != nil {
-		return LLMResponse{}, fmt.Errorf("claude.Generate: marshal: %w", err)
+		return LLMResponse{}, fmt.Errorf("claude.Generate: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/messages", bytes.NewReader(body))
@@ -112,9 +103,11 @@ func (p *claudeProvider) Generate(ctx context.Context, req LLMRequest) (LLMRespo
 	}
 
 	return LLMResponse{
-		Content:      text,
-		FinishReason: result.StopReason,
-		TokensUsed:   result.Usage.InputTokens + result.Usage.OutputTokens,
+		Content:          text,
+		FinishReason:     result.StopReason,
+		TokensUsed:       result.Usage.InputTokens + result.Usage.OutputTokens,
+		CacheReadTokens:  result.Usage.CacheReadTokens,
+		CacheWriteTokens: result.Usage.CacheCreateTokens,
 	}, nil
 }
 
@@ -129,18 +122,9 @@ func (p *claudeProvider) GenerateStream(ctx context.Context, req LLMRequest) (<-
 		return nil, fmt.Errorf("claude.GenerateStream: %w", err)
 	}
 
-	body, err := json.Marshal(claudeRequest{
-		Model:     p.model,
-		MaxTokens: claudeMaxTokens,
-		System:    req.SystemPrompt,
-		Messages: []claudeMessage{
-			{Role: "user", Content: req.UserMessage},
-		},
-		Temperature: req.Temperature,
-		Stream:      true,
-	})
+	body, err := buildClaudeWireRequest(p.model, claudeMaxTokens, req, true)
 	if err != nil {
-		return nil, fmt.Errorf("claude.GenerateStream: marshal: %w", err)
+		return nil, fmt.Errorf("claude.GenerateStream: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/messages", bytes.NewReader(body))
@@ -250,8 +234,10 @@ type claudeContentBlock struct {
 }
 
 type claudeUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	CacheReadTokens   int `json:"cache_read_input_tokens"`
+	CacheCreateTokens int `json:"cache_creation_input_tokens"`
 }
 
 type claudeStreamDelta struct {
