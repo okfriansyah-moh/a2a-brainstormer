@@ -13,6 +13,12 @@
   import { createSSEClient } from "$lib/services/sse";
   import type { SSEClient } from "$lib/services/sse";
   import type { Session, GeneratedDocument } from "$lib/types";
+  import {
+    formatDocPhaseLogLine,
+    formatDocPhaseRunningLine,
+    sectionTransitionLogLine,
+    type DocPhasePayload,
+  } from "$lib/services/docPhase";
 
   // ── Component state ─────────────────────────────────────────────────────
   let session: Session | null = null;
@@ -52,6 +58,44 @@
   /** doc_key → accumulated LLM token stream, cleared when doc.complete arrives. */
   let docTokenBuffers: Record<string, string> = {};
 
+  /** Tracks last section per doc for transition log lines. */
+  let lastSectionByDoc: Record<string, string> = {};
+
+  function handleDocPhase(payload: DocPhasePayload) {
+    if (!payload.doc_key) return;
+    const docLabel =
+      ALL_DOCS.find((doc) => doc.key === payload.doc_key)?.label ??
+      payload.doc_key;
+
+    const prevSection = lastSectionByDoc[payload.doc_key];
+    if (payload.section) {
+      const transition = sectionTransitionLogLine(
+        prevSection
+          ? { docKey: payload.doc_key, section: prevSection }
+          : null,
+        payload,
+        docLabel,
+      );
+      if (transition) {
+        logLines = [...logLines, transition];
+      }
+      lastSectionByDoc = {
+        ...lastSectionByDoc,
+        [payload.doc_key]: payload.section,
+      };
+    }
+
+    const logLine = formatDocPhaseLogLine(payload, docLabel);
+    if (logLine) {
+      logLines = [...logLines, logLine];
+    }
+
+    const running = formatDocPhaseRunningLine(payload, docLabel);
+    if (running) {
+      runningLine = running;
+    }
+  }
+
   function artifactsToDocuments(
     artifacts: import("$lib/types").SessionArtifact[],
   ): Record<string, GeneratedDocument> {
@@ -86,6 +130,7 @@
     runningLine = null;
     documents = {};
     docTokenBuffers = {};
+    lastSectionByDoc = {};
 
     // Show all selected docs as pending cards immediately.
     const ordered = ALL_DOCS.filter((d) => selectedDocs.includes(d.key));
@@ -98,20 +143,9 @@
       `${API_BASE}/sessions/${sid}/events`,
       (evt) => {
         if (evt.type === "doc.phase") {
-          const d = evt.data as {
-            doc_key?: string;
-            step?: string;
-            detail?: string;
-          } | null;
-          if (d?.doc_key && d?.detail) {
-            const docLabel =
-              ALL_DOCS.find((doc) => doc.key === d.doc_key)?.label ?? d.doc_key;
-            if (d.step === "complete") {
-              logLines = [...logLines, `✦ ${docLabel} — ${d.detail}`];
-              // Keep runningLine set to the outer "Generating X…" message.
-            } else {
-              runningLine = `${docLabel}: ${d.detail}`;
-            }
+          const d = evt.data as DocPhasePayload | null;
+          if (d?.doc_key) {
+            handleDocPhase(d);
           }
         }
         if (evt.type === "doc.token") {

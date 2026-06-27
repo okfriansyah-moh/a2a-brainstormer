@@ -416,6 +416,92 @@ func GetReadmeEnricherTimeoutSec() int {
 	return v
 }
 
+// ── Section-sequential AI document generation ───────────────────────────────
+
+// GetAIGenSectionSequentialKeys returns document keys that use section-sequential
+// enhancement instead of monolithic rewrite. Reads AIGEN_SECTION_SEQUENTIAL;
+// default "architecture,plan".
+func GetAIGenSectionSequentialKeys() []string {
+	raw := envString("AIGEN_SECTION_SEQUENTIAL", "architecture,plan")
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"architecture", "plan"}
+	}
+	return out
+}
+
+// IsSectionSequentialDoc reports whether docKey uses the section-sequential path.
+func IsSectionSequentialDoc(docKey string) bool {
+	for _, k := range GetAIGenSectionSequentialKeys() {
+		if k == docKey {
+			return true
+		}
+	}
+	return false
+}
+
+// GetAIGenCoherenceEnabled returns whether the post-merge coherence audit runs.
+// Reads AIGEN_COHERENCE_ENABLED; default true.
+func GetAIGenCoherenceEnabled() bool {
+	v := os.Getenv("AIGEN_COHERENCE_ENABLED")
+	if v == "" {
+		return true
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return true
+	}
+	return b
+}
+
+// GetAIGenCoherenceMinRatio returns the minimum retained section body ratio after
+// coherence micro-fix. Reads AIGEN_COHERENCE_MIN_RATIO; default 0.95; clamped [0.5,1.0].
+func GetAIGenCoherenceMinRatio() float64 {
+	v := envFloat("AIGEN_COHERENCE_MIN_RATIO", 0.95)
+	if v < 0.5 {
+		return 0.5
+	}
+	if v > 1.0 {
+		return 1.0
+	}
+	return v
+}
+
+// GetAIGenCoherenceMaxEditRatio returns the maximum relative edit size for a
+// coherence micro-fix. Reads AIGEN_COHERENCE_MAX_EDIT_RATIO; default 0.10;
+// clamped [0.01,0.5].
+func GetAIGenCoherenceMaxEditRatio() float64 {
+	v := envFloat("AIGEN_COHERENCE_MAX_EDIT_RATIO", 0.10)
+	if v < 0.01 {
+		return 0.01
+	}
+	if v > 0.5 {
+		return 0.5
+	}
+	return v
+}
+
+// GetAIGenPriorSectionMaxChars returns the character budget for prior-section
+// context in section-sequential enhancement. Reads AIGEN_PRIOR_SECTION_MAX_CHARS;
+// default 4000; clamped [500,20000].
+func GetAIGenPriorSectionMaxChars() int {
+	v := envInt("AIGEN_PRIOR_SECTION_MAX_CHARS", 4000)
+	if v < 500 {
+		return 500
+	}
+	if v > 20000 {
+		return 20000
+	}
+	return v
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // envString reads an env var and returns defVal when absent or empty.

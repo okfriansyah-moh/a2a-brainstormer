@@ -17,22 +17,37 @@ const (
 	DocStepRepair DocStep = "repair"
 	// DocStepComplete is emitted when a document finishes successfully.
 	DocStepComplete DocStep = "complete"
+	// DocStepSectionEnhance is emitted before each section enhance LLM call.
+	DocStepSectionEnhance DocStep = "section_enhance"
+	// DocStepSectionRepair is emitted before each section-scoped repair call.
+	DocStepSectionRepair DocStep = "section_repair"
+	// DocStepCoherenceAudit is emitted before the coherence audit LLM call.
+	DocStepCoherenceAudit DocStep = "coherence_audit"
+	// DocStepCoherenceFix is emitted before a coherence micro-fix call.
+	DocStepCoherenceFix DocStep = "coherence_fix"
 )
 
+// ProgressMeta carries optional section-level SSE fields.
+type ProgressMeta struct {
+	Section       string
+	FindingsCount int
+}
+
 // ProgressFunc is called at key stages during document generation.
-// docKey identifies the document (e.g. "architecture").
-// step is the current generation stage.
-// detail is a short human-readable description of what is happening.
-type ProgressFunc func(docKey string, step DocStep, detail string)
+type ProgressFunc func(docKey string, step DocStep, detail string, meta ProgressMeta)
 
 // TokenFunc is called for each LLM token chunk during streaming generation.
-// docKey identifies the document being generated.
-// token is the raw text fragment from the LLM.
 type TokenFunc func(docKey string, token string)
 
 // EnhanceOpts bundles optional callbacks for EnhanceWithProgress.
-// Zero value is valid — nil callbacks are silently skipped.
 type EnhanceOpts struct {
 	ProgressFn ProgressFunc
 	TokenFn    TokenFunc
+}
+
+// EmitProgress invokes ProgressFn when set.
+func (o EnhanceOpts) EmitProgress(docKey string, step DocStep, detail string, meta ProgressMeta) {
+	if o.ProgressFn != nil {
+		o.ProgressFn(docKey, step, detail, meta)
+	}
 }

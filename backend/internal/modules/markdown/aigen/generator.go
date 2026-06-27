@@ -147,7 +147,7 @@ func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalSt
 	enrichedArchState := s
 	if _, hasArch := scaffolds["architecture"]; hasArch && g.archEnricher != nil && config.GetArchEnricherEnabled() {
 		if opts.ProgressFn != nil {
-			opts.ProgressFn("architecture", DocStepEnricher, "Running architecture enricher pre-pass…")
+			opts.ProgressFn("architecture", DocStepEnricher, "Running architecture enricher pre-pass…", ProgressMeta{})
 		}
 		enrichedArchState, _ = g.archEnricher.Enrich(ctx, s)
 	}
@@ -157,7 +157,7 @@ func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalSt
 	enrichedPlanState := s
 	if _, hasPlan := scaffolds["plan"]; hasPlan && g.planEnricher != nil && config.GetPlanEnricherEnabled() {
 		if opts.ProgressFn != nil {
-			opts.ProgressFn("plan", DocStepEnricher, "Running plan enricher pre-pass…")
+			opts.ProgressFn("plan", DocStepEnricher, "Running plan enricher pre-pass…", ProgressMeta{})
 		}
 		enrichedPlanState, _ = g.planEnricher.Enrich(ctx, s)
 	}
@@ -167,7 +167,7 @@ func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalSt
 	enrichedReadmeState := s
 	if _, hasReadme := scaffolds["readme"]; hasReadme && g.readmeEnricher != nil && config.GetReadmeEnricherEnabled() {
 		if opts.ProgressFn != nil {
-			opts.ProgressFn("readme", DocStepEnricher, "Running readme enricher pre-pass…")
+			opts.ProgressFn("readme", DocStepEnricher, "Running readme enricher pre-pass…", ProgressMeta{})
 		}
 		enrichedReadmeState, _ = g.readmeEnricher.Enrich(ctx, s)
 	}
@@ -230,12 +230,20 @@ func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.
 // enhanceOneWithOpts produces one AI-rewritten document, emitting optional
 // progress and token-streaming events via opts callbacks.
 func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold shared.GeneratedDocument, s state.CanonicalState, opts EnhanceOpts) (shared.GeneratedDocument, error) {
+	if config.IsSectionSequentialDoc(key) {
+		return g.sectionSequentialEnhance(ctx, key, scaffold, s, opts)
+	}
+	return g.enhanceOneMonolithic(ctx, key, scaffold, s, opts)
+}
+
+// enhanceOneMonolithic rewrites the entire document in one LLM pass (legacy path).
+func (g *Generator) enhanceOneMonolithic(ctx context.Context, key string, scaffold shared.GeneratedDocument, s state.CanonicalState, opts EnhanceOpts) (shared.GeneratedDocument, error) {
 	rubric := RubricFor(key)
 	systemPrompt := g.buildSystemPrompt(key)
 	userPrompt := buildInitialUserPrompt(key, scaffold, s)
 
 	if opts.ProgressFn != nil {
-		opts.ProgressFn(key, DocStepDraft, "Generating first draft with AI…")
+		opts.ProgressFn(key, DocStepDraft, "Generating first draft with AI…", ProgressMeta{})
 	}
 
 	var draft string
@@ -282,7 +290,7 @@ func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold
 		findings := Validate(draft, rubric)
 		if len(findings) == 0 {
 			if opts.ProgressFn != nil {
-				opts.ProgressFn(key, DocStepComplete, "Document generated successfully.")
+				opts.ProgressFn(key, DocStepComplete, "Document generated successfully.", ProgressMeta{})
 			}
 			return wrapDocument(scaffold.Filename, draft), nil
 		}
@@ -296,12 +304,12 @@ func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold
 				slog.Int("repair_attempts", g.maxRepairs),
 			)
 			if opts.ProgressFn != nil {
-				opts.ProgressFn(key, DocStepComplete, "Document generated (rubric warnings remain).")
+				opts.ProgressFn(key, DocStepComplete, "Document generated (rubric warnings remain).", ProgressMeta{})
 			}
 			return wrapDocument(scaffold.Filename, draft), nil
 		}
 		if opts.ProgressFn != nil {
-			opts.ProgressFn(key, DocStepRepair, fmt.Sprintf("Repair pass %d/%d — fixing %d rubric finding(s)…", attempt+1, g.maxRepairs, len(findings)))
+			opts.ProgressFn(key, DocStepRepair, fmt.Sprintf("Repair pass %d/%d — fixing %d rubric finding(s)…", attempt+1, g.maxRepairs, len(findings)), ProgressMeta{})
 		}
 		repairPrompt := buildRepairPrompt(key, draft, findings)
 		repaired, err := g.llm.Generate(ctx, llm.LLMRequest{

@@ -51,6 +51,12 @@ services:
       # is still returned (not the deterministic template).
       AIGEN_MAX_REPAIRS: ${AIGEN_MAX_REPAIRS:-3}
       AIGEN_TEMPERATURE: ${AIGEN_TEMPERATURE:-0.2}
+      # Section-sequential doc generation (architecture,plan by default)
+      AIGEN_SECTION_SEQUENTIAL: ${AIGEN_SECTION_SEQUENTIAL:-architecture,plan}
+      AIGEN_COHERENCE_ENABLED: ${AIGEN_COHERENCE_ENABLED:-true}
+      AIGEN_COHERENCE_MIN_RATIO: ${AIGEN_COHERENCE_MIN_RATIO:-0.95}
+      AIGEN_COHERENCE_MAX_EDIT_RATIO: ${AIGEN_COHERENCE_MAX_EDIT_RATIO:-0.10}
+      AIGEN_PRIOR_SECTION_MAX_CHARS: ${AIGEN_PRIOR_SECTION_MAX_CHARS:-4000}
     depends_on:
       postgres:
         condition: service_healthy

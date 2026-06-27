@@ -301,3 +301,84 @@ func TestGenerator_Enhance_EmptyBundleFallsBack(t *testing.T) {
 		t.Errorf("expected zero LLM calls with empty bundle, got %d", stub.calls)
 	}
 }
+
+func TestGenerator_Readme_UsesMonolithicPath(t *testing.T) {
+	t.Setenv("AIGEN_SECTION_SEQUENTIAL", "architecture,plan")
+	t.Setenv("AIGEN_COHERENCE_ENABLED", "false")
+
+	bundle := aigen.SkillBundle{Skills: []aigen.Skill{{Name: "x", Prompt: "p"}}}
+	stub := &stubProvider{responses: []string{newPassingReadme()}}
+	g := aigen.New(stub, bundle, 0, 0.2, aigen.ModeHybrid, slog.Default())
+
+	scaffold := newReadmeScaffold()
+	scaffold.Filename = "readme.md"
+	out, err := g.Enhance(context.Background(), state.CanonicalState{}, map[string]shared.GeneratedDocument{"readme": scaffold})
+	if err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if stub.calls != 1 {
+		t.Fatalf("readme monolithic path expected 1 LLM call, got %d", stub.calls)
+	}
+	if out["readme"].Source != "ai" {
+		t.Errorf("source = %q", out["readme"].Source)
+	}
+}
+
+func TestGenerator_Architecture_SectionSequential(t *testing.T) {
+	t.Setenv("AIGEN_SECTION_SEQUENTIAL", "architecture,plan")
+	t.Setenv("AIGEN_COHERENCE_ENABLED", "false")
+
+	scaffold := newMinimalArchitectureScaffold()
+	bundle := aigen.SkillBundle{Skills: []aigen.Skill{{Name: "x", Prompt: "p"}}}
+	stub := &sectionStub{body: paddedSectionBody(120)}
+	g := aigen.New(stub, bundle, 0, 0.2, aigen.ModeHybrid, slog.Default())
+
+	out, err := g.Enhance(context.Background(), state.CanonicalState{}, map[string]shared.GeneratedDocument{
+		"architecture": scaffold,
+	})
+	if err != nil {
+		t.Fatalf("Enhance: %v", err)
+	}
+	if stub.calls < len(aigen.RubricFor("architecture").Sections) {
+		t.Fatalf("expected at least %d section LLM calls, got %d",
+			len(aigen.RubricFor("architecture").Sections), stub.calls)
+	}
+	for _, rule := range aigen.RubricFor("architecture").Sections {
+		if !strings.Contains(out["architecture"].Content, rule.Heading) {
+			t.Errorf("missing heading %q in output", rule.Heading)
+		}
+	}
+}
+
+// sectionStub returns a padded body for every Generate call.
+type sectionStub struct {
+	calls int
+	body  string
+}
+
+func (s *sectionStub) Generate(ctx context.Context, req llm.LLMRequest) (llm.LLMResponse, error) {
+	s.calls++
+	return llm.LLMResponse{Content: s.body, FinishReason: "stop"}, nil
+}
+
+func paddedSectionBody(minChars int) string {
+	line := strings.Repeat("content-word ", 12) + "\n"
+	repeat := minChars/len(line) + 5
+	return strings.Repeat(line, repeat)
+}
+
+func newMinimalArchitectureScaffold() shared.GeneratedDocument {
+	var b strings.Builder
+	b.WriteString("# Project — Architecture\n\n> meta\n\n")
+	for _, rule := range aigen.RubricFor("architecture").Sections {
+		b.WriteString("## ")
+		b.WriteString(rule.Heading)
+		b.WriteString("\n\nseed ")
+		b.WriteString(rule.Heading)
+		b.WriteString("\n\n")
+	}
+	return shared.GeneratedDocument{
+		Filename: "project_architecture.md",
+		Content:  b.String(),
+	}
+}
