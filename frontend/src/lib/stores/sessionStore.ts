@@ -112,7 +112,6 @@ function createSessionStore() {
           case "iteration.complete": {
             // The backend embeds the merged CanonicalState in this event so the
             // frontend can update in real-time without an extra GET /sessions/{id}.
-            const isConverged = payload?.["converged"] as boolean | undefined;
             const newState = payload?.["state"] as CanonicalState | undefined;
             const doneStatuses: Record<string, AgentStatus> = {};
             for (const agent of s.agents) {

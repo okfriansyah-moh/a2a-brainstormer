@@ -57,17 +57,7 @@ func (p *openAICompatProvider) Generate(ctx context.Context, req LLMRequest) (LL
 		return LLMResponse{}, fmt.Errorf("openai_compat.Generate: %w", err)
 	}
 
-	body, err := json.Marshal(openAIRequest{
-		Model: p.model,
-		Messages: []openAIMessage{
-			{Role: "system", Content: req.SystemPrompt},
-			{Role: "user", Content: req.UserMessage},
-		},
-		Temperature:    req.Temperature,
-		MaxTokens:      8192,
-		Stream:         false,
-		ResponseFormat: openAIResponseFormatFor(req.ResponseFormat),
-	})
+	body, err := json.Marshal(p.buildOpenAIRequest(req, false))
 	if err != nil {
 		return LLMResponse{}, fmt.Errorf("openai_compat.Generate: marshal: %w", err)
 	}
@@ -107,9 +97,10 @@ func (p *openAICompatProvider) Generate(ctx context.Context, req LLMRequest) (LL
 	}
 
 	return LLMResponse{
-		Content:      result.Choices[0].Message.Content,
-		FinishReason: result.Choices[0].FinishReason,
-		TokensUsed:   tokensUsed,
+		Content:          result.Choices[0].Message.Content,
+		FinishReason:     result.Choices[0].FinishReason,
+		TokensUsed:       tokensUsed,
+		CacheReadTokens:  result.Usage.PromptTokensDetails.CachedTokens,
 	}, nil
 }
 
@@ -122,16 +113,7 @@ func (p *openAICompatProvider) GenerateStream(ctx context.Context, req LLMReques
 		return nil, fmt.Errorf("openai_compat.GenerateStream: %w", err)
 	}
 
-	body, err := json.Marshal(openAIRequest{
-		Model: p.model,
-		Messages: []openAIMessage{
-			{Role: "system", Content: req.SystemPrompt},
-			{Role: "user", Content: req.UserMessage},
-		},
-		Temperature: req.Temperature,
-		MaxTokens:   8192,
-		Stream:      true,
-	})
+	body, err := json.Marshal(p.buildOpenAIRequest(req, true))
 	if err != nil {
 		return nil, fmt.Errorf("openai_compat.GenerateStream: marshal: %w", err)
 	}
@@ -207,6 +189,35 @@ func (p *openAICompatProvider) readSSEStream(ctx context.Context, body io.Reader
 
 // ── Wire types ────────────────────────────────────────────────────────────────
 
+func (p *openAICompatProvider) buildOpenAIRequest(req LLMRequest, stream bool) openAIRequest {
+	blocks := WireMessages(req)
+	msgs := make([]openAIMessage, 0, len(blocks))
+	for _, b := range blocks {
+		msgs = append(msgs, openAIMessage{Role: b.Role, Content: b.Content})
+	}
+	if len(msgs) == 0 {
+		sys, user := ResolvePromptFields(req)
+		if sys != "" {
+			msgs = append(msgs, openAIMessage{Role: "system", Content: sys})
+		}
+		if user != "" {
+			msgs = append(msgs, openAIMessage{Role: "user", Content: user})
+		}
+	}
+	out := openAIRequest{
+		Model:          p.model,
+		Messages:       msgs,
+		Temperature:    req.Temperature,
+		MaxTokens:      8192,
+		Stream:         stream,
+		ResponseFormat: openAIResponseFormatFor(req.ResponseFormat),
+	}
+	if key := PromptCacheKey(req); key != "" {
+		out.PromptCacheKey = key
+	}
+	return out
+}
+
 type openAIRequest struct {
 	Model          string                `json:"model"`
 	Messages       []openAIMessage       `json:"messages"`
@@ -214,6 +225,7 @@ type openAIRequest struct {
 	MaxTokens      int                   `json:"max_tokens,omitempty"`
 	Stream         bool                  `json:"stream"`
 	ResponseFormat *openAIResponseFormat `json:"response_format,omitempty"`
+	PromptCacheKey string                `json:"prompt_cache_key,omitempty"`
 }
 
 type openAIMessage struct {
@@ -243,9 +255,14 @@ type openAIChoice struct {
 }
 
 type openAIUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int                     `json:"prompt_tokens"`
+	CompletionTokens    int                     `json:"completion_tokens"`
+	TotalTokens         int                     `json:"total_tokens"`
+	PromptTokensDetails openAIPromptTokenDetails `json:"prompt_tokens_details"`
+}
+
+type openAIPromptTokenDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 type openAIStreamDelta struct {

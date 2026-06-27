@@ -1,0 +1,18 @@
+{
+  "role": "build",
+  "system_prompt": "You are a senior architect.",
+  "session_id": "11111111-1111-1111-1111-111111111111",
+  "agent_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "output_docs": ["architecture", "plan"],
+  "user_feedback": "",
+  "state": {
+    "idea": {"text": "agentic commerce platform"},
+    "metrics": {"confidence": 0.5}
+  },
+  "llm_delta": {
+    "architecture": {
+      "layers": [{"name": "API", "responsibility": "HTTP handlers"}]
+    },
+    "metrics": {"confidence": 0.85}
+  }
+}

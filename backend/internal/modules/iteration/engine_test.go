@@ -140,6 +140,7 @@ func TestEngineConvergence(t *testing.T) {
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
 		_ string,
+		_ agentpkg.DispatchContext,
 	) (state.CanonicalState, error) {
 		out := current
 		if callIdx < len(callConfidences) {
@@ -227,6 +228,7 @@ func TestEnginePipelineOrder(t *testing.T) {
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
 		_ string,
+		_ agentpkg.DispatchContext,
 	) (state.CanonicalState, error) {
 		callOrder = append(callOrder, ag.ID)
 		out := current
@@ -295,6 +297,7 @@ func TestEngineMaxIterations(t *testing.T) {
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
 		_ string,
+		_ agentpkg.DispatchContext,
 	) (state.CanonicalState, error) {
 		// No execution plan → IsExecutionPlanComplete = false → never converges.
 		return current, nil
@@ -393,6 +396,7 @@ func TestEngineMetaAgentsPopulated(t *testing.T) {
 		_ *llm.LLMConfig,
 		current state.CanonicalState,
 		_ string,
+		_ agentpkg.DispatchContext,
 	) (state.CanonicalState, error) {
 		out := current
 		out.Metrics.Confidence = 0.999
@@ -458,4 +462,56 @@ type stubAgentProviderWithSkills struct {
 
 func (s *stubAgentProviderWithSkills) ResolveActiveSkills(_ context.Context, agentID string, _ *[]string) ([]agentpkg.Skill, error) {
 	return s.skills[agentID], nil
+}
+
+// TestEngineDispatchContextPropagated verifies session metadata reaches dispatch mocks.
+func TestEngineDispatchContextPropagated(t *testing.T) {
+	const (
+		sessID   = "11111111-1111-1111-1111-111111111111"
+		agentAID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+		agentBID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	)
+
+	var captured []agentpkg.DispatchContext
+	mockDispatch := func(
+		_ context.Context,
+		_ agentpkg.Agent,
+		_ agentpkg.Role,
+		_ []agentpkg.Skill,
+		_ *llm.LLMConfig,
+		current state.CanonicalState,
+		_ string,
+		dc agentpkg.DispatchContext,
+	) (state.CanonicalState, error) {
+		captured = append(captured, dc)
+		out := current
+		out.Metrics.Confidence = 0.95
+		out.ExecutionPlan = []state.Step{completePlanStep()}
+		return out, nil
+	}
+
+	agentProv := &stubAgentProvider{
+		agents: map[string]agentpkg.Agent{
+			agentAID: {ID: agentAID, Name: "Builder", Endpoint: "http://a"},
+			agentBID: {ID: agentBID, Name: "Reviewer", Endpoint: "http://b"},
+		},
+	}
+	store := &stubSessionStore{}
+	eng := NewEngine(mockDispatch, agentProv, store, NoopEmitter{}, testLogger())
+
+	sess := twoAgentSession(sessID, agentAID, agentBID, 1)
+	sess.OutputDocs = []string{"architecture", "plan"}
+	initial := state.CanonicalState{Metrics: state.StateMetrics{Confidence: 0.5}}
+
+	_, _, _ = eng.Run(context.Background(), sess, initial, "")
+
+	if len(captured) != 2 {
+		t.Fatalf("want 2 dispatches, got %d", len(captured))
+	}
+	if captured[0].SessionID != sessID || captured[0].AgentID != agentAID {
+		t.Fatalf("first dispatch ctx = %+v", captured[0])
+	}
+	if len(captured[0].OutputDocs) != 2 {
+		t.Fatalf("output_docs = %v", captured[0].OutputDocs)
+	}
 }

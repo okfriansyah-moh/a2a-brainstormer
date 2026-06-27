@@ -23,13 +23,18 @@ type LLMRequest struct {
 	SystemPrompt string
 	UserMessage  string
 	Temperature  float64
+	// Tiered holds cache-aware prompt blocks. When nil, SystemPrompt and
+	// UserMessage are used directly.
+	Tiered *TieredPrompt
 }
 
 // LLMResponse contains the raw output from an LLM call.
 type LLMResponse struct {
-	Content      string
-	FinishReason string
-	TokensUsed   int
+	Content          string
+	FinishReason     string
+	TokensUsed       int
+	CacheReadTokens  int
+	CacheWriteTokens int
 }
 
 // DefaultCopilotBaseURL is the GitHub Copilot OpenAI-compatible base URL.

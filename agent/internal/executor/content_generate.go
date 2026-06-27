@@ -27,9 +27,9 @@ func (e *BrainstormExecutor) generateStateContent(
 	activeLLM llm.LLMProvider,
 	llmReq llm.LLMRequest,
 	yield func(a2a.Event, error) bool,
-	role string,
+	payload BrainstormPayload,
 ) (string, error) {
-	first, err := e.generateOnce(ctx, execCtx, activeLLM, llmReq, yield, role)
+	first, err := e.generateOnce(ctx, execCtx, activeLLM, llmReq, yield, payload.Role, payload)
 	if err != nil {
 		return "", err
 	}
@@ -51,9 +51,10 @@ func (e *BrainstormExecutor) generateStateContent(
 
 		tail := truncate(content, 400)
 		contReq := llmReq
+		contReq.Tiered = nil
 		contReq.UserMessage = continueTruncatedJSONPrompt + "\n\nPrior JSON ended with:\n" + tail
 
-		next, err := e.generateOnce(ctx, execCtx, activeLLM, contReq, yield, role)
+		next, err := e.generateOnce(ctx, execCtx, activeLLM, contReq, yield, payload.Role, payload)
 		if err != nil {
 			return content, err
 		}
@@ -78,13 +79,26 @@ func (e *BrainstormExecutor) generateOnce(
 	llmReq llm.LLMRequest,
 	yield func(a2a.Event, error) bool,
 	role string,
+	payload BrainstormPayload,
 ) (generatedContent, error) {
+	if cached, ok := lookupRetryCache(llmReq); ok {
+		if e.logger != nil {
+			e.logger.InfoContext(ctx, "prompt cache response hit",
+				slog.String("session_id", payload.SessionID),
+				slog.String("agent_id", payload.AgentID),
+				slog.String("provider", payload.LLMConfig.Provider),
+			)
+		}
+		return cached, nil
+	}
+
 	if sp, streamOK := activeLLM.(llm.StreamingLLMProvider); streamOK {
-		out, used, err := e.generateStream(ctx, execCtx, sp, llmReq, yield, role)
+		out, used, err := e.generateStream(ctx, execCtx, sp, llmReq, yield, role, payload)
 		if err != nil {
 			return generatedContent{}, err
 		}
 		if used {
+			storeRetryCache(llmReq, out)
 			return out, nil
 		}
 	}
@@ -93,7 +107,18 @@ func (e *BrainstormExecutor) generateOnce(
 	if err != nil {
 		return generatedContent{}, err
 	}
-	return generatedContent{text: resp.Content, finishReason: resp.FinishReason}, nil
+	if e.logger != nil && (resp.CacheReadTokens > 0 || resp.CacheWriteTokens > 0) {
+		e.logger.InfoContext(ctx, "prompt cache provider metrics",
+			slog.String("session_id", payload.SessionID),
+			slog.String("agent_id", payload.AgentID),
+			slog.String("provider", payload.LLMConfig.Provider),
+			slog.Int("cache_read_tokens", resp.CacheReadTokens),
+			slog.Int("cache_write_tokens", resp.CacheWriteTokens),
+		)
+	}
+	out := generatedContent{text: resp.Content, finishReason: resp.FinishReason}
+	storeRetryCache(llmReq, out)
+	return out, nil
 }
 
 func (e *BrainstormExecutor) generateStream(
@@ -103,6 +128,7 @@ func (e *BrainstormExecutor) generateStream(
 	llmReq llm.LLMRequest,
 	yield func(a2a.Event, error) bool,
 	role string,
+	payload BrainstormPayload,
 ) (generatedContent, bool, error) {
 	chunks, streamErr := sp.GenerateStream(ctx, llmReq)
 	if streamErr != nil {

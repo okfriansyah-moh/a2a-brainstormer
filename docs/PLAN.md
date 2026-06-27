@@ -1,10 +1,12 @@
 # PLAN.md — a2a-brainstorm Implementation Plan
 
-> **Version:** 5.0
-> **Date:** 2026-06-13 (inserted Tasks 39–41 — Multi-Provider LLM Registry + DeepSeek + OpenAI + Claude; renumbered original Tasks 39–49 to Tasks 42–52)
+> **Version:** 5.2
+> **Date:** 2026-06-16 (iteration queue = feedback text + attachments — unified next-iteration panel per v3 mockup)
+> **Change in v5.2:** Inject Feedback and **Add for next iteration** share one **next-iteration context** panel on the session page (same `iteration` scope and chip list). Opening Inject Feedback reveals the textarea above the always-visible attachment menu; queued feedback is not text-only. Updated Task 46 and §8.28.9; v3 mockup unified panel.
+> **Change in v5.1:** Re-aligned Tasks 44–52 and §8.28 with `frontend/mockups/v3.html`. Attachment frontend is **two-scope UX** (session at home, iteration above run bar); session sidebar is **read-only**; per-agent `PipelineStage` attachment UI removed. MCP frontend unchanged in scope but tab placement corrected (after Global LLM). New §8.28.9 documents the v3 frontend UX contract; former §8.28.9–12 renumbered to §8.28.10–13.
 > **Change in v5.0:** Inserted Tasks 39–41 — Multi-Provider LLM Provider Registry. Introduces `ProviderKind` enum (`copilot`, `opencode`, `openai`, `claude`, `deepseek`), a registry factory map replacing the `main.go` switch, `openAICompatProvider` shared base for all OpenAI-wire-compatible APIs (Copilot refactored, DeepSeek added via Task 39, OpenAI via Task 40), and `claudeProvider` for the Anthropic wire format (Task 41). Frontend gains a typed `ProviderKind` const, per-provider credential tooltips, model placeholder suggestions, and a Global LLM Settings tab in Settings. Original Tasks 39–49 renumbered to Tasks 42–52. New §8.34 documents the registry contract, OpenAI-compatible wire format, DeepSeek and OpenAI configs, frontend enum and UI contracts, and Claude wire format.
 > **Change in v4.0:** Inserted Task 38 — Finalize Progress Streaming: SSE Phase Events + LLM Token Streaming + Poll Fallback. Adds (A) named `doc.phase` SSE events emitted at each enricher and generation step so the finalize UI shows a live step log; (B) real LLM token streaming (`StreamingLLMProvider` interface + OpenCode implementation) forwarding tokens as `doc.token` SSE events so the rendered document types in character-by-character; (C) a frontend poll fallback that polls `GET /sessions/{id}` every 3 s if SSE disconnects before `doc.complete`. Must not break existing iteration SSE, the `TypeError/Failed-to-fetch` fix, or the `context.WithoutCancel` per-agent deadline fix. Original Tasks 38–48 renumbered 39–49. New §8.33 documents the streaming interface, event contracts, progress callback contract, and wiring rules.
-> **Change in v3.0:** Inserted Task 37 — README.md: Generation Quality Overhaul (Enricher + Correct Section Structure). Rewrites `generator_readme.go` to produce all 13 required sections (title, tagline, description paragraph, golden rule, "What it is NOT", "When to use" with Mermaid flowchart + numbered scenarios + code, Prerequisites/Installation, Quick Start, Architecture with ASCII and Mermaid, Command Reference table, Tech Stack, Repository Format, Contributing); removes wrong sections (Known Risks top-level, For AI Agents appendix, Phase-N roadmap). Adds `markdown/aigen/readme_enricher.go` (Approach B) LLM post-pass with `ReadmeEnrichmentOverlay` schema filling golden_rule, when_to_use scenarios, Mermaid flowcharts, quick_start_commands, command_reference, contributing_note, prerequisites. Adds `agent/internal/executor/prompts/readme_format.go` (Approach C) agent prompt constant injected when `readme` is in `output_docs`. Updates rubric ForbiddenStrings + RequiredPatterns. Original Tasks 37–47 renumbered 38–48. New §8.32 documents the README quality standard, enricher schema, enricher LLM prompt, Approach C fragment, and rubric assertions.
+> **Change in v3.0:** Inserted Task 37 — README.md: Generation Quality Overhaul (Enricher + Correct Section Structure). Rewrites `generator_readme.go` to produce all 13 required sections (title, tagline, description paragraph, golden rule, "What it is NOT", "When to use" with Mermaid flowchart + numbered scenarios + code, Prerequisites/Installation, Quick Start, Architecture with ASCII and Mermaid, Command Reference table, Tech Stack, Repository Format, Contributing); removes wrong sections (Known Risks top-level, For AI Agents appendix, Phase-N roadmap). Adds `markdown/aigen/readme_enricher.go` (Approach B) LLM post-pass with `ReadmeEnrichmentOverlay` schema filling golden*rule, when_to_use scenarios, Mermaid flowcharts, quick_start_commands, command_reference, contributing_note, prerequisites. Adds `agent/internal/executor/prompts/readme_format.go` (Approach C) agent prompt constant injected when `readme` is in `output_docs`. Updates rubric ForbiddenStrings + RequiredPatterns. Original Tasks 37–47 renumbered 38–48. New §8.32 documents the README quality standard, enricher schema, enricher LLM prompt, Approach C fragment, and rubric assertions.
 > **Change in v2.0:** Inserted Task 36 — PLAN.md Generation Quality Overhaul (Enricher + Correct Task Format). Adds a new `markdown/aigen/plan_enricher.go` single-call LLM post-pass (Approach B) that restructures generated PLAN.md: merges §3 Phase Breakdown into properly-formatted §5 Implementation Tasks, rewrites thin "see phase deliverables" stubs into full `**Goal:**`/`**Files to create:**`/`**Validation:**`/`**Prompt context needed:**` specs, adds `**Invariant check:**` and `**Layer(s) affected:**` per task, deduplicates the Risks section, auto-generates §8 Deep Knowledge from canonical state, and emits an ASCII dependency graph. Adds a new `agent/internal/executor/prompts/plan_format.go` constant (Approach C) injected into agent system prompts when `plan` is in `output_docs`, directing agents to write tasks in the correct spec format (not "Phase N") with runnable validation commands. Fixes §1 Goals always-empty bug. Original Tasks 36–46 renumbered 37–47. New §8.31 documents the plan quality standard, enricher schema, and Approach C prompt spec.
 > **Author:** Core, Data and AI Team
 > **Status:** Ready for Implementation
@@ -13,11 +15,11 @@
 > **Change in v1.2:** Added Tasks 26–27 — OpenCode server integration as an optional LLM provider for the agent binary. New `OpenCodeProvider` implementation, provider selection switch in `agent/cmd/server/main.go`, Docker Compose profile-based service, and full startup documentation.
 > **Change in v1.3:** Added Tasks 28–31 — four feature enhancements per blueprint §22: (28) Selectable Output Documents with edit-at-finalize support; (29) `PLAN.md` and `README.md` generators producing ≥1000 lines each; (30) Per-Agent Run button using Option A preview/apply flow; (31) Real-time SSE agent progress stream replacing simulated progress.
 > **Change in v1.4:** Added Tasks 33–38 — MCP (Model Context Protocol) tool integration: (33) DB schema for MCP server registry; (34) Backend MCP server CRUD module; (35) Agent–MCP server association + `BrainstormPayload` extension; (36) Agent MCP client package (stdio + HTTP transports, JSON-RPC 2.0); (37) LLM `GenerateWithTools` interface + multi-turn tool-use executor loop; (38) Frontend MCP settings tab, smart JSON config import (Claude Desktop / VS Code / Cursor / Zed / Windsurf / canonical), and agent assignment UI.
-> **Change in v1.5:** Inserted Task 32 — Generated Document Quality Overhaul. Fixes title bug (full idea text used as H1), eliminates idea duplication, deletes `enforceMinLines` padding, blocks finalize when state is sparse (HTTP 422), introduces deterministic `{slug}_{kind}.md` filename pattern (e.g. `match-point_architecture.md`), and enriches the canonical state schema + agent role prompts so generators produce depth from real content instead of boilerplate. Original v1.4 MCP tasks renumbered 32–37 → 33–38; deep knowledge sections renumbered §8.23 → §8.24, §8.24 → §8.25, §8.25 → §8.26. New §8.23 documents the doc-quality standard.
-> **Change in v1.6:** Inserted Task 33 — AI-Driven Hybrid Document Generator with skill bundle injection. Adds a new `markdown/aigen/` sub-package that wraps the deterministic generators with per-document AI passes orchestrated by an injectable `LLMProvider` and a `SkillBundle` (modular monolith skill, vertical-slice skill, api-design skill, roadmap-spec skill, plan-management skill — each loaded as a prompt fragment). Introduces a section-level rubric validator with auto-repair loop and a `finalize_mode` config switch (`deterministic` | `hybrid` | `ai`) that defaults to `hybrid`. Deterministic generators retained as fallback. Original v1.5 MCP tasks renumbered 33–38 → 34–39. New §8.27 documents the AI-doc-gen contract.
-> **Change in v1.8:** Inserted Task 34 — Guided Onboarding v2 (tech constraints + discovery clarify flow per `frontend/mockups/v2.html`), roadmap→plan output consolidation, dual-audience document quality standard v2, and DB-backed artifact persistence for finalized sessions + history UX. Original v1.7 attachment tasks renumbered 34–44 → 35–45; attachment migrations shifted to `009`/`010`; MCP migrations shifted to `011`/`012`. New §8.29 documents the onboarding flow, discovery-hints contract, tech-constraint injection, plan-only output model, and artifact cache schema.
-> **Change in v1.9:** Inserted Task 35 — Architecture.md State Enricher + High-Quality Section Generator. Adds a 16-section deterministic generator rewrite for `architecture.md` (Problem Statement, Solution, Scope, Layers, Tech Stack, Data Flows, Module Boundaries, Architecture Decisions, Extension Points, Security Considerations, Quality Targets, System Guarantees, Risks, Assumptions, Open Questions, Definition of Done) plus a new `aigen/enricher.go` single-call LLM pre-pass that populates optional narrative state fields before the deterministic render. Fixes `strings.ToTitle` severity bug. Adds document metadata block and Table of Contents. Original Tasks 35–45 renumbered 36–46. New §8.30 documents the section contract, `ArchEnrichmentOverlay` schema, enricher LLM prompt, rubric targets, and fallback specification.
-> **Change in v1.7:** Inserted Tasks 34–38 — Hierarchical Attachment Context system (ChatGPT-style `+` upload UX). Adds a new `modules/attachment/` vertical slice + `platform/extractor/`, `platform/embeddings/`, and `platform/blobstore/` (MinIO) infrastructure. Supports four input types — file (PDF/DOCX/MD/TXT), image (vision-described), URL (server-fetched), raw text paste. Hybrid scope model (session / iteration / agent) drives lifecycle. RAG-lite retrieval via pgvector cosine similarity injects top-K chunks into each agent dispatch through a new `AttachmentRetriever` interface threaded into the iteration engine. `BrainstormPayload` gains an optional `Attachments []AttachmentChunk` field. Frontend: ChatGPT-style attachment menu mounted on home page, session page, and `PipelineStage`. Original v1.6 MCP tasks renumbered 34–39 → 39–44; their migration numbers shift 006/007 → 008/009. New §8.28 documents the attachment system contract.
+> **Change in v1.5:** Inserted Task 32 — Generated Document Quality Overhaul. Fixes title bug (full idea text used as H1), eliminates idea duplication, deletes `enforceMinLines` padding, blocks finalize when state is sparse (HTTP 422), introduces deterministic `{slug}*{kind}.md`filename pattern (e.g.`match-point_architecture.md`), and enriches the canonical state schema + agent role prompts so generators produce depth from real content instead of boilerplate. Original v1.4 MCP tasks renumbered 32–37 → 33–38; deep knowledge sections renumbered §8.23 → §8.24, §8.24 → §8.25, §8.25 → §8.26. New §8.23 documents the doc-quality standard.
+**Change in v1.6:** Inserted Task 33 — AI-Driven Hybrid Document Generator with skill bundle injection. Adds a new `markdown/aigen/`sub-package that wraps the deterministic generators with per-document AI passes orchestrated by an injectable`LLMProvider`and a`SkillBundle`(modular monolith skill, vertical-slice skill, api-design skill, roadmap-spec skill, plan-management skill — each loaded as a prompt fragment). Introduces a section-level rubric validator with auto-repair loop and a`finalize_mode` config switch (`deterministic`|`hybrid`|`ai`) that defaults to `hybrid`. Deterministic generators retained as fallback. Original v1.5 MCP tasks renumbered 33–38 → 34–39. New §8.27 documents the AI-doc-gen contract.
+**Change in v1.8:** Inserted Task 34 — Guided Onboarding v2 (tech constraints + discovery clarify flow per `frontend/mockups/v2.html`), roadmap→plan output consolidation, dual-audience document quality standard v2, and DB-backed artifact persistence for finalized sessions + history UX. Original v1.7 attachment tasks renumbered 34–44 → 35–45; attachment migrations shifted to `009`/`010`; MCP migrations shifted to `011`/`012`. New §8.29 documents the onboarding flow, discovery-hints contract, tech-constraint injection, plan-only output model, and artifact cache schema.
+**Change in v1.9:** Inserted Task 35 — Architecture.md State Enricher + High-Quality Section Generator. Adds a 16-section deterministic generator rewrite for `architecture.md`(Problem Statement, Solution, Scope, Layers, Tech Stack, Data Flows, Module Boundaries, Architecture Decisions, Extension Points, Security Considerations, Quality Targets, System Guarantees, Risks, Assumptions, Open Questions, Definition of Done) plus a new`aigen/enricher.go`single-call LLM pre-pass that populates optional narrative state fields before the deterministic render. Fixes`strings.ToTitle`severity bug. Adds document metadata block and Table of Contents. Original Tasks 35–45 renumbered 36–46. New §8.30 documents the section contract,`ArchEnrichmentOverlay`schema, enricher LLM prompt, rubric targets, and fallback specification.
+**Change in v1.7:** Inserted Tasks 34–38 — Hierarchical Attachment Context system (ChatGPT-style`+`upload UX). Adds a new`modules/attachment/`vertical slice +`platform/extractor/`, `platform/embeddings/`, and `platform/blobstore/`(MinIO) infrastructure. Supports four input types — file (PDF/DOCX/MD/TXT), image (vision-described), URL (server-fetched), raw text paste. Hybrid scope model (session / iteration / agent) drives lifecycle. RAG-lite retrieval via pgvector cosine similarity injects top-K chunks into each agent dispatch through a new`AttachmentRetriever`interface threaded into the iteration engine.`BrainstormPayload`gains an optional`Attachments []AttachmentChunk`field. Frontend: ChatGPT-style attachment menu mounted on home page, session page, and`PipelineStage`(superseded by v5.1 /`frontend/mockups/v3.html`— two-scope UX only; no`PipelineStage` attach UI). Original v1.6 MCP tasks renumbered 34–39 → 39–44; their migration numbers shift 006/007 → 008/009. New §8.28 documents the attachment system contract.
 
 ---
 
@@ -297,7 +299,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
                                           Task 47 (DB: MCP Server Registry Schema)
                                                      │
                                                      ▼
-                                          Task 48 (Backend: MCP Server Module — CRUD)
+                                          Task 48 (Backend: MCP Server Module — CRUD + test)
                                                      │
                               ┌──────────────────────┴──────────────────────┐
                               ▼                                              ▼
@@ -1829,7 +1831,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 - `agent/internal/executor/executor.go` — **modify**:
   - In `Execute`, when assembling the system prompt, call `prompts.InjectIfPlanOutput(payload.OutputDocs, basePrompt)` before passing to `llm.Generate`
-  - `BrainstormPayload` gains `OutputDocs []string \`json:"output_docs,omitempty"\`` field (backward-compatible, omitempty); backend `DispatchFunc` populates it from `session.output_docs`
+  - `BrainstormPayload` gains `OutputDocs []string \`json:"output_docs,omitempty"\``field (backward-compatible, omitempty); backend`DispatchFunc`populates it from`session.output_docs`
   - No other changes to executor logic
 
 **Coding standards:**
@@ -2226,7 +2228,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ### Task 44 — Backend: Attachment Module (CRUD + Upload Pipeline)
 
-**Goal:** Implement the full `modules/attachment/` vertical slice — `model.go`, `repository.go`, `service.go`, `handler.go`. The service orchestrates the upload pipeline: extract text → chunk → embed → persist blob (if applicable) → persist attachment + chunks atomically. Exposes REST endpoints for creating attachments via all four input kinds (file multipart, image multipart, URL JSON, raw-text JSON), listing by scope, deleting, and an internal-only retrieval endpoint used by the iteration engine.
+**Goal:** Implement the full `modules/attachment/` vertical slice — `model.go`, `repository.go`, `service.go`, `handler.go`. The service orchestrates the upload pipeline: extract text → chunk → embed → persist blob (if applicable) → persist attachment + chunks atomically. Exposes REST endpoints for creating attachments via all four input kinds (file multipart, image multipart, URL JSON, raw-text JSON), listing by scope, deleting, and an internal-only retrieval endpoint used by the iteration engine. All three scope enum values (`session`, `iteration`, `agent`) are supported by the API; Task 46 exposes only `session` and `iteration` in the frontend UI — `agent` scope is API-only for programmatic use.
 
 **Files to create:**
 
@@ -2280,7 +2282,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 - Manual smoke:
   - `curl -F scope=session -F kind=file -F file=@docs/A2A-agent-Brainstorm.md http://localhost:8080/sessions/{id}/attachments` → 201 with non-empty `extracted_text`
   - `curl -d '{"scope":"session","kind":"url","url":"https://example.com"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 201
-  - `curl -d '{"scope":"agent","scope_ref":"<agent-uuid>","kind":"text","text":"Use Postgres 16","display_name":"db-pick"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 201
+  - API-only scope: `curl -d '{"scope":"agent","scope_ref":"<agent-uuid>","kind":"text","text":"Use Postgres 16","display_name":"db-pick"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 201
   - `curl -d '{"scope":"agent","kind":"text","text":"x","display_name":"y"}' -H 'Content-Type: application/json' http://localhost:8080/sessions/{id}/attachments` → 400 (missing scope_ref)
   - SSRF: URL `file:///etc/passwd` → 400
 
@@ -2290,7 +2292,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ### Task 45 — Backend: AttachmentRetriever + Payload Extension + Iteration Engine Wiring
 
-**Goal:** Thread attachments into the dispatch path. Introduce a narrow `AttachmentRetriever` interface owned by the iteration engine (same pattern as `agentProvider` and `sessionStore`). Before dispatching each agent, the engine resolves the active scope set (session ∪ current iteration ∪ current agent), retrieves top-K chunks via cosine similarity against the canonical state's `idea + open_questions`, and appends them to `BrainstormPayload` as a new `Attachments []AttachmentChunkRef` field. The agent executor injects the chunks into the assembled system prompt under a dedicated `# Attached Context` section. Iteration- and agent-scoped attachments are deleted after their owning iteration completes via a lifecycle cleanup pass.
+**Goal:** Thread attachments into the dispatch path. Introduce a narrow `AttachmentRetriever` interface owned by the iteration engine (same pattern as `agentProvider` and `sessionStore`). Before dispatching each agent, the engine resolves the active scope set (session ∪ current iteration ∪ current agent), retrieves top-K chunks via cosine similarity against the canonical state's `idea + open_questions`, and appends them to `BrainstormPayload` as a new `Attachments []AttachmentChunkRef` field. The agent executor injects the chunks into the assembled system prompt under a dedicated `# Attached Context` section. Iteration-scoped attachments are deleted after their owning iteration completes; agent-scope cleanup runs after each agent's dispatch returns when API-created agent rows exist. The v3 frontend (Task 46) only creates `session` and `iteration` rows — not agent scope.
 
 **Files to modify:**
 
@@ -2309,7 +2311,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
     3. Call `retriever.Retrieve(ctx, sessID, scopes, query, GetAttachmentRetrievalTopK())` → `chunks`
     4. Convert to `[]platA2A.AttachmentChunkRef` (drop DB IDs; keep content, score, scope, display name) — agent binary only needs prompt-relevant fields
     5. Pass through `DispatchFunc` via a new optional argument `attachments []platA2A.AttachmentChunkRef`
-  - After the iteration's `UpdateState` succeeds, call `retriever.DeleteByScope(ctx, sessID, ScopeIteration, strconv.Itoa(i))` to expire iteration-scoped attachments; `ScopeAgent` cleanup runs after each agent's individual dispatch returns
+  - After the iteration's `UpdateState` succeeds, call `retriever.DeleteByScope(ctx, sessID, ScopeIteration, strconv.Itoa(i))` to expire iteration-scoped attachments; `ScopeAgent` cleanup runs after each agent's individual dispatch returns (applies to API-created agent-scope rows only — Task 46 UI does not create them)
 - `backend/internal/platform/a2a/types.go`:
   - Add `AttachmentChunkRef` struct: `Scope string \`json:"scope"\``, `ScopeRef string \`json:"scope_ref,omitempty"\``, `DisplayName string \`json:"display_name"\``, `Content string \`json:"content"\``, `Score float32 \`json:"score"\``
   - Extend `BrainstormPayload` with `Attachments []AttachmentChunkRef \`json:"attachments,omitempty"\`` — backward compatible (omitempty)
@@ -2349,8 +2351,8 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 - `cd agent && go build ./...`: zero errors
 - `cd backend && go test ./internal/modules/iteration/...`: all existing tests still pass + 3 new tests pass
 - `cd agent && go test ./internal/executor/...`: all existing tests still pass + 2 new tests pass
-- Manual smoke: create session, attach a Markdown doc at session scope, run iterate → agent logs show `dispatch with attachments chunk_count=N>0`; converged state cites attachment content
-- Manual smoke: attach a text snippet at iteration scope (`scope_ref=1`), run 2 iterations → after iteration 1 the snippet is deleted; iteration 2 dispatch has chunk_count for that snippet = 0
+- Manual smoke: create session, attach a Markdown doc at session scope (home page flow), run iterate → agent logs show `dispatch with attachments chunk_count=N>0`; converged state cites attachment content
+- Manual smoke: on session page, attach a text snippet at iteration scope via the block above run bar (`scope_ref` = next iteration number), run iteration → snippet visible during that pass; after iteration completes the snippet is deleted and the next dispatch has `chunk_count=0` for that snippet
 
 **Prompt context needed:** §8.28 (AttachmentChunkRef wire format + scope resolution algorithm + system-prompt injection format), §8.3 (BrainstormPayload contract), §8.4 (iteration engine algorithm — extends step 1a), Task 44 (Service.Retrieve + Service.DeleteByScope), Task 9 (engine architecture)
 
@@ -2358,12 +2360,12 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ### Task 46 — Frontend: Attachment Menu + Upload Modal + Scope-Aware Mount Points
 
-**Goal:** Build the ChatGPT-style `+` attachment menu UX and mount it at three scope-bound locations: home page (session-scope, set during creation), session page (iteration-scope, added between iterations), and `PipelineStage` per-agent header (agent-scope, narrows the next dispatch). Includes the modal with four input kinds (file picker, image picker, URL paste, raw text paste), a sticky list of active attachments per scope, and the API client layer.
+**Goal:** Build the ChatGPT-style `+` attachment menu and upload modal. Mount at **two** user-facing locations per `frontend/mockups/v3.html`: home page (session scope, deferred upload until `createSession`) and session page (iteration scope, unified **next-iteration context** panel above run bar). Show session-scope attachments **read-only** in `CanonicalStatePanel`. Do **not** modify `PipelineStage` for attachments. Inject Feedback opens the optional textarea in the same panel as iteration attachments — both use `scope="iteration"` and share one chip list.
 
 **Files to create / modify:**
 
 - `frontend/src/lib/types.ts` — add:
-  - `AttachmentScope` type: `'session' | 'iteration' | 'agent'`
+  - `AttachmentScope` type: `'session' | 'iteration' | 'agent'` (API type includes `agent`; UI uses only `session` and `iteration`)
   - `AttachmentKind` type: `'file' | 'image' | 'url' | 'text'`
   - `Attachment` interface: `id`, `session_id`, `scope`, `scope_ref`, `kind`, `display_name`, `mime_type`, `byte_size`, `source_url`, `summary`, `created_at`, `blob_url?: string`
   - `CreateAttachmentInput` discriminated union per kind
@@ -2377,15 +2379,15 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 - `frontend/src/lib/stores/attachmentStore.ts` — **new**:
   - `attachmentStore` writable: `{ items: Attachment[], loading: boolean, error: string|null }`
   - Actions: `load(sessionId, scope?, scopeRef?)`, `add(attachment)`, `remove(id)`, `clear()`
-  - Derived: `bySessionScope`, `byIterationScope(n)`, `byAgentScope(agentId)`
+  - Derived: `bySessionScope`, `byIterationScope(n)` — used by CanonicalStatePanel and iteration block respectively
 - `frontend/src/lib/components/AttachmentMenu.svelte` — **new** (the `+` button popover, ChatGPT-style):
-  - Props: `sessionId: string`, `scope: AttachmentScope`, `scopeRef?: string`, `disabled?: boolean`
+  - Props: `sessionId: string | null`, `scope: AttachmentScope`, `scopeRef?: string`, `disabled?: boolean`, `onPendingAdd?: (pending) => void` (home page when session does not exist yet)
   - Renders a circular `+` button (`.btn-icon`) → opens popover with four menu items, each invoking the same `AttachmentUploadModal` with a preset kind:
     - "Add files" (📎) → kind=file
     - "Add image" (🖼) → kind=image
     - "Add URL" (🌐) → kind=url
     - "Paste text" (✏) → kind=text
-  - Keyboard shortcut: `⌘U` opens the file picker directly (mirrors ChatGPT UX)
+  - Keyboard shortcut: `⌘U` on home page opens the file picker directly
   - Closes on outside-click; ARIA: `role="menu"`, focus trap, `aria-expanded`
 - `frontend/src/lib/components/AttachmentUploadModal.svelte` — **new**:
   - Props: `sessionId`, `scope`, `scopeRef?`, `kind: AttachmentKind`, `onClose: () => void`
@@ -2397,21 +2399,24 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
   - Submit calls matching `api.upload*Attachment`; on success: `attachmentStore.add(result)`, `onClose()`; on failure: inline error with status-code-aware message (413 → "File too large", 422 → "Could not extract text from this file", 415 → "Unsupported file type")
   - Loading state: button disabled, spinner inline
 - `frontend/src/lib/components/AttachmentList.svelte` — **new**:
-  - Props: `attachments: Attachment[]`, `onDelete?: (id) => void`, `compact?: boolean`
-  - Renders horizontal chip row (compact) or vertical list (full): each chip shows kind icon + display_name (truncated 30 chars) + byte_size formatted + delete-X button
+  - Props: `attachments: Attachment[]`, `onDelete?: (id) => void`, `compact?: boolean`, `readonly?: boolean` (when `true`: no delete `×`, chips are display-only)
+  - Renders horizontal chip row (compact) or vertical list (full): each chip shows kind icon + display_name (truncated 30 chars) + byte_size formatted + delete-X button (hidden when `readonly`)
   - Hovering a chip shows a tooltip with `summary` text
-  - File/image chips link to `blob_url` (new tab); URL chips link to `source_url`
-- `frontend/src/routes/+page.svelte` — **modify** (home page, session creation):
-  - Below the idea textarea, render `<AttachmentMenu sessionId={null} scope="session" />` — but since session does not exist yet, store pending uploads in a local array and POST them after `createSession` returns the ID, in a single `await Promise.all` batch
-  - Below the menu, render `<AttachmentList attachments={pendingAttachments} compact />`
-  - Visually anchored to the input frame (matches the ChatGPT mockup the user referenced)
-- `frontend/src/routes/session/[id]/+page.svelte` — **modify**:
-  - Above the "Run Next Iteration" button, render `<AttachmentMenu sessionId={id} scope="iteration" scopeRef={String(nextIteration)} />` with a small caption "Add context for next iteration only (auto-removed after this pass)"
-  - Render `<AttachmentList attachments={$attachmentStore.byIterationScope(nextIteration)} compact />`
-  - Persistent session-scope list rendered in a collapsible sidebar block titled "Session context" — uses `<AttachmentList attachments={$attachmentStore.bySessionScope} />`
-- `frontend/src/lib/components/PipelineStage.svelte` — **modify**:
-  - In the agent header (next to the Run / Apply buttons added in Task 30), mount `<AttachmentMenu sessionId={sessionId} scope="agent" scopeRef={agent.id} />` with tooltip "Add context for this agent only"
-  - Below the stage body, render `<AttachmentList attachments={$attachmentStore.byAgentScope(agent.id)} compact />`
+  - File/image chips link to `blob_url` (new tab) when not `readonly`; URL chips link to `source_url`
+- `frontend/src/routes/+page.svelte` — **modify** (home page, session creation — additive only):
+  - Wrap idea textarea in an input frame; mount `AttachmentMenu` with `sessionId={null}` and `scope="session"` in the toolbar
+  - Store pending uploads in a local array; render `AttachmentList` chips below the frame
+  - After `createSession` returns the ID, batch-upload pending attachments via `await Promise.all`
+  - Optional: collapsed `<details>` help ("Sharing files or connecting tools?") — non-blocking, per v3 mockup
+- `frontend/src/routes/session/[id]/+page.svelte` — **modify** (additive only):
+  - Add **next-iteration context** panel **above** the run bar: always-visible `AttachmentMenu` + `AttachmentList` (`scope="iteration"`, `scopeRef={String(nextIteration)}`); **Inject Feedback** toggles an optional textarea **above** the attachment row in the **same** panel (same scope, same chips — not a separate attachment list)
+  - Caption: "Feedback text and attachments are shared with all agents on the next round — cleared after it finishes."
+  - Load iteration-scope attachments on mount and after each iteration completes; clear chips + textarea after each iteration (matches Task 45 lifecycle cleanup)
+  - Pass `sessionAttachments={$attachmentStore.bySessionScope}` into `CanonicalStatePanel`
+  - **Do not** add attachment UI to `PipelineStage`
+- `frontend/src/lib/components/CanonicalStatePanel.svelte` — **modify**:
+  - New optional prop: `sessionAttachments: Attachment[] = []`
+  - Collapsible **Session context** section at bottom of panel: `AttachmentList` with `readonly={true}` and helper text ("Added when you started this session")
 - `frontend/src/app.css` — **modify**: add design-token classes `.btn-icon`, `.attachment-chip`, `.attachment-chip-file`, `.attachment-chip-image`, `.attachment-chip-url`, `.attachment-chip-text` using existing CSS custom properties (`var(--accent)`, `var(--surface)`, etc.); no hard-coded hex values per AGENTS.md
 - `frontend/src/lib/services/api.test.ts` — **modify**: add unit tests for the five new `api.ts` functions using `vi.fn()` for `fetch`
 
@@ -2422,14 +2427,15 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 - `cd frontend && pnpm test`: existing + 5 new API tests pass
 - `cd frontend && pnpm build`: clean production build
 - Manual:
-  - Home page: click `+` → menu opens with four items; "Paste text" opens modal with textarea; submit before session exists → upload deferred until session ID known; both upload after `createSession`
-  - Session page: between iterations, attach an URL at iteration scope → visible in iteration list, runs the next iteration, then auto-disappears (matches Task 44 lifecycle cleanup)
-  - PipelineStage: attach a text snippet to agent A → agent B's stage shows no chips; agent A's stage shows the snippet
-  - Keyboard: `⌘U` while focused in the home page opens file picker directly
+  - Home page: click `+` → menu opens with four items; "Paste text" opens modal with textarea; submit before session exists → upload deferred until session ID known; uploads batch after `createSession`
+  - Session page: next-iteration panel visible **without** opening Inject Feedback; open Inject Feedback → textarea appears above the same attachment chips; attach URL at iteration scope → visible in shared chips; after iteration runs, chips + feedback textarea clear (matches Task 45 lifecycle cleanup)
+  - CanonicalStatePanel: session chips visible in collapsible **Session context** section; no add button, no delete `×`
+  - Inject Feedback + attachments: same iteration scope — `+ Add files or links` remains available when feedback textarea is open
+  - Keyboard: `⌘U` while on home page opens file picker directly
   - Large file (> 10 MB) → modal shows "File too large" before sending
-  - PDF upload → after 1-2s shows summary tooltip on the chip; deletion removes both the chip and the blob (verified by re-listing attachments)
+  - PDF upload → after 1-2s shows summary tooltip on the chip; deletion on iteration chips removes both the chip and the blob (verified by re-listing attachments)
 
-**Prompt context needed:** §8.28 (attachment kinds + scope semantics + display contract), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 44 (REST API contract), Task 30 (PipelineStage agent-header layout reference), `frontend/mockups/future-polished-mockup.html` (visual reference for the `+` menu)
+**Prompt context needed:** §8.28.9 (v3 frontend UX contract), §8.28 (attachment kinds + scope semantics), §8.16 (design system CSS classes), §8.9 (Svelte store conventions), Task 44 (REST API contract), Task 17 (home layout), Task 18 (session layout), `frontend/mockups/v3.html`
 
 ---
 
@@ -2459,7 +2465,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ### Task 48 — Backend: MCP Server Module (CRUD)
 
-**Goal:** Implement the full vertical slice for the MCP server registry — `model.go`, `repository.go`, `service.go`, `handler.go`. Expose five REST endpoints (`GET /mcp-servers`, `POST /mcp-servers`, `GET /mcp-servers/{id}`, `PUT /mcp-servers/{id}`, `DELETE /mcp-servers/{id}`). Validation enforces transport-type field consistency and rejects raw secret values in `env_refs`.
+**Goal:** Implement the full vertical slice for the MCP server registry — `model.go`, `repository.go`, `service.go`, `handler.go`. Expose six REST endpoints (`GET /mcp-servers`, `POST /mcp-servers`, `GET /mcp-servers/{id}`, `PUT /mcp-servers/{id}`, `DELETE /mcp-servers/{id}`, `POST /mcp-servers/{id}/test`). Validation enforces transport-type field consistency and rejects raw secret values in `env_refs`.
 
 **Files to create / modify:**
 
@@ -2467,6 +2473,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
   - `MCPServer` struct: `ID uuid.UUID`, `Name string`, `Description string`, `Transport string`, `Command *string`, `URL *string`, `EnvRefs map[string]string`, `CreatedAt time.Time`
   - `CreateMCPServerInput` struct: same fields minus `ID` and `CreatedAt`; `Transport` required
   - `UpdateMCPServerInput` struct: same as `CreateMCPServerInput` (full replace semantics)
+  - `TestConnectionResult` struct: `Connected bool`, `ToolCount int`, `ToolNames []string`, `Error string` (omitempty)
 - `backend/internal/modules/mcpserver/repository.go`:
   - `Create(ctx, input) (MCPServer, error)` — INSERT with `ON CONFLICT (name) DO NOTHING`; return 409 if name already taken
   - `GetByID(ctx, id) (MCPServer, error)` — SELECT by PK; return 404 error if not found
@@ -2476,20 +2483,23 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 - `backend/internal/modules/mcpserver/service.go`:
   - `validateInput(input) error`: transport must be `"stdio"` or `"http"`; `"stdio"` requires non-nil non-empty `Command` and nil `URL`; `"http"` requires non-nil non-empty `URL` and nil `Command`; `EnvRefs` values must not contain `=` or whitespace (guards against raw secret values being stored)
   - `Create`, `GetByID`, `List`, `Update`, `Delete` — call repository; `Create` and `Update` call `validateInput` first
+  - `TestConnection(ctx, id) (TestConnectionResult, error)` — load server by ID, dial via shared MCP client helper (stdio or HTTP per transport), call `tools/list`, return tool count and names; on dial failure return `Connected=false` with error message (502 to client)
 - `backend/internal/modules/mcpserver/handler.go`:
   - `GET    /mcp-servers` → 200 + `[]MCPServer`
   - `POST   /mcp-servers` → 201 + `MCPServer`; 400 on validation error; 409 on name conflict
   - `GET    /mcp-servers/{id}` → 200 + `MCPServer`; 404 if not found
   - `PUT    /mcp-servers/{id}` → 200 + `MCPServer`; 400 on validation error; 404 if not found
   - `DELETE /mcp-servers/{id}` → 204; 404 if not found
-- `backend/internal/platform/http/router.go` — register all 5 new routes under `mcpserver.NewHandler`
+  - `POST   /mcp-servers/{id}/test` → 200 + `TestConnectionResult`; 404 if not found; 502 if dial/handshake fails
+- `backend/internal/platform/http/router.go` — register all 6 routes under `mcpserver.NewHandler`
 
 **Validation:**
 
 - `cd backend && go build ./...`: zero errors
 - `cd backend && go vet ./...`: zero issues
-- `go test ./backend/internal/modules/mcpserver/...`: covers Create/List/Get/Update/Delete happy paths, name-conflict 409, invalid-transport 400, env-ref-with-value 400 (e.g. `"BRAVE_API_KEY": "sk-1234"` → rejected)
+- `go test ./backend/internal/modules/mcpserver/...`: covers Create/List/Get/Update/Delete happy paths, name-conflict 409, invalid-transport 400, env-ref-with-value 400 (e.g. `"BRAVE_API_KEY": "sk-1234"` → rejected), TestConnection success and dial-failure 502
 - Manual: `curl -X POST http://localhost:8080/mcp-servers -d '{"name":"brave-search","transport":"stdio","command":"npx -y @modelcontextprotocol/server-brave-search","env_refs":{"BRAVE_API_KEY":"BRAVE_API_KEY"}}'` → 201
+- Manual: `curl -X POST http://localhost:8080/mcp-servers/{id}/test` → 200 with `tool_count` and `tool_names` (or 502 when server unreachable)
 
 **Prompt context needed:** §8.24 (MCP server registry schema + env_refs security rule), AGENTS.md module boundary rules (vertical slice pattern), security invariant §5 (env_refs values are var names only)
 
@@ -2497,7 +2507,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
 
 ### Task 49 — Backend: Agent–MCP Association + Payload Extension
 
-**Goal:** Extend the agent module to load and persist `agent_mcp_servers` join rows. Extend `BrainstormPayload` with `MCPServers []MCPServerRef` so the iteration engine includes each agent's configured MCP servers in the dispatch payload, giving the agent binary the connection details it needs to dial those servers at runtime.
+**Goal:** Extend the agent module to load and persist `agent_mcp_servers` join rows. Extend `BrainstormPayload` with `MCPServers []MCPServerRef` so the iteration engine includes each agent's configured MCP servers in the dispatch payload, giving the agent binary the connection details it needs to dial those servers at runtime. MCP is configured only in Settings (Task 52) and assigned per agent on the agent edit form — not on home or session pages.
 
 **Files to modify:**
 
@@ -2651,7 +2661,7 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
   - Pre-populated edit form; `updateMCPServer` on submit; delete with `WarningModal`
   - Inline "Test Connection" — same as new form; shows current tool list when connected
 - `frontend/src/routes/settings/+page.svelte` — **modify**:
-  - Add "MCP Servers" as fourth tab (after Agents, Skills, Roles)
+  - Add "MCP Servers" as **fifth tab** after Global LLM (`?tab=mcp`) — existing tabs: Agents, Skills, Roles, Global LLM
   - MCP Servers tab content: table rows — Name, Transport badge (`.badge-build` for `stdio`, `.badge-review` for `http`), Command/URL (truncated 60 chars), Edit → `/settings/mcp/{id}`, Delete (WarningModal)
   - "Import from Config" button (`.btn-ghost`) → opens smart import modal (inline component below)
   - "Add Manually" button (`.btn-primary`) → navigates to `/settings/mcp/new`
@@ -2665,76 +2675,78 @@ Task 40 (Platform: OpenAI Provider)  Task 41 (Platform: Claude Provider)
   - Renders a checkbox list of all registered MCP servers (loaded from store); pre-checked = agent's current `mcp_servers` array
   - Each row shows: server name, transport badge, tool count (if last test result cached, else "–")
   - On submit: include `mcp_server_ids: string[]` in the `updateAgent` payload
+  - New-agent form (`settings/agent/new`) may defer MCP assignment to the edit flow (same pattern as skills)
 
 **Validation:**
 
 - `cd frontend && pnpm check`: zero svelte-check errors
 - `cd frontend && pnpm build`: clean production build
 - `cd frontend && pnpm test`: existing API service tests still pass
+- Home and session pages: confirm zero MCP configuration controls (Settings + agent edit only)
 - Smart import: paste Claude Desktop config JSON → preview shows correct server names; any env value with non-identifier chars is stripped and warning shown; "Import Selected" creates all servers via API
 - Agent edit: assign 2 MCP servers → save → reload → both remain checked
 - Test Connection: mock backend returns 3 tools → chip shows "3 tools"; mock error → chip shows error message
 
-**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 48 (MCP server REST endpoints), Task 49 (agent `mcp_server_ids` field), Task 21 (agent form patterns)
+**Prompt context needed:** §8.24 (MCPServer model + env_refs rule), §8.26 (smart import normaliser — supported config formats, stripping policy), §8.16 (design system CSS classes), Task 48 (MCP server REST endpoints incl. `POST /mcp-servers/{id}/test`), Task 49 (agent `mcp_server_ids` field), Task 21 (agent form patterns), `frontend/mockups/v3.html` (Settings MCP tab + agent form sections)
 
 ---
 
 ## 6. Task Summary
 
-| Task | Name                                          | Key Files                                                                                                                                                                                                                      | Depends On             | Complexity |
-| ---- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ---------- |
-| 1    | Project Scaffold                              | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                                                                                                                          | —                      | Low        |
-| 2    | Platform: Config + DB + Logger                | `platform/config/`, `platform/db/`, `platform/logger/`                                                                                                                                                                         | Task 1                 | Low        |
-| 3    | Platform: LLM Abstraction                     | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                                                                                                                        | Task 2                 | Medium     |
-| 4    | Platform: A2A Layer                           | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                                                                                                                 | Task 2                 | Medium     |
-| 5    | State Module                                  | `modules/state/model.go`, `merge.go`, `validator.go`                                                                                                                                                                           | Tasks 3, 4             | Medium     |
-| 6    | Agent Module: Models + DB Schema              | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                                                                                                                         | Tasks 1, 5             | Medium     |
-| 7    | Agent Module: Service + Handler + Dispatch    | `modules/agent/service.go`, `handler.go`, `client.go`                                                                                                                                                                          | Tasks 6, 3, 4          | High       |
-| 8    | Session Module                                | `modules/session/*`, `003_sessions.sql`                                                                                                                                                                                        | Task 7                 | Medium     |
-| 9    | Iteration Engine + Convergence                | `iteration/engine.go`, `convergence/engine.go`                                                                                                                                                                                 | Tasks 5, 7, 8          | High       |
-| 10   | Markdown + Backend Wire-up                    | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                                                                                                                       | Tasks 9, 8             | Medium     |
-| 11   | Agent Service Binary                          | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                                                                                                                       | Tasks 3, 4             | High       |
-| 12   | Frontend: Scaffold + Stores + API Client      | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                                                                                                                               | Task 1                 | Medium     |
-| 13   | Frontend: Session Workspace                   | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                                                                                                                              | Task 12                | Medium     |
-| 14   | Frontend: Agent Registry + Skills             | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                                                                                                                          | Task 12                | Medium     |
-| 15   | Integration Tests + Docs                      | `*_test.go` files, `README.md`                                                                                                                                                                                                 | Tasks 11, 13, 14       | Medium     |
-| 16   | Frontend: Design System Foundation            | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                                                                                                              | Task 12                | Low        |
-| 17   | Frontend: Home View Redesign                  | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                                                                                                                  | Task 16                | Medium     |
-| 18   | Frontend: Session View + Pipeline Components  | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte`                                                                                                  | Tasks 16, 17           | High       |
-| 19   | Backend: Session List + Artifact Content      | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                                                                                                                 | Tasks 10, 12           | Medium     |
-| 20   | Frontend: Settings View (Agents+Skills Tabs)  | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                                                                                                                         | Tasks 16, 19           | Medium     |
-| 21   | Frontend: Agent Form + Skill Form Views       | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                                                                                                                       | Task 20                | Medium     |
-| 22   | Frontend: Roles Tab + Warning Modal           | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                                                                                                                        | Task 20                | Medium     |
-| 23   | Frontend: Session History View                | `routes/history/+page.svelte`                                                                                                                                                                                                  | Tasks 16, 19           | Medium     |
-| 24   | Frontend: Finalize/Export View                | `routes/session/[id]/finalize/+page.svelte`                                                                                                                                                                                    | Tasks 19, 22           | Medium     |
-| 25   | Frontend: Navigation Wiring + Final UI Val    | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                                                                                                                   | Tasks 16–24            | Medium     |
-| 26   | Agent: OpenCode LLM Provider                  | `agent/internal/llm/opencode.go`, `opencode_test.go`, `agent/internal/config/config.go` (modified), `agent/cmd/server/main.go` (modified)                                                                                      | Task 11 (agent binary) | Medium     |
-| 27   | Infrastructure: OpenCode Service Wiring       | `docker-compose.yml`, `.env.example`, `Makefile`, `docs/STARTUP_GUIDE.md`                                                                                                                                                      | Task 26                | Low        |
-| 28   | Backend + FE: Selectable Output Documents     | `005_session_output_docs.sql`, `session/*` (modified), `markdown/generator.go`, `+page.svelte`, `finalize/+page.svelte`                                                                                                        | Tasks 10, 19, 24       | Medium     |
-| 29   | Long-form Generators for All Output Docs      | `markdown/templates.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, paired `_test.go`, registry test                                                                     | Task 28                | High       |
-| 30   | Per-Agent Preview/Apply (Backend + Frontend)  | `iteration/preview.go`, `engine.go` (modified), `service.go`, `handler.go`, `PipelineStage.svelte`, `api.ts`                                                                                                                   | Tasks 9, 18, 19        | High       |
-| 31   | SSE Real-time Agent Progress                  | `platform/sse/broadcaster.go`, `iteration/events.go`, `engine.go` + `handler.go` (modified), `sse.ts`, `session/[id]/+page.svelte`                                                                                             | Tasks 9, 18, 30        | High       |
-| 32   | Generated Document Quality Overhaul           | `markdown/templates.go`, `generator.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, `state/model.go`, `session/service.go`, `session/handler.go`, `executor/executor.go` | Tasks 28, 29           | High       |
-| 33   | AI-Driven Hybrid Doc Generator + Skill Bundle | `markdown/aigen/skills.go`, `rubric.go`, `generator.go`, `aigen_test.go`, `markdown/generator.go` (modified), `session/service.go` (modified), `platform/config/config.go` (modified), `cmd/server/main.go` (modified)         | Task 32                | High       |
-| 34   | Guided Onboarding v2 + Plan + Artifacts       | `007_session_discovery.sql`, `008_session_artifacts.sql`, `TechConstraints.svelte`, `DiscoveryClarify.svelte`, `discovery_compiler.go`, `generator_plan.go`, `finalize/+page.svelte`                                           | Task 33                | High       |
-| 35   | Architecture.md: State Enricher + Section Generator | `markdown/generator_architecture.go` (rewrite), `markdown/templates.go` (modified), `markdown/aigen/enricher.go` (new), `markdown/aigen/enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_architecture_test.go` (rewrite) | Task 34                | High       |
-| 36   | PLAN.md: Generation Quality Overhaul          | `markdown/generator_plan.go` (rewrite), `markdown/aigen/plan_enricher.go` (new), `markdown/aigen/plan_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_plan_test.go` (new), `agent/internal/executor/prompts/plan_format.go` (new) | Task 35                | High       |
-| 37   | README.md: Generation Quality Overhaul        | `markdown/generator_readme.go` (rewrite), `markdown/aigen/readme_enricher.go` (new), `markdown/aigen/readme_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_readme_test.go` (new), `agent/internal/executor/prompts/readme_format.go` (new) | Task 36                | High       |
-| 38   | Finalize Progress Streaming                   | `platform/llm/streaming.go` (new), `platform/llm/opencode_stream.go` (new), `modules/markdown/aigen/progress.go` (new), `platform/sse/doc_events.go` (new), `aigen/generator.go` (modified), `aigen/arch_enricher.go` (modified), `aigen/plan_enricher.go` (modified), `aigen/readme_enricher.go` (modified), `markdown/orchestrator.go` (modified), `markdown/handler.go` (modified), `lib/services/sse.ts` (modified), `finalize/+page.svelte` (modified) | Task 37                | High       |
-| 39   | Platform: LLM Registry + DeepSeek + Frontend | `platform/llm/registry.go` (new), `platform/llm/openai_compat.go` (new), `platform/llm/deepseek.go` (new), `platform/llm/copilot.go` (refactor), `agent/internal/llm/registry.go` (new), `agent/internal/llm/openai_compat.go` (new), `agent/internal/llm/deepseek.go` (new), `platform/config/config.go` (modified), `cmd/server/main.go` (modified), `frontend/src/lib/types.ts` (modified), `settings/+page.svelte` (modified), `settings/agent/new/+page.svelte` (modified) | Tasks 3, 11, 26        | Medium     |
-| 40   | Platform: OpenAI LLM Provider                 | `platform/llm/openai.go` (new), `agent/internal/llm/openai.go` (new), `platform/config/config.go` (modified)                                                                                                                  | Task 39                | Low        |
-| 41   | Platform: Claude (Anthropic) LLM Provider     | `platform/llm/claude.go` (new), `agent/internal/llm/claude.go` (new), `platform/config/config.go` (modified)                                                                                                                  | Tasks 39, 38           | Medium     |
-| 42   | DB: Attachments + Chunks Schema (pgvector)    | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                       | Task 34                | Low        |
-| 43   | Platform: Extractor + Embeddings + Blobstore  | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                               | Task 42                | High       |
-| 44   | Backend: Attachment Module (CRUD + Pipeline)  | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                               | Task 43                | High       |
-| 45   | Backend: AttachmentRetriever + Engine Wiring  | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                    | Tasks 44, 9, 11        | High       |
-| 46   | Frontend: Attachment Menu + Upload Modal      | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `PipelineStage.svelte` (modified), `api.ts`, `types.ts`, `app.css`        | Tasks 44, 18, 30       | High       |
-| 47   | DB: MCP Server Registry Schema                | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                       | Task 42                | Low        |
-| 48   | Backend: MCP Server Module (CRUD)             | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go`                                                                                                                           | Task 47                | Medium     |
-| 49   | Backend: Agent–MCP Association + Payload      | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                       | Tasks 48, 9            | Medium     |
-| 50   | Agent: MCP Client Package                     | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                        | Task 47                | High       |
-| 51   | Agent: LLM Tool-Use + Executor Loop           | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                      | Tasks 49, 50           | High       |
-| 52   | Frontend: MCP Settings + Smart Import         | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                       | Tasks 48, 49, 21       | High       |
+| Task | Name                                                | Key Files                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Depends On             | Complexity |
+| ---- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------- |
+| 1    | Project Scaffold                                    | `go.work`, `go.mod` ×2, `docker-compose.yml`, `Makefile`, FE scaffold                                                                                                                                                                                                                                                                                                                                                                                                           | —                      | Low        |
+| 2    | Platform: Config + DB + Logger                      | `platform/config/`, `platform/db/`, `platform/logger/`                                                                                                                                                                                                                                                                                                                                                                                                                          | Task 1                 | Low        |
+| 3    | Platform: LLM Abstraction                           | `platform/llm/provider.go`, `resolver.go`, `copilot.go`                                                                                                                                                                                                                                                                                                                                                                                                                         | Task 2                 | Medium     |
+| 4    | Platform: A2A Layer                                 | `platform/a2a/client.go`, `types.go`, `agent/internal/config/`                                                                                                                                                                                                                                                                                                                                                                                                                  | Task 2                 | Medium     |
+| 5    | State Module                                        | `modules/state/model.go`, `merge.go`, `validator.go`                                                                                                                                                                                                                                                                                                                                                                                                                            | Tasks 3, 4             | Medium     |
+| 6    | Agent Module: Models + DB Schema                    | `modules/agent/model.go`, `repository.go`, `role.go`, `001_agents.sql`                                                                                                                                                                                                                                                                                                                                                                                                          | Tasks 1, 5             | Medium     |
+| 7    | Agent Module: Service + Handler + Dispatch          | `modules/agent/service.go`, `handler.go`, `client.go`                                                                                                                                                                                                                                                                                                                                                                                                                           | Tasks 6, 3, 4          | High       |
+| 8    | Session Module                                      | `modules/session/*`, `003_sessions.sql`                                                                                                                                                                                                                                                                                                                                                                                                                                         | Task 7                 | Medium     |
+| 9    | Iteration Engine + Convergence                      | `iteration/engine.go`, `convergence/engine.go`                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tasks 5, 7, 8          | High       |
+| 10   | Markdown + Backend Wire-up                          | `markdown/generator.go`, `cmd/server/main.go`, `platform/http/router.go`                                                                                                                                                                                                                                                                                                                                                                                                        | Tasks 9, 8             | Medium     |
+| 11   | Agent Service Binary                                | `agent/agentcard.go`, `executor/executor.go`, `agent/cmd/server/main.go`                                                                                                                                                                                                                                                                                                                                                                                                        | Tasks 3, 4             | High       |
+| 12   | Frontend: Scaffold + Stores + API Client            | `lib/types.ts`, `stores/*.ts`, `services/api.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                | Task 1                 | Medium     |
+| 13   | Frontend: Session Workspace                         | `AgentPanel.svelte`, `ControlPanel.svelte`, `StateView.svelte`, `Timeline.svelte`                                                                                                                                                                                                                                                                                                                                                                                               | Task 12                | Medium     |
+| 14   | Frontend: Agent Registry + Skills                   | `AgentSelector.svelte`, `SkillManager.svelte`, routes                                                                                                                                                                                                                                                                                                                                                                                                                           | Task 12                | Medium     |
+| 15   | Integration Tests + Docs                            | `*_test.go` files, `README.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Tasks 11, 13, 14       | Medium     |
+| 16   | Frontend: Design System Foundation                  | `app.css`, `+layout.svelte`, `tailwind.config.ts`                                                                                                                                                                                                                                                                                                                                                                                                                               | Task 12                | Low        |
+| 17   | Frontend: Home View Redesign                        | `routes/+page.svelte`, `AgentSelector.svelte`                                                                                                                                                                                                                                                                                                                                                                                                                                   | Task 16                | Medium     |
+| 18   | Frontend: Session View + Pipeline Components        | `session/[id]/+page.svelte`, `PipelineStage.svelte`, `ConfidenceBar.svelte`, `RiskBoard.svelte`, `CanonicalStatePanel.svelte`                                                                                                                                                                                                                                                                                                                                                   | Tasks 16, 17           | High       |
+| 19   | Backend: Session List + Artifact Content            | `session/model.go`, `repository.go`, `service.go`, `handler.go`, `markdown/generator.go`, `api.ts`, `types.ts`                                                                                                                                                                                                                                                                                                                                                                  | Tasks 10, 12           | Medium     |
+| 20   | Frontend: Settings View (Agents+Skills Tabs)        | `routes/settings/+page.svelte`, redirect `/agents`, redirect `/skills`                                                                                                                                                                                                                                                                                                                                                                                                          | Tasks 16, 19           | Medium     |
+| 21   | Frontend: Agent Form + Skill Form Views             | `settings/agent/new`, `settings/agent/[id]`, `settings/skill/new`, `settings/skill/[id]`                                                                                                                                                                                                                                                                                                                                                                                        | Task 20                | Medium     |
+| 22   | Frontend: Roles Tab + Warning Modal                 | `WarningModal.svelte`, `uiStore.ts`, settings Roles tab                                                                                                                                                                                                                                                                                                                                                                                                                         | Task 20                | Medium     |
+| 23   | Frontend: Session History View                      | `routes/history/+page.svelte`                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Tasks 16, 19           | Medium     |
+| 24   | Frontend: Finalize/Export View                      | `routes/session/[id]/finalize/+page.svelte`                                                                                                                                                                                                                                                                                                                                                                                                                                     | Tasks 19, 22           | Medium     |
+| 25   | Frontend: Navigation Wiring + Final UI Val          | `+layout.svelte`, `api.test.ts`, `README.md`                                                                                                                                                                                                                                                                                                                                                                                                                                    | Tasks 16–24            | Medium     |
+| 26   | Agent: OpenCode LLM Provider                        | `agent/internal/llm/opencode.go`, `opencode_test.go`, `agent/internal/config/config.go` (modified), `agent/cmd/server/main.go` (modified)                                                                                                                                                                                                                                                                                                                                       | Task 11 (agent binary) | Medium     |
+| 27   | Infrastructure: OpenCode Service Wiring             | `docker-compose.yml`, `.env.example`, `Makefile`, `docs/STARTUP_GUIDE.md`                                                                                                                                                                                                                                                                                                                                                                                                       | Task 26                | Low        |
+| 28   | Backend + FE: Selectable Output Documents           | `005_session_output_docs.sql`, `session/*` (modified), `markdown/generator.go`, `+page.svelte`, `finalize/+page.svelte`                                                                                                                                                                                                                                                                                                                                                         | Tasks 10, 19, 24       | Medium     |
+| 29   | Long-form Generators for All Output Docs            | `markdown/templates.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, paired `_test.go`, registry test                                                                                                                                                                                                                                                                                                                      | Task 28                | High       |
+| 30   | Per-Agent Preview/Apply (Backend + Frontend)        | `iteration/preview.go`, `engine.go` (modified), `service.go`, `handler.go`, `PipelineStage.svelte`, `api.ts`                                                                                                                                                                                                                                                                                                                                                                    | Tasks 9, 18, 19        | High       |
+| 31   | SSE Real-time Agent Progress                        | `platform/sse/broadcaster.go`, `iteration/events.go`, `engine.go` + `handler.go` (modified), `sse.ts`, `session/[id]/+page.svelte`                                                                                                                                                                                                                                                                                                                                              | Tasks 9, 18, 30        | High       |
+| 32   | Generated Document Quality Overhaul                 | `markdown/templates.go`, `generator.go`, `generator_architecture.go`, `generator_roadmap.go`, `generator_plan.go`, `generator_readme.go`, `state/model.go`, `session/service.go`, `session/handler.go`, `executor/executor.go`                                                                                                                                                                                                                                                  | Tasks 28, 29           | High       |
+| 33   | AI-Driven Hybrid Doc Generator + Skill Bundle       | `markdown/aigen/skills.go`, `rubric.go`, `generator.go`, `aigen_test.go`, `markdown/generator.go` (modified), `session/service.go` (modified), `platform/config/config.go` (modified), `cmd/server/main.go` (modified)                                                                                                                                                                                                                                                          | Task 32                | High       |
+| 34   | Guided Onboarding v2 + Plan + Artifacts             | `007_session_discovery.sql`, `008_session_artifacts.sql`, `TechConstraints.svelte`, `DiscoveryClarify.svelte`, `discovery_compiler.go`, `generator_plan.go`, `finalize/+page.svelte`                                                                                                                                                                                                                                                                                            | Task 33                | High       |
+| 35   | Architecture.md: State Enricher + Section Generator | `markdown/generator_architecture.go` (rewrite), `markdown/templates.go` (modified), `markdown/aigen/enricher.go` (new), `markdown/aigen/enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_architecture_test.go` (rewrite)                                                                                                                                            | Task 34                | High       |
+| 36   | PLAN.md: Generation Quality Overhaul                | `markdown/generator_plan.go` (rewrite), `markdown/aigen/plan_enricher.go` (new), `markdown/aigen/plan_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_plan_test.go` (new), `agent/internal/executor/prompts/plan_format.go` (new)                                                                                                                                  | Task 35                | High       |
+| 37   | README.md: Generation Quality Overhaul              | `markdown/generator_readme.go` (rewrite), `markdown/aigen/readme_enricher.go` (new), `markdown/aigen/readme_enricher_test.go` (new), `markdown/aigen/generator.go` (modified), `markdown/aigen/rubric.go` (modified), `platform/config/config.go` (modified), `generator_readme_test.go` (new), `agent/internal/executor/prompts/readme_format.go` (new)                                                                                                                        | Task 36                | High       |
+| 38   | Finalize Progress Streaming                         | `platform/llm/streaming.go` (new), `platform/llm/opencode_stream.go` (new), `modules/markdown/aigen/progress.go` (new), `platform/sse/doc_events.go` (new), `aigen/generator.go` (modified), `aigen/arch_enricher.go` (modified), `aigen/plan_enricher.go` (modified), `aigen/readme_enricher.go` (modified), `markdown/orchestrator.go` (modified), `markdown/handler.go` (modified), `lib/services/sse.ts` (modified), `finalize/+page.svelte` (modified)                     | Task 37                | High       |
+| 39   | Platform: LLM Registry + DeepSeek + Frontend        | `platform/llm/registry.go` (new), `platform/llm/openai_compat.go` (new), `platform/llm/deepseek.go` (new), `platform/llm/copilot.go` (refactor), `agent/internal/llm/registry.go` (new), `agent/internal/llm/openai_compat.go` (new), `agent/internal/llm/deepseek.go` (new), `platform/config/config.go` (modified), `cmd/server/main.go` (modified), `frontend/src/lib/types.ts` (modified), `settings/+page.svelte` (modified), `settings/agent/new/+page.svelte` (modified) | Tasks 3, 11, 26        | Medium     |
+| 40   | Platform: OpenAI LLM Provider                       | `platform/llm/openai.go` (new), `agent/internal/llm/openai.go` (new), `platform/config/config.go` (modified)                                                                                                                                                                                                                                                                                                                                                                    | Task 39                | Low        |
+| 41   | Platform: Claude (Anthropic) LLM Provider           | `platform/llm/claude.go` (new), `agent/internal/llm/claude.go` (new), `platform/config/config.go` (modified)                                                                                                                                                                                                                                                                                                                                                                    | Tasks 39, 38           | Medium     |
+| 42   | DB: Attachments + Chunks Schema (pgvector)          | `migrations/009_attachments.sql`, `migrations/010_attachment_chunks.sql`                                                                                                                                                                                                                                                                                                                                                                                                        | Task 34                | Low        |
+| 43   | Platform: Extractor + Embeddings + Blobstore        | `platform/extractor/*`, `platform/embeddings/*`, `platform/blobstore/*`, `platform/config/config.go` (modified), `docker-compose.yml` (modified)                                                                                                                                                                                                                                                                                                                                | Task 42                | High       |
+| 44   | Backend: Attachment Module (CRUD + Pipeline)        | `modules/attachment/model.go`, `repository.go`, `service.go`, `handler.go`, `platform/http/router.go` (modified)                                                                                                                                                                                                                                                                                                                                                                | Task 43                | High       |
+| 45   | Backend: AttachmentRetriever + Engine Wiring        | `iteration/engine.go` (modified), `agent/client.go` (modified), `platform/a2a/types.go` (modified), `executor/executor.go` (modified), `engine_test.go`, `executor_test.go`                                                                                                                                                                                                                                                                                                     | Tasks 44, 9, 11        | High       |
+| 46   | Frontend: Attachment Menu + Upload Modal            | `AttachmentMenu.svelte`, `AttachmentUploadModal.svelte`, `AttachmentList.svelte`, `attachmentStore.ts`, `+page.svelte`, `session/[id]/+page.svelte`, `CanonicalStatePanel.svelte` (modified), `api.ts`, `types.ts`, `app.css` — no PipelineStage attach UI                                                                                                                                                                                                                      | Tasks 44, 18           | High       |
+| 47   | DB: MCP Server Registry Schema                      | `migrations/011_mcp_servers.sql`, `migrations/012_agent_mcp_servers.sql`                                                                                                                                                                                                                                                                                                                                                                                                        | Task 42                | Low        |
+| 48   | Backend: MCP Server Module (CRUD + test)            | `modules/mcpserver/model.go`, `repository.go`, `service.go`, `handler.go` (`POST /mcp-servers/{id}/test`), `platform/http/router.go`                                                                                                                                                                                                                                                                                                                                            | Task 47                | Medium     |
+| 49   | Backend: Agent–MCP Association + Payload            | `modules/agent/model.go`, `repository.go`, `service.go`, `handler.go` (modified), `platform/a2a/types.go`, `iteration/engine.go`, `executor/executor.go`                                                                                                                                                                                                                                                                                                                        | Tasks 48, 9            | Medium     |
+| 50   | Agent: MCP Client Package                           | `agent/internal/mcp/types.go`, `client.go`, `pool.go`, `client_test.go`                                                                                                                                                                                                                                                                                                                                                                                                         | Task 47                | High       |
+| 51   | Agent: LLM Tool-Use + Executor Loop                 | `agent/internal/llm/copilot.go`, `opencode.go` (modified), `executor/executor.go`, `config/config.go`, `executor_test.go`                                                                                                                                                                                                                                                                                                                                                       | Tasks 49, 50           | High       |
+| 52   | Frontend: MCP Settings + Smart Import               | `settings/mcp/new/+page.svelte`, `settings/mcp/[id]/+page.svelte`, `settings/+page.svelte`, `settings/agent/[id]/+page.svelte`, `lib/types.ts`, `api.ts`                                                                                                                                                                                                                                                                                                                        | Tasks 48, 49, 21       | High       |
 
 ---
 
@@ -4712,17 +4724,18 @@ All four getters live in `backend/internal/platform/config/config.go` — no `os
 
 ### 8.28 Hierarchical Attachment Context System (v1.7)
 
-The Attachment Context System lets users enrich brainstorm sessions with external artifacts — files, images, URLs, and raw text snippets — that are extracted, embedded, and retrieved on demand via cosine similarity to enrich each agent dispatch with relevant context. This section is the canonical contract for Tasks 34–38.
+The Attachment Context System lets users enrich brainstorm sessions with external artifacts — files, images, URLs, and raw text snippets — that are extracted, embedded, and retrieved on demand via cosine similarity to enrich each agent dispatch with relevant context. This section is the canonical contract for Tasks 42–46. Visual UX source of truth: `frontend/mockups/v3.html` (§8.28.9).
 
 #### 8.28.1 Goals & Non-Goals
 
 **Goals:**
 
-- Let users attach context at three scopes (`session` / `iteration` / `agent`) using a single ChatGPT-style `+` menu mounted at the appropriate UI location.
+- Let users attach context at two **user-facing** scopes (`session` / `iteration`) using a ChatGPT-style `+` menu at explicit mount points per `frontend/mockups/v3.html`.
+- Retain `agent` scope in the backend schema and API for programmatic use; Task 46 does **not** mount agent-scope attachment UI.
 - Support four input kinds — file (PDF/DOCX/MD/TXT/JSON), image (PNG/JPG/WEBP, vision-described), URL (server-fetched + cleaned), raw text paste.
 - Store extracted text + embeddings in Postgres; store original blobs in MinIO/S3-compatible object storage.
 - Retrieve top-K relevant chunks at dispatch time via pgvector cosine similarity and inject them into the assembled system prompt under a `# Attached Context` section.
-- Auto-expire iteration-scope and agent-scope attachments after their owning unit of work completes.
+- Auto-expire iteration-scope attachments after their owning iteration completes; agent-scope rows (API-created only) expire after the agent's dispatch returns.
 
 **Non-Goals:**
 
@@ -4730,16 +4743,17 @@ The Attachment Context System lets users enrich brainstorm sessions with externa
 - Cross-session attachment reuse / global "attachment library" (rejected per brainstorm Q4; deferred to a future task if demand emerges).
 - Streaming uploads > 10 MB (configurable via `ATTACHMENT_MAX_BYTES`; reject 413 above the cap).
 - Full-document RAG (chunk-level only; we deliberately do not pass entire docs into prompts — token budget protection).
+- Per-agent attachment UI on `PipelineStage` (removed from v3 mockup; use iteration scope for round-specific context).
 
 #### 8.28.2 Scope Model
 
-| Scope       | `scope_ref` value                            | Lifecycle                                                        | UI mount point                        |
-| ----------- | -------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------- |
-| `session`   | NULL                                         | Survives until session deleted (cascade FK)                      | Home page (during creation) + sidebar |
-| `iteration` | string of next iteration number (e.g. `"3"`) | Deleted by engine immediately after iteration N's state persists | Session page, between iterations      |
-| `agent`     | agent UUID string                            | Deleted by engine after the agent's dispatch returns             | `PipelineStage` header per agent      |
+| Scope       | `scope_ref` value                            | Lifecycle                                                        | UI mount point (v3)                                                           |
+| ----------- | -------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `session`   | NULL                                         | Survives until session deleted (cascade FK)                      | Home `+` toolbar during creation; **read-only** list in `CanonicalStatePanel` |
+| `iteration` | string of next iteration number (e.g. `"3"`) | Deleted by engine immediately after iteration N's state persists | Always-visible block above run bar on session page                            |
+| `agent`     | agent UUID string                            | Deleted by engine after the agent's dispatch returns             | **No UI** — API-only (deferred from Task 46)                                  |
 
-Retrieval at any dispatch always unions all three scopes' attachments for that session + iteration + agent. Scope is a filter on which rows are eligible — not a separate retrieval path.
+Retrieval at any dispatch always unions all three scopes' attachments for that session + iteration + agent. Scope is a filter on which rows are eligible — not a separate retrieval path. The v3 frontend only creates `session` and `iteration` rows; agent-scope rows may exist from API calls only.
 
 #### 8.28.3 Database Schema
 
@@ -4854,7 +4868,7 @@ for agent in sess.OrderedAgents:
 retriever.DeleteByScope(ctx, sess.ID, ScopeIteration, iterStr)
 ```
 
-Per-agent cleanup: `DeleteByScope(ScopeAgent, agent.ID)` invoked after that agent's dispatch returns (inside `runPipelinePass`).
+Per-agent cleanup: `DeleteByScope(ScopeAgent, agent.ID)` invoked after that agent's dispatch returns (inside `runPipelinePass`). Applies only when agent-scope rows exist (API-created); the v3 frontend never creates them.
 
 **SQL for `SearchChunks`:**
 
@@ -4958,7 +4972,27 @@ file=<binary>
 }
 ```
 
-#### 8.28.9 Security Invariants
+#### 8.28.9 Frontend UX Contract (v3 mockup)
+
+**Visual SSOT:** `frontend/mockups/v3.html` (same pattern as Task 34 uses `frontend/mockups/v2.html`).
+
+**Integration rule:** Additive only — do not redesign existing pages. Mount new components on surfaces that already own those areas in the shipped SvelteKit UI.
+
+| Surface                               | Component / behaviour                                                                                                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Home (`+page.svelte`)                 | Idea input frame with `+` popover in toolbar; pending session-scope chips below; batch-upload after `createSession`; optional collapsed `<details>` help (non-blocking)                                                                          |
+| Session (`session/[id]/+page.svelte`) | **Next-iteration context** panel above run bar: always-visible `AttachmentMenu` + chips (`scope="iteration"`); **Inject Feedback** toggles optional textarea in the **same** panel — feedback text and attachments share one scope and chip list |
+| `CanonicalStatePanel.svelte`          | Collapsible **Session context** section: `AttachmentList` with `readonly={true}` — no add button, no delete `×`                                                                                                                                  |
+| `PipelineStage.svelte`                | **No attachment UI** — pipeline cards unchanged (preview/apply from Task 30 only)                                                                                                                                                                |
+| Settings / agent form                 | MCP only (Task 52) — zero MCP controls on home or session pages                                                                                                                                                                                  |
+
+**Explicit non-goals (v3):**
+
+- No `+` button on per-agent pipeline stages.
+- No add/delete controls in the session-context sidebar (session attachments are set at home; sidebar is informational).
+- No separate attachment list for Inject Feedback — queued feedback reuses the iteration-scope chip row.
+
+#### 8.28.10 Security Invariants
 
 1. **SSRF guard:** URL fetcher allowlists `http://` and `https://` schemes only. Reject `file://`, `ftp://`, `data:`, `gopher://`, `javascript:` with 400.
 2. **Size cap:** `http.MaxBytesReader(r.Body, GetAttachmentMaxBytes())` on every POST. Default 10 MB; reject 413 above the cap.
@@ -4967,9 +5001,9 @@ file=<binary>
 5. **No credential values in DB or logs:** the embeddings provider and blobstore both resolve credentials via `config.Get*CredentialRef()` → `os.Getenv` (single call site).
 6. **Presigned URLs expire:** blob redirects use 15-minute presigned URLs; raw bucket access is disabled.
 7. **Cascade deletion:** session deletion → attachments cascade → chunks cascade → blob deletion runs as a post-commit best-effort sweep (logged on failure).
-8. **No agent-to-agent leakage:** agent-scope retrieval filters by `agent_id` — agent A's snippet is invisible to agent B even within the same iteration.
+8. **No agent-to-agent leakage:** agent-scope retrieval filters by `agent_id` — agent A's snippet is invisible to agent B even within the same iteration. (v3 UI does not create agent-scope rows; rule applies to API-created rows only.)
 
-#### 8.28.10 Failure Modes & Degradation
+#### 8.28.11 Failure Modes & Degradation
 
 | Failure                                  | Behaviour                                                           |
 | ---------------------------------------- | ------------------------------------------------------------------- |
@@ -4981,7 +5015,7 @@ file=<binary>
 | Vision model unavailable for image       | Service returns 422; UI surfaces "Image extraction unavailable"     |
 | Iteration-cleanup `DeleteByScope` fails  | Logged warn; rows orphan until session delete (eventually cascaded) |
 
-#### 8.28.11 Config Summary
+#### 8.28.12 Config Summary
 
 | Env var                          | Default                  | Range / format              | Owner   |
 | -------------------------------- | ------------------------ | --------------------------- | ------- |
@@ -5002,7 +5036,7 @@ file=<binary>
 
 All getters live in `backend/internal/platform/config/config.go` — no `os.Getenv` calls elsewhere.
 
-#### 8.28.12 Determinism Trade-off
+#### 8.28.13 Determinism Trade-off
 
 Attachment retrieval introduces a non-deterministic surface — same input idea + same attached corpus may rank chunks slightly differently between embedding model versions or pgvector index rebuilds. This is acceptable because:
 
@@ -5216,27 +5250,27 @@ Added by Task 35. This section documents the full 16-section architecture docume
 
 The generator renders sections in this exact order. Heading constants live in `generator_architecture.go`. Sections without a number (metadata block, TOC, appendix) use no `##` heading.
 
-| # | Heading | Primary Source | Fallback |
-|---|---------|----------------|---------|
-| — | Metadata block (blockquote) | Deterministic: `s.Meta.Iteration`, `s.Metrics.Confidence` | Always present |
-| — | Table of Contents | Deterministic: hardcoded 16 entries | Always present |
-| 1 | Problem Statement | `s.Idea["problem_statement"]` (enricher) | First sentence of `s.Idea["context"]` ≤200 chars → `s.Idea["text"]` ≤200 chars |
-| 2 | Solution | `s.Idea["solution_summary"]` (enricher) | `s.Idea["summary"]` → first 300 chars of `s.Idea["text"]` |
-| 3 | Scope | `s.Architecture["scope"]["in"]` + `["out"]` (enricher) | In: first 3 goals from `s.Idea["goals"]`; Out: "Further feature scope — defined in future iterations" |
-| 4 | Layers | `s.Architecture["layers"]` (existing) | `_Architecture details not yet defined._` |
-| 5 | Tech Stack | `s.Architecture["tech_stack"]` + `s.Architecture["tech_stack_rationale"]` (enricher) | 2-column table from `tech_stack` keys when rationale absent |
-| 6 | Data Flows | `s.Architecture["data_flows"]` + `s.Architecture["data_flow_prose"]` (enricher) | ASCII component diagram fallback |
-| 7 | Module Boundaries | `s.Architecture["directory_layout"]` (existing) | Generic module listing |
-| 8 | Architecture Decisions | `s.Architecture["decisions"]` + `s.Architecture["decision_enrichments"]` (enricher) | 4-column table without Alternatives/Tradeoff when enrichment absent |
-| 9 | Extension Points | `s.Architecture["extension_points"]` (enricher) | Generic stub: "Add a new LLM provider" + "Add a new output document format" each with 3 placeholder steps |
-| 10 | Security Considerations | `s.Architecture["security"]` (enricher) | Generic stub: authentication + prompt injection rows |
-| 11 | Quality Targets | `s.Metrics` (deterministic) | Always present |
-| 12 | System Guarantees | `s.Architecture["guarantees"]` (enricher) | 3 derived guarantees from architecture map (see §8.30.6) |
-| 13 | Risks | `s.Risks[]` + Likelihood/Impact/Mitigation (enricher overlay) | Existing 4-column table; new columns show "—" when absent |
-| 14 | Assumptions | `s.Assumptions` (deterministic) | `_No assumptions recorded._` |
-| 15 | Open Questions | `s.OpenQuestions` (deterministic) | `_No open questions at this time._` |
-| 16 | Definition of Done | `s.Architecture["exit_criteria"]` (enricher) + always-appended items | 5 generic DoD items; "All open questions resolved"; "Confidence ≥ 0.85" |
-| — | Appendix: For AI Agents | Real layer names + LLM interface name from state | Hardcoded canonical list |
+| #   | Heading                     | Primary Source                                                                       | Fallback                                                                                                  |
+| --- | --------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| —   | Metadata block (blockquote) | Deterministic: `s.Meta.Iteration`, `s.Metrics.Confidence`                            | Always present                                                                                            |
+| —   | Table of Contents           | Deterministic: hardcoded 16 entries                                                  | Always present                                                                                            |
+| 1   | Problem Statement           | `s.Idea["problem_statement"]` (enricher)                                             | First sentence of `s.Idea["context"]` ≤200 chars → `s.Idea["text"]` ≤200 chars                            |
+| 2   | Solution                    | `s.Idea["solution_summary"]` (enricher)                                              | `s.Idea["summary"]` → first 300 chars of `s.Idea["text"]`                                                 |
+| 3   | Scope                       | `s.Architecture["scope"]["in"]` + `["out"]` (enricher)                               | In: first 3 goals from `s.Idea["goals"]`; Out: "Further feature scope — defined in future iterations"     |
+| 4   | Layers                      | `s.Architecture["layers"]` (existing)                                                | `_Architecture details not yet defined._`                                                                 |
+| 5   | Tech Stack                  | `s.Architecture["tech_stack"]` + `s.Architecture["tech_stack_rationale"]` (enricher) | 2-column table from `tech_stack` keys when rationale absent                                               |
+| 6   | Data Flows                  | `s.Architecture["data_flows"]` + `s.Architecture["data_flow_prose"]` (enricher)      | ASCII component diagram fallback                                                                          |
+| 7   | Module Boundaries           | `s.Architecture["directory_layout"]` (existing)                                      | Generic module listing                                                                                    |
+| 8   | Architecture Decisions      | `s.Architecture["decisions"]` + `s.Architecture["decision_enrichments"]` (enricher)  | 4-column table without Alternatives/Tradeoff when enrichment absent                                       |
+| 9   | Extension Points            | `s.Architecture["extension_points"]` (enricher)                                      | Generic stub: "Add a new LLM provider" + "Add a new output document format" each with 3 placeholder steps |
+| 10  | Security Considerations     | `s.Architecture["security"]` (enricher)                                              | Generic stub: authentication + prompt injection rows                                                      |
+| 11  | Quality Targets             | `s.Metrics` (deterministic)                                                          | Always present                                                                                            |
+| 12  | System Guarantees           | `s.Architecture["guarantees"]` (enricher)                                            | 3 derived guarantees from architecture map (see §8.30.6)                                                  |
+| 13  | Risks                       | `s.Risks[]` + Likelihood/Impact/Mitigation (enricher overlay)                        | Existing 4-column table; new columns show "—" when absent                                                 |
+| 14  | Assumptions                 | `s.Assumptions` (deterministic)                                                      | `_No assumptions recorded._`                                                                              |
+| 15  | Open Questions              | `s.OpenQuestions` (deterministic)                                                    | `_No open questions at this time._`                                                                       |
+| 16  | Definition of Done          | `s.Architecture["exit_criteria"]` (enricher) + always-appended items                 | 5 generic DoD items; "All open questions resolved"; "Confidence ≥ 0.85"                                   |
+| —   | Appendix: For AI Agents     | Real layer names + LLM interface name from state                                     | Hardcoded canonical list                                                                                  |
 
 ---
 
@@ -5301,24 +5335,24 @@ type OverlayDecEnrich struct {
 
 These targets are enforced by the rubric validator in `aigen/rubric.go` during the AI-hybrid pass (Task 33 infrastructure). Sections are validated by substring search for `RequiredKeywords` and total document `MinChars`.
 
-| Section heading | RequiredKeywords | Section MinChars |
-|----------------|-----------------|-----------------|
-| Problem Statement | — | 80 |
-| Solution | — | 80 |
-| Scope | `"In Scope"`, `"Out of Scope"` | 60 |
-| Layers | — | 100 |
-| Tech Stack | — | 80 |
-| Data Flows | `"graph"` or `"→"` | 100 |
-| Module Boundaries | — | 60 |
-| Architecture Decisions | `"Decision"`, `"Status"` | 80 |
-| Extension Points | — | 60 |
-| Security Considerations | `"Surface"`, `"Mitigation"` | 60 |
-| Quality Targets | `"Confidence"` | 43 |
-| System Guarantees | — | 60 |
-| Risks | `"Risk"`, `"Status"` | 60 |
-| Assumptions | — | 20 |
-| Open Questions | — | 20 |
-| Definition of Done | `"- [ ]"` | 60 |
+| Section heading         | RequiredKeywords               | Section MinChars |
+| ----------------------- | ------------------------------ | ---------------- |
+| Problem Statement       | —                              | 80               |
+| Solution                | —                              | 80               |
+| Scope                   | `"In Scope"`, `"Out of Scope"` | 60               |
+| Layers                  | —                              | 100              |
+| Tech Stack              | —                              | 80               |
+| Data Flows              | `"graph"` or `"→"`             | 100              |
+| Module Boundaries       | —                              | 60               |
+| Architecture Decisions  | `"Decision"`, `"Status"`       | 80               |
+| Extension Points        | —                              | 60               |
+| Security Considerations | `"Surface"`, `"Mitigation"`    | 60               |
+| Quality Targets         | `"Confidence"`                 | 43               |
+| System Guarantees       | —                              | 60               |
+| Risks                   | `"Risk"`, `"Status"`           | 60               |
+| Assumptions             | —                              | 20               |
+| Open Questions          | —                              | 20               |
+| Definition of Done      | `"- [ ]"`                      | 60               |
 
 **Total document MinChars:** 1500 (raised from previous 500).
 
@@ -5328,18 +5362,18 @@ These targets are enforced by the rubric validator in `aigen/rubric.go` during t
 
 These fields are set inside `s.Idea` and `s.Architecture` maps by the enricher. They are advisory — the generator renders all 16 sections without them (using fallbacks from §8.30.6).
 
-| Field key | Map | Go type after JSON decode | Used by section |
-|-----------|-----|--------------------------|----------------|
-| `problem_statement` | `s.Idea` | `string` | §1 Problem Statement |
-| `solution_summary` | `s.Idea` | `string` | §2 Solution |
-| `scope` | `s.Architecture` | `map[string]any` — keys `"in"` ([]string), `"out"` ([]string) | §3 Scope |
-| `extension_points` | `s.Architecture` | `[]any` — each `{name: string, steps: []string}` | §9 Extension Points |
-| `security` | `s.Architecture` | `[]any` — each `{surface, risk, mitigation: string}` | §10 Security |
-| `guarantees` | `s.Architecture` | `[]string` | §12 System Guarantees |
-| `decision_enrichments` | `s.Architecture` | `[]any` — each `{title, alternatives, tradeoff: string}` | §8 Architecture Decisions |
-| `tech_stack_rationale` | `s.Architecture` | `map[string]string` | §5 Tech Stack |
-| `data_flow_prose` | `s.Architecture` | `string` | §6 Data Flows |
-| `exit_criteria` | `s.Architecture` | `[]string` | §16 Definition of Done |
+| Field key              | Map              | Go type after JSON decode                                     | Used by section           |
+| ---------------------- | ---------------- | ------------------------------------------------------------- | ------------------------- |
+| `problem_statement`    | `s.Idea`         | `string`                                                      | §1 Problem Statement      |
+| `solution_summary`     | `s.Idea`         | `string`                                                      | §2 Solution               |
+| `scope`                | `s.Architecture` | `map[string]any` — keys `"in"` ([]string), `"out"` ([]string) | §3 Scope                  |
+| `extension_points`     | `s.Architecture` | `[]any` — each `{name: string, steps: []string}`              | §9 Extension Points       |
+| `security`             | `s.Architecture` | `[]any` — each `{surface, risk, mitigation: string}`          | §10 Security              |
+| `guarantees`           | `s.Architecture` | `[]string`                                                    | §12 System Guarantees     |
+| `decision_enrichments` | `s.Architecture` | `[]any` — each `{title, alternatives, tradeoff: string}`      | §8 Architecture Decisions |
+| `tech_stack_rationale` | `s.Architecture` | `map[string]string`                                           | §5 Tech Stack             |
+| `data_flow_prose`      | `s.Architecture` | `string`                                                      | §6 Data Flows             |
+| `exit_criteria`        | `s.Architecture` | `[]string`                                                    | §16 Definition of Done    |
 
 ---
 
@@ -5379,19 +5413,19 @@ Output schema (all fields optional):
 
 Each section's deterministic fallback content when enricher fields are absent:
 
-| Section | Fallback behaviour |
-|---------|-------------------|
-| Problem Statement | `firstSentence(s.Idea["context"])` truncated to 200 chars; if absent, `truncate(s.Idea["text"], 200)` |
-| Solution | `s.Idea["summary"]` if non-empty; else `truncate(s.Idea["text"], 300)` |
-| Scope | In: first 3 items of `s.Idea["goals"]` (or "Core feature" if goals empty); Out: single row "Further feature scope — defined in future iterations" |
-| Extension Points | 2 stub entries: (1) "Add a new LLM provider" with steps — "Implement the `LLMProvider` interface", "Register in `platform/llm/resolver.go`", "Add env var to `config.go`"; (2) "Add a new output document format" with steps — "Implement `Generate<DocType>(s CanonicalState) (string, error)`", "Register key in `markdown/generator.go` `GenerateAll`", "Add key to session `output_docs` allowed values" |
-| Security Considerations | 2 stub rows: `{Surface: "Authentication", Risk: "Unauthorized access to session data", Mitigation: "Validate all session IDs against DB on every request"}`, `{Surface: "Prompt Injection", Risk: "Malicious user input manipulates LLM output", Mitigation: "Validate and sanitise all user-controlled input before LLM prompt assembly"}` |
-| System Guarantees | 3 hardcoded strings: "Deterministic output: same canonical state input produces identical generated documents", "Isolated modules: no cross-module direct imports between `internal/modules/` packages", "LLM abstracted: all model calls routed through the `LLMProvider` interface — no direct SDK usage in business logic" |
-| Definition of Done | 5 generic items: "Core feature implemented and manually tested end-to-end", "All unit and integration tests passing (0 failures)", "`go build ./...` and `go vet ./...` clean", "No hardcoded credentials, ports, or model names outside config files", "Architecture document generated, reviewed, and committed"; plus always-appended: "All open questions resolved", "Confidence ≥ 0.85" |
-| Risks Mitigation / Likelihood / Impact | Render "—" in table cells; preserve existing `Severity` value |
-| Architecture Decisions Alternatives / Tradeoff | Render "—" in Alternatives and Tradeoff columns |
-| Tech Stack Rationale column | Omit Rationale column entirely; render 2-column table (Technology, Role/Version) |
-| Data Flow Prose paragraph | Omit prose paragraph entirely; render Mermaid diagram directly without preamble |
+| Section                                        | Fallback behaviour                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Problem Statement                              | `firstSentence(s.Idea["context"])` truncated to 200 chars; if absent, `truncate(s.Idea["text"], 200)`                                                                                                                                                                                                                                                                                                        |
+| Solution                                       | `s.Idea["summary"]` if non-empty; else `truncate(s.Idea["text"], 300)`                                                                                                                                                                                                                                                                                                                                       |
+| Scope                                          | In: first 3 items of `s.Idea["goals"]` (or "Core feature" if goals empty); Out: single row "Further feature scope — defined in future iterations"                                                                                                                                                                                                                                                            |
+| Extension Points                               | 2 stub entries: (1) "Add a new LLM provider" with steps — "Implement the `LLMProvider` interface", "Register in `platform/llm/resolver.go`", "Add env var to `config.go`"; (2) "Add a new output document format" with steps — "Implement `Generate<DocType>(s CanonicalState) (string, error)`", "Register key in `markdown/generator.go` `GenerateAll`", "Add key to session `output_docs` allowed values" |
+| Security Considerations                        | 2 stub rows: `{Surface: "Authentication", Risk: "Unauthorized access to session data", Mitigation: "Validate all session IDs against DB on every request"}`, `{Surface: "Prompt Injection", Risk: "Malicious user input manipulates LLM output", Mitigation: "Validate and sanitise all user-controlled input before LLM prompt assembly"}`                                                                  |
+| System Guarantees                              | 3 hardcoded strings: "Deterministic output: same canonical state input produces identical generated documents", "Isolated modules: no cross-module direct imports between `internal/modules/` packages", "LLM abstracted: all model calls routed through the `LLMProvider` interface — no direct SDK usage in business logic"                                                                                |
+| Definition of Done                             | 5 generic items: "Core feature implemented and manually tested end-to-end", "All unit and integration tests passing (0 failures)", "`go build ./...` and `go vet ./...` clean", "No hardcoded credentials, ports, or model names outside config files", "Architecture document generated, reviewed, and committed"; plus always-appended: "All open questions resolved", "Confidence ≥ 0.85"                 |
+| Risks Mitigation / Likelihood / Impact         | Render "—" in table cells; preserve existing `Severity` value                                                                                                                                                                                                                                                                                                                                                |
+| Architecture Decisions Alternatives / Tradeoff | Render "—" in Alternatives and Tradeoff columns                                                                                                                                                                                                                                                                                                                                                              |
+| Tech Stack Rationale column                    | Omit Rationale column entirely; render 2-column table (Technology, Role/Version)                                                                                                                                                                                                                                                                                                                             |
+| Data Flow Prose paragraph                      | Omit prose paragraph entirely; render Mermaid diagram directly without preamble                                                                                                                                                                                                                                                                                                                              |
 
 ---
 
@@ -5419,18 +5453,21 @@ Each `### Task N — {Name}` block in a generated `plan.md` **must** contain the
   - **Failure handling:** {error paths, retry logic, non-fatal contract}
 
 **Coding standards:** _(Medium/High complexity tasks only)_
+
 - SRP: {what has a single responsibility in this task}
 - DIP: {what depends on abstraction rather than concrete}
 - YAGNI: {what is intentionally NOT implemented}
 - No `fmt.Println`, no `os.Getenv` outside `config.go`
 
 **Validation:**
+
 - `cd backend && go build ./...`: zero build errors
 - `cd backend && go vet ./...`: zero vet issues
 - `cd backend && go test ./path/...`: {specific test target} — all pass
 - {Behavioral assertion checkpoint — e.g. manual smoke test}
 
 **Invariant check:**
+
 - [ ] No file modified outside the "Files to create/modify" list
 - [ ] No cross-module import introduced
 - [ ] No `os.Getenv` outside `config.go`
@@ -5443,12 +5480,14 @@ Each `### Task N — {Name}` block in a generated `plan.md` **must** contain the
 ```
 
 **Forbidden strings** — the generator must reject any output containing:
+
 - `"see phase deliverables"` — stub placeholder that provides zero actionable information
 - `"per module test suite"` — not a runnable command
 - `"Phase 0 —"`, `"Phase 1 —"`, ..., `"Phase N —"` — wrong heading format (must be `"Task N —"`)
 - `"TBD"`, `"TODO"`, `"placeholder"` — incomplete spec
 
 **Required patterns** per `### Task` block (validator asserts at least one occurrence of each):
+
 - `\*\*Goal:\*\*`
 - `\*\*Validation:\*\*`
 - `\*\*Invariant check:\*\*`
@@ -5473,10 +5512,7 @@ The LLM enricher returns a single JSON object matching this schema. All fields a
       "invariant_checks": [
         "{task-specific invariant check text — starts with verb, ≤ 80 chars}"
       ],
-      "layer_tags": [
-        "backend/internal/modules/X/",
-        "agent/internal/Y/"
-      ],
+      "layer_tags": ["backend/internal/modules/X/", "agent/internal/Y/"],
       "prompt_context_refs": [
         "§8.N (description of what to load from this section)"
       ]
@@ -5493,6 +5529,7 @@ The LLM enricher returns a single JSON object matching this schema. All fields a
 ```
 
 **Validation rules for `validateOverlay()`:**
+
 - `phases` length must match `s.Plan["phases"]` length exactly; extra/missing entries → reject whole overlay
 - Each `coding_standards` item: non-empty string, ≤ 200 chars
 - Each `invariant_checks` item: non-empty string, starts with a capital letter, ≤ 80 chars
@@ -5572,17 +5609,17 @@ For invariant_checks: start with a verb ("No X outside Y", "All Z via W only").
 
 The rubric validator in `markdown/aigen/rubric.go` for key `"plan"` enforces:
 
-| Assertion | Type | Action on Failure |
-|---|---|---|
-| No `"see phase deliverables"` in output | `ForbiddenString` | Trigger auto-repair LLM pass: "Replace all 'see phase deliverables' stubs with explicit file paths from the canonical state" |
-| No `"per module test suite"` in output | `ForbiddenString` | Trigger auto-repair: "Replace with specific `go build ./...` and `go test ./path/...` commands" |
-| No `"Phase [0-9]+"` in `### ` headings | `ForbiddenPattern` | Trigger auto-repair: "Rename all 'Phase N' headings to 'Task N'" |
-| `\*\*Goal:\*\*` present in each `### Task` block | `RequiredPattern` | Trigger auto-repair: "Add missing **Goal:** field to each task section" |
-| `\*\*Validation:\*\*` present in each `### Task` block | `RequiredPattern` | Trigger auto-repair: "Add missing **Validation:** field" |
-| `\*\*Invariant check:\*\*` present in each `### Task` block | `RequiredPattern` | Trigger auto-repair: "Add missing **Invariant check:** field with at least the 4 canonical items" |
-| `## 1. Goals` is not `_Goals not yet defined_` | `ForbiddenString` | Trigger auto-repair: "Populate Goals from `s.Idea['goals']` list" |
-| `## 8. Deep Knowledge` section present | `RequiredSection` | Trigger auto-repair: "Add §8 Deep Knowledge section derived from canonical state schema" |
-| Document `MinChars` ≥ 3000 | `MinLength` | Trigger auto-repair: "Expand task file specs with explicit function signatures and failure handling" |
+| Assertion                                                   | Type               | Action on Failure                                                                                                            |
+| ----------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| No `"see phase deliverables"` in output                     | `ForbiddenString`  | Trigger auto-repair LLM pass: "Replace all 'see phase deliverables' stubs with explicit file paths from the canonical state" |
+| No `"per module test suite"` in output                      | `ForbiddenString`  | Trigger auto-repair: "Replace with specific `go build ./...` and `go test ./path/...` commands"                              |
+| No `"Phase [0-9]+"` in `### ` headings                      | `ForbiddenPattern` | Trigger auto-repair: "Rename all 'Phase N' headings to 'Task N'"                                                             |
+| `\*\*Goal:\*\*` present in each `### Task` block            | `RequiredPattern`  | Trigger auto-repair: "Add missing **Goal:** field to each task section"                                                      |
+| `\*\*Validation:\*\*` present in each `### Task` block      | `RequiredPattern`  | Trigger auto-repair: "Add missing **Validation:** field"                                                                     |
+| `\*\*Invariant check:\*\*` present in each `### Task` block | `RequiredPattern`  | Trigger auto-repair: "Add missing **Invariant check:** field with at least the 4 canonical items"                            |
+| `## 1. Goals` is not `_Goals not yet defined_`              | `ForbiddenString`  | Trigger auto-repair: "Populate Goals from `s.Idea['goals']` list"                                                            |
+| `## 8. Deep Knowledge` section present                      | `RequiredSection`  | Trigger auto-repair: "Add §8 Deep Knowledge section derived from canonical state schema"                                     |
+| Document `MinChars` ≥ 3000                                  | `MinLength`        | Trigger auto-repair: "Expand task file specs with explicit function signatures and failure handling"                         |
 
 Maximum 3 auto-repair attempts before falling back to deterministic-only output with a warning log.
 
@@ -5598,23 +5635,24 @@ Added by Task 37. This section documents the full 13-section README document con
 
 Every generated `readme.md` must contain exactly these 13 sections in this order. Sections with a **Deterministic fallback** column will render content from `CanonicalState` even when the enricher is disabled or unavailable.
 
-| § | Heading | Primary data source (enricher key) | Deterministic fallback |
-|---|---|---|---|
-| 1 | `# {ShortTitle}` | `shortTitle(s)` — deterministic | Title from `s.Idea["text"]` truncated + slug-cased |
-| 2 | `> {tagline}` | `s.Architecture["tagline"]` | `oneLineDescription(s)` |
-| 3 | **Description paragraph** | `s.Architecture["description_paragraph"]` | First 300 chars of `s.Idea["context"]` |
-| 4 | **Golden rule** | `s.Architecture["golden_rule"]` | `_No golden rule defined._` |
-| 5 | **What it is NOT** | `s.Architecture["is_not"]` ([]string) | 3 generic anti-patterns derived from tech stack |
-| 6 | **When to use** | `s.Architecture["when_to_use"]` ([]WhenToUseScenario) + `s.Architecture["when_to_use_mermaid"]` | 3 generic "use when building X" scenarios; no Mermaid |
-| 7 | **Installation / Prerequisites** | `s.Architecture["prerequisites"]` ([]Prerequisite) | Generic `go install` + `docker compose up` steps |
-| 8 | **Quick Start** | `s.Architecture["quick_start_commands"]` ([]string) | 3 generic `make` commands |
-| 9 | **Architecture** | `s.Architecture["architecture_ascii"]` + `s.Architecture["architecture_mermaid"]` | `renderASCIIComponents(s)` + `renderDataFlowsMermaid(s)` |
-| 10 | **Command Reference** | `s.Architecture["command_reference"]` ([]CommandRef) | Single placeholder row |
-| 11 | **Tech Stack** | `renderTechStack(s)` — deterministic | Same |
-| 12 | **Repository Format** | `renderDirectoryTree(s)` + `s.Architecture["repo_format_notes"]` | Tree only, no per-entry notes |
-| 13 | **Contributing** | `s.Architecture["contributing_note"]` | Generic `Read AGENTS.md first` line |
+| §   | Heading                          | Primary data source (enricher key)                                                              | Deterministic fallback                                   |
+| --- | -------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 1   | `# {ShortTitle}`                 | `shortTitle(s)` — deterministic                                                                 | Title from `s.Idea["text"]` truncated + slug-cased       |
+| 2   | `> {tagline}`                    | `s.Architecture["tagline"]`                                                                     | `oneLineDescription(s)`                                  |
+| 3   | **Description paragraph**        | `s.Architecture["description_paragraph"]`                                                       | First 300 chars of `s.Idea["context"]`                   |
+| 4   | **Golden rule**                  | `s.Architecture["golden_rule"]`                                                                 | `_No golden rule defined._`                              |
+| 5   | **What it is NOT**               | `s.Architecture["is_not"]` ([]string)                                                           | 3 generic anti-patterns derived from tech stack          |
+| 6   | **When to use**                  | `s.Architecture["when_to_use"]` ([]WhenToUseScenario) + `s.Architecture["when_to_use_mermaid"]` | 3 generic "use when building X" scenarios; no Mermaid    |
+| 7   | **Installation / Prerequisites** | `s.Architecture["prerequisites"]` ([]Prerequisite)                                              | Generic `go install` + `docker compose up` steps         |
+| 8   | **Quick Start**                  | `s.Architecture["quick_start_commands"]` ([]string)                                             | 3 generic `make` commands                                |
+| 9   | **Architecture**                 | `s.Architecture["architecture_ascii"]` + `s.Architecture["architecture_mermaid"]`               | `renderASCIIComponents(s)` + `renderDataFlowsMermaid(s)` |
+| 10  | **Command Reference**            | `s.Architecture["command_reference"]` ([]CommandRef)                                            | Single placeholder row                                   |
+| 11  | **Tech Stack**                   | `renderTechStack(s)` — deterministic                                                            | Same                                                     |
+| 12  | **Repository Format**            | `renderDirectoryTree(s)` + `s.Architecture["repo_format_notes"]`                                | Tree only, no per-entry notes                            |
+| 13  | **Contributing**                 | `s.Architecture["contributing_note"]`                                                           | Generic `Read AGENTS.md first` line                      |
 
 **Removed from the old generator (must never appear in v3.0+ output):**
+
 - `## Known Risks` as a top-level README section — risks belong in `architecture.md` only
 - `## Roadmap` with "Phase N —" bullets — belongs in `roadmap.md` only
 - `renderForAIAgentsAppendix` output — README is human-facing; the For AI Agents block must never appear
@@ -5626,7 +5664,7 @@ Every generated `readme.md` must contain exactly these 13 sections in this order
 
 The enricher receives `CanonicalState` as JSON and returns a single structured JSON object. All fields are optional — missing fields leave the deterministic fallback in place.
 
-```json
+````json
 {
   "tagline": "string ≤ 120 chars — punchy one-sentence product tagline",
   "description_paragraph": "string — 2-3 sentences: what it does, who uses it, what problem it solves",
@@ -5662,9 +5700,10 @@ The enricher receives `CanonicalState` as JSON and returns a single structured J
   },
   "contributing_note": "string — 1-3 sentences: what to read before contributing"
 }
-```
+````
 
 **Merge rules:**
+
 - Every overlay key that is non-empty overwrites the corresponding `s.Architecture[key]` entry.
 - Keys absent or null in the overlay leave the existing state value untouched.
 - The enricher must NEVER overwrite `s.Metrics`, `s.Risks`, `s.Assumptions`, `s.OpenQuestions`, or `s.ExecutionPlan`.
@@ -5700,10 +5739,10 @@ QUALITY BAR: Content must be specific to THIS project (based on its idea, archit
 
 #### 8.32.4 Config Table (additions to §8.28)
 
-| Env var | Default | Valid values | Added by |
-|---|---|---|---|
-| `README_ENRICHER_ENABLED` | `true` | `true` \| `false` | Task 37 |
-| `README_ENRICHER_TIMEOUT_SEC` | `45` | `[10, 120]` | Task 37 |
+| Env var                       | Default | Valid values      | Added by |
+| ----------------------------- | ------- | ----------------- | -------- |
+| `README_ENRICHER_ENABLED`     | `true`  | `true` \| `false` | Task 37  |
+| `README_ENRICHER_TIMEOUT_SEC` | `45`    | `[10, 120]`       | Task 37  |
 
 When `FINALIZE_MODE=deterministic`, `GetReadmeEnricherEnabled()` must return `false` regardless of `README_ENRICHER_ENABLED`. This ensures the deterministic mode flag is a global override.
 
@@ -5743,17 +5782,17 @@ The README must be specific to THIS project. Use the actual project name, tech s
 
 #### 8.32.6 README Rubric Assertions
 
-| Assertion | Type | Auto-repair trigger |
-|---|---|---|
-| `**Golden rule:**` present | `RequiredPattern` | "Add a **Golden rule:** line — one-sentence core invariant of this system" |
-| ` ``` mermaid` fence present | `RequiredPattern` | "Add a mermaid flowchart to the When to use section showing the decision path for this product" |
-| `## When to use` heading present | `RequiredSection` | "Add a '## When to use' section with 3-6 numbered scenarios each containing a code example" |
-| `## Contributing` heading present | `RequiredSection` | "Add a '## Contributing' section explaining what to read before making changes" |
-| `<repository-url>` absent | `ForbiddenString` | "Replace `<repository-url>` with the real project repository URL or `https://github.com/your-org/{project-slug}`" |
-| `Phase 1 —` absent | `ForbiddenString` | "Remove all 'Phase N —' bullets from README — this is a README, not a roadmap" |
-| `## Known Risks` absent | `ForbiddenString` | "Remove '## Known Risks' section from README — risks belong in architecture.md" |
-| `For AI Agents` absent | `ForbiddenString` | "Remove the For AI Agents appendix — README is human-facing only" |
-| Document `MinChars` ≥ 1500 | `MinLength` | "Expand each section with more specific content derived from the project's architecture and tech stack" |
+| Assertion                         | Type              | Auto-repair trigger                                                                                               |
+| --------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `**Golden rule:**` present        | `RequiredPattern` | "Add a **Golden rule:** line — one-sentence core invariant of this system"                                        |
+| ` ``` mermaid` fence present      | `RequiredPattern` | "Add a mermaid flowchart to the When to use section showing the decision path for this product"                   |
+| `## When to use` heading present  | `RequiredSection` | "Add a '## When to use' section with 3-6 numbered scenarios each containing a code example"                       |
+| `## Contributing` heading present | `RequiredSection` | "Add a '## Contributing' section explaining what to read before making changes"                                   |
+| `<repository-url>` absent         | `ForbiddenString` | "Replace `<repository-url>` with the real project repository URL or `https://github.com/your-org/{project-slug}`" |
+| `Phase 1 —` absent                | `ForbiddenString` | "Remove all 'Phase N —' bullets from README — this is a README, not a roadmap"                                    |
+| `## Known Risks` absent           | `ForbiddenString` | "Remove '## Known Risks' section from README — risks belong in architecture.md"                                   |
+| `For AI Agents` absent            | `ForbiddenString` | "Remove the For AI Agents appendix — README is human-facing only"                                                 |
+| Document `MinChars` ≥ 1500        | `MinLength`       | "Expand each section with more specific content derived from the project's architecture and tech stack"           |
 
 Maximum 3 auto-repair attempts before falling back to deterministic-only output with a warning log.
 
@@ -5765,11 +5804,11 @@ Maximum 3 auto-repair attempts before falling back to deterministic-only output 
 
 Three complementary mechanisms add live generation visibility to the finalize flow without touching the iteration SSE channel or breaking any existing fix:
 
-| Option | Mechanism | Backend | Frontend |
-|--------|-----------|---------|----------|
-| A | Named phase events | `BroadcastDocPhase` from generator/enrichers | Step log list in finalize page |
-| B | Real token streaming | `StreamingLLMProvider` → `BroadcastDocToken` | Typewriter `<pre>` panel per doc key |
-| C | Poll fallback | No change | 3-s `getSession` loop on SSE silence |
+| Option | Mechanism            | Backend                                      | Frontend                             |
+| ------ | -------------------- | -------------------------------------------- | ------------------------------------ |
+| A      | Named phase events   | `BroadcastDocPhase` from generator/enrichers | Step log list in finalize page       |
+| B      | Real token streaming | `StreamingLLMProvider` → `BroadcastDocToken` | Typewriter `<pre>` panel per doc key |
+| C      | Poll fallback        | No change                                    | 3-s `getSession` loop on SSE silence |
 
 #### 8.33.1 `StreamingLLMProvider` Interface
 
@@ -5795,6 +5834,7 @@ func NoopStreamingProvider(base LLMProvider) StreamingLLMProvider
 ```
 
 **Rules:**
+
 - Channel MUST be closed after `Done: true` or `Err != nil` chunk — callers range over the channel
 - Caller MUST respect `context.Context` cancellation; provider MUST stop emitting and close channel on `ctx.Done()`
 - `GenerateStream` returns `(nil, err)` on connection failure before first token; caller must handle both the error return and channel-embedded errors
@@ -5805,6 +5845,7 @@ func NoopStreamingProvider(base LLMProvider) StreamingLLMProvider
 All three new event types are emitted on the **same session SSE channel** as existing iteration events. The `event:` field distinguishes them.
 
 **`doc.phase`** — emitted at each named generation step:
+
 ```json
 {
   "event": "doc.phase",
@@ -5815,9 +5856,11 @@ All three new event types are emitted on the **same session SSE channel** as exi
   }
 }
 ```
+
 Step values: `"enricher"` | `"draft"` | `"repair"` | `"complete"`
 
 **`doc.token`** — emitted per token during LLM streaming:
+
 ```json
 {
   "event": "doc.token",
@@ -5829,6 +5872,7 @@ Step values: `"enricher"` | `"draft"` | `"repair"` | `"complete"`
 ```
 
 **`doc.complete`** — emitted once the full doc is written and validated:
+
 ```json
 {
   "event": "doc.complete",
@@ -5840,6 +5884,7 @@ Step values: `"enricher"` | `"draft"` | `"repair"` | `"complete"`
 ```
 
 **Invariants:**
+
 - `doc.phase step=complete` fires before `doc.complete` for the same `doc_key`
 - For each `doc_key`, event order is strictly: `phase(enricher)` → `phase(draft)` → (0-N) `phase(repair)` → `phase(complete)` → `doc.complete`
 - `doc.token` events appear between `phase(draft)` and `phase(complete)` for each draft/repair LLM call
@@ -5916,7 +5961,6 @@ orchestrator after Enhance
     │ BroadcastDocComplete(sessionID, docKey, charCount)
 ```
 
-
 ---
 
 ### 8.34 Multi-Provider LLM Registry Architecture (v5.0)
@@ -5925,13 +5969,13 @@ orchestrator after Enhance
 
 Introduces a provider registry that decouples provider selection from all call sites. Adding a new provider requires one new file with an `init()` registration — no changes to `main.go`, handlers, or business logic.
 
-| Decision | Rationale |
-|---|---|
-| Registry factory map | Adding provider = one file + one `Register()` call; no central switch to modify |
-| `openAICompatProvider` base | Copilot, OpenAI, DeepSeek share identical wire format — one implementation, zero duplication |
-| Separate `claudeProvider` | Anthropic wire format is incompatible with OpenAI (`/v1/messages`, `x-api-key`, `anthropic-version` header, `content[]` response) |
-| Credentials resolved at call-time | Supports key rotation without restart; follows existing `CopilotProvider` pattern |
-| Dual registry (backend + agent) | Agent binary is a separate Go module; must mirror the registry but may omit unused provider imports |
+| Decision                          | Rationale                                                                                                                         |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Registry factory map              | Adding provider = one file + one `Register()` call; no central switch to modify                                                   |
+| `openAICompatProvider` base       | Copilot, OpenAI, DeepSeek share identical wire format — one implementation, zero duplication                                      |
+| Separate `claudeProvider`         | Anthropic wire format is incompatible with OpenAI (`/v1/messages`, `x-api-key`, `anthropic-version` header, `content[]` response) |
+| Credentials resolved at call-time | Supports key rotation without restart; follows existing `CopilotProvider` pattern                                                 |
+| Dual registry (backend + agent)   | Agent binary is a separate Go module; must mirror the registry but may omit unused provider imports                               |
 
 #### 8.34.1 ProviderKind Enum + Registry Contract
 
@@ -5965,6 +6009,7 @@ func New(cfg LLMConfig, keyResolver func(string) (string, error)) (LLMProvider, 
 ```
 
 **Rules:**
+
 - Registrations MUST happen in `init()` in the provider's own source file — never in `main.go` or a central registry file
 - `New()` returns `fmt.Errorf("unknown LLM provider %q — valid: %s", cfg.Provider, strings.Join(...))` on unknown kind
 - `main.go` calls `llm.New(globalCfg, config.GetLLMAPIKey)` and uses blank imports (`_ "a2a-brainstorm/backend/internal/platform/llm/deepseek"`) to trigger `init()` registrations
@@ -5977,12 +6022,13 @@ func New(cfg LLMConfig, keyResolver func(string) (string, error)) (LLMProvider, 
 **Content-Type:** `application/json`
 
 Request body:
+
 ```json
 {
   "model": "deepseek-v4-flash",
   "messages": [
-    {"role": "system", "content": "{req.SystemPrompt}"},
-    {"role": "user",   "content": "{req.UserMessage}"}
+    { "role": "system", "content": "{req.SystemPrompt}" },
+    { "role": "user", "content": "{req.UserMessage}" }
   ],
   "temperature": 0.7,
   "max_tokens": 8192,
@@ -5991,6 +6037,7 @@ Request body:
 ```
 
 Response parsing:
+
 ```go
 choices[0].message.content                              → LLMResponse.Content
 choices[0].finish_reason                                → LLMResponse.FinishReason
@@ -6001,20 +6048,20 @@ Streaming: set `"stream": true`; parse SSE lines prefixed with `data: `; accumul
 
 #### 8.34.3 OpenAI Provider Config
 
-| Env Var | Default | Purpose |
-|---|---|---|
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for proxy or Azure OpenAI |
-| `OPENAI_API_KEY` | (required when `provider="openai"`) | Resolved via `CredentialRef` at call-time |
+| Env Var           | Default                             | Purpose                                   |
+| ----------------- | ----------------------------------- | ----------------------------------------- |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1`         | Override for proxy or Azure OpenAI        |
+| `OPENAI_API_KEY`  | (required when `provider="openai"`) | Resolved via `CredentialRef` at call-time |
 
 **Model placeholder:** `gpt-5.4` (current flagship as of June 2026)
 **CredentialRef convention:** `OPENAI_API_KEY`
 
 #### 8.34.4 DeepSeek Provider Config
 
-| Env Var | Default | Purpose |
-|---|---|---|
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Override for enterprise endpoints |
-| `DEEPSEEK_API_KEY` | (required when `provider="deepseek"`) | Resolved via `CredentialRef` at call-time |
+| Env Var             | Default                               | Purpose                                   |
+| ------------------- | ------------------------------------- | ----------------------------------------- |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com`            | Override for enterprise endpoints         |
+| `DEEPSEEK_API_KEY`  | (required when `provider="deepseek"`) | Resolved via `CredentialRef` at call-time |
 
 **Model placeholder:** `deepseek-v4-flash` (economical) or `deepseek-v4-pro` (higher capability)
 **CredentialRef convention:** `DEEPSEEK_API_KEY`
@@ -6024,35 +6071,53 @@ Streaming: set `"stream": true`; parse SSE lines prefixed with `data: `; accumul
 
 ```typescript
 // frontend/src/lib/types.ts
-export type ProviderKind = 'copilot' | 'opencode' | 'openai' | 'claude' | 'deepseek';
-export const ALL_PROVIDER_KINDS: ProviderKind[] = ['copilot', 'opencode', 'openai', 'claude', 'deepseek'];
+export type ProviderKind =
+  | "copilot"
+  | "opencode"
+  | "openai"
+  | "claude"
+  | "deepseek";
+export const ALL_PROVIDER_KINDS: ProviderKind[] = [
+  "copilot",
+  "opencode",
+  "openai",
+  "claude",
+  "deepseek",
+];
 
 // Tooltip shown below the credential_ref input when that provider is selected
 export const PROVIDER_CREDENTIAL_HINT: Record<ProviderKind, string> = {
-  copilot:  'Set COPILOT_API_KEY in the agent environment; paste the env var NAME here (not the key value)',
-  opencode: 'Set OPENCODE_SERVER_USERNAME + OPENCODE_SERVER_PASSWORD; paste OPENCODE_SERVER_PASSWORD here',
-  openai:   'Set OPENAI_API_KEY in the environment; paste the env var NAME here (not the key value)',
-  claude:   'Set ANTHROPIC_API_KEY in the environment; paste the env var NAME here (not the key value)',
-  deepseek: 'Set DEEPSEEK_API_KEY in the environment; paste the env var NAME here (not the key value)',
+  copilot:
+    "Set COPILOT_API_KEY in the agent environment; paste the env var NAME here (not the key value)",
+  opencode:
+    "Set OPENCODE_SERVER_USERNAME + OPENCODE_SERVER_PASSWORD; paste OPENCODE_SERVER_PASSWORD here",
+  openai:
+    "Set OPENAI_API_KEY in the environment; paste the env var NAME here (not the key value)",
+  claude:
+    "Set ANTHROPIC_API_KEY in the environment; paste the env var NAME here (not the key value)",
+  deepseek:
+    "Set DEEPSEEK_API_KEY in the environment; paste the env var NAME here (not the key value)",
 };
 
 // Placeholder text for the model input field per provider
 export const PROVIDER_MODEL_PLACEHOLDER: Record<ProviderKind, string> = {
-  copilot:  'github-copilot/claude-sonnet-4.6',
-  opencode: 'github-copilot/claude-sonnet-4.6',
-  openai:   'gpt-5.4',
-  claude:   'claude-opus-4-8',
-  deepseek: 'deepseek-v4-flash',
+  copilot: "github-copilot/claude-sonnet-4.6",
+  opencode: "github-copilot/claude-sonnet-4.6",
+  openai: "gpt-5.4",
+  claude: "claude-opus-4-8",
+  deepseek: "deepseek-v4-flash",
 };
 ```
 
 **Global LLM Settings tab** — 5th tab in `settings/+page.svelte`:
+
 - On mount: `GET /api/config/global-llm` → `{provider, model, credential_ref, available: bool}`
 - Read-only display (changing requires env var restart)
 - Shows env var names to set in a code block: `GLOBAL_LLM_PROVIDER`, `GLOBAL_LLM_MODEL`, `GLOBAL_LLM_CREDENTIAL_REF`
 - Availability chip: green "available" when `available === true`; red "missing credential" when false
 
 **`GET /api/config/global-llm` response:**
+
 ```json
 {
   "provider": "deepseek",
@@ -6068,25 +6133,27 @@ export const PROVIDER_MODEL_PLACEHOLDER: Record<ProviderKind, string> = {
 **Endpoint:** `POST /v1/messages`
 **Required headers:**
 
-| Header | Value |
-|---|---|
-| `x-api-key` | `{resolvedKey}` — NOT `Authorization: Bearer` |
+| Header              | Value                                                    |
+| ------------------- | -------------------------------------------------------- |
+| `x-api-key`         | `{resolvedKey}` — NOT `Authorization: Bearer`            |
 | `anthropic-version` | `2023-06-01` — always required; requests fail without it |
-| `Content-Type` | `application/json` |
+| `Content-Type`      | `application/json`                                       |
 
 Request body:
+
 ```json
 {
   "model": "claude-opus-4-8",
   "max_tokens": 8192,
   "system": "{req.SystemPrompt}",
-  "messages": [{"role": "user", "content": "{req.UserMessage}"}],
+  "messages": [{ "role": "user", "content": "{req.UserMessage}" }],
   "temperature": 0.7,
   "stream": false
 }
 ```
 
 Response parsing:
+
 ```go
 // Find first content block where type == "text"
 content[i].text where content[i].type == "text"   → LLMResponse.Content
@@ -6095,6 +6162,7 @@ usage.input_tokens + usage.output_tokens            → LLMResponse.TokensUsed
 ```
 
 Streaming (`"stream": true`): parse SSE events:
+
 - `content_block_delta` with `delta.type == "text_delta"` → emit `TokenChunk{Token: delta.text}`
 - `message_stop` → emit `TokenChunk{Done: true}` and close channel
 - Honour `ctx.Done()` — stop reading and close channel on cancellation

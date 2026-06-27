@@ -166,9 +166,7 @@ export function isSessionEventsURL(url: string): boolean {
     const path = new URL(url, "http://localhost").pathname;
     const parts = path.split("/").filter(Boolean);
     return (
-      parts.length === 3 &&
-      parts[0] === "sessions" &&
-      parts[2] === "events"
+      parts.length === 3 && parts[0] === "sessions" && parts[2] === "events"
     );
   } catch {
     return false;

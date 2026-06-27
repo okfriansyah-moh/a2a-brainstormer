@@ -27,6 +27,7 @@ func (m *continuationLLM) Generate(_ context.Context, _ llm.LLMRequest) (llm.LLM
 }
 
 func TestGenerateStateContent_ContinuesOnLength(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_ENABLED", "false")
 	provider := &continuationLLM{}
 	exec := New(nil, provider, nil)
 	execCtx := &a2asrv.ExecutorContext{TaskID: "task-1"}
@@ -37,7 +38,7 @@ func TestGenerateStateContent_ContinuesOnLength(t *testing.T) {
 		provider,
 		llm.LLMRequest{UserMessage: "return json delta"},
 		func(a2a.Event, error) bool { return true },
-		"build",
+		BrainstormPayload{Role: "build"},
 	)
 	if err != nil {
 		t.Fatalf("generateStateContent() error = %v", err)

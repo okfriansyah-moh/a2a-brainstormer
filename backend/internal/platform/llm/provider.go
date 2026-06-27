@@ -27,11 +27,16 @@ type LLMRequest struct {
 	//   "json_object" – ask the provider to constrain output to a JSON object
 	// Providers that do not support a particular value silently ignore it.
 	ResponseFormat string
+	// Tiered holds cache-aware prompt blocks. When nil, SystemPrompt and
+	// UserMessage are used directly.
+	Tiered *TieredPrompt
 }
 
 // LLMResponse is the provider-agnostic output from a generation call.
 type LLMResponse struct {
-	Content      string
-	FinishReason string
-	TokensUsed   int
+	Content          string
+	FinishReason     string
+	TokensUsed       int
+	CacheReadTokens  int
+	CacheWriteTokens int
 }

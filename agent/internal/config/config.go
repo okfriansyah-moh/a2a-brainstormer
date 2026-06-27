@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -154,4 +155,48 @@ func GetHTTPWriteTimeout() time.Duration {
 		}
 	}
 	return 15 * time.Minute
+}
+
+// ── Prompt cache ─────────────────────────────────────────────────────────────
+
+// GetPromptCacheEnabled returns whether tiered prompt caching is active.
+func GetPromptCacheEnabled() bool {
+	v := os.Getenv("PROMPT_CACHE_ENABLED")
+	if v == "" {
+		return true
+	}
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+// GetPromptCacheMode returns legacy, tiered, or thread.
+func GetPromptCacheMode() string {
+	if v := os.Getenv("PROMPT_CACHE_MODE"); v != "" {
+		return v
+	}
+	return "thread"
+}
+
+// GetPromptCacheThreadMax returns LRU capacity for per-agent prompt threads.
+func GetPromptCacheThreadMax() int {
+	return promptCacheEnvInt("PROMPT_CACHE_THREAD_MAX", 256)
+}
+
+// GetPromptCacheResponseMax returns LRU capacity for retry-only response cache.
+func GetPromptCacheResponseMax() int {
+	return promptCacheEnvInt("PROMPT_CACHE_RESPONSE_MAX", 64)
+}
+
+// GetPromptCacheShadowMode logs equivalence diffs without blocking calls.
+func GetPromptCacheShadowMode() bool {
+	v := os.Getenv("PROMPT_CACHE_SHADOW_MODE")
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+func promptCacheEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
 }
