@@ -44,6 +44,15 @@ func (ts *ThreadStore) MessagesFor(payload BrainstormPayload) []llm.PromptBlock 
 	anchor := buildSessionAnchor(payload.OutputDocs)
 	stateContent := buildThreadStateContent(payload, stateJSON)
 
+	// Missing IDs must not share a mutable thread key across unrelated requests.
+	if key.sessionID == "" || key.agentID == "" {
+		return []llm.PromptBlock{
+			{Role: "system", Content: tier1, CachePolicy: llm.CacheEphemeral},
+			{Role: "user", Content: anchor, CachePolicy: llm.CacheEphemeral},
+			{Role: "user", Content: stateContent, CachePolicy: llm.CacheNone},
+		}
+	}
+
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 

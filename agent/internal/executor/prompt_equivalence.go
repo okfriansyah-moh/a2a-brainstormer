@@ -1,9 +1,11 @@
 package executor
 
 import (
-	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"a2a-brainstorm/agent/internal/llm"
@@ -133,33 +135,43 @@ func containsNormalized(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
 }
 
-func hashString(s string) uint32 {
-	var h uint32
-	for _, c := range []byte(s) {
-		h = h*31 + uint32(c)
-	}
-	return h
-}
-
 // CanonicalRequestHash returns a stable hash for retry-only response caching.
 func CanonicalRequestHash(req llm.LLMRequest) string {
-	var buf bytes.Buffer
-	buf.WriteString(req.SystemPrompt)
-	buf.WriteByte(0)
-	buf.WriteString(req.UserMessage)
-	buf.WriteByte(0)
-	buf.WriteString(fmt.Sprintf("%.4f", req.Temperature))
-	if req.Tiered != nil {
-		for _, b := range req.Tiered.Blocks {
-			buf.WriteString(b.Role)
-			buf.WriteString(b.Content)
+	h := sha256.New()
+	writeHashField(h, "system_prompt", req.SystemPrompt)
+	writeHashField(h, "user_message", req.UserMessage)
+	writeHashField(h, "temperature", strconv.FormatFloat(req.Temperature, 'f', 4, 64))
+	if req.Tiered == nil {
+		writeHashField(h, "tiered_present", "0")
+	} else {
+		writeHashField(h, "tiered_present", "1")
+		writeHashField(h, "tiered_session_id", req.Tiered.SessionID)
+		writeHashField(h, "tiered_agent_id", req.Tiered.AgentID)
+		writeHashField(h, "tiered_provider", req.Tiered.Provider)
+		writeHashField(h, "tiered_model", req.Tiered.Model)
+		writeHashField(h, "tiered_block_count", strconv.Itoa(len(req.Tiered.Blocks)))
+		for i, b := range req.Tiered.Blocks {
+			prefix := fmt.Sprintf("tiered_block_%d", i)
+			writeHashField(h, prefix+"_role", b.Role)
+			writeHashField(h, prefix+"_content", b.Content)
+			writeHashField(h, prefix+"_cache_policy", strconv.Itoa(int(b.CachePolicy)))
 		}
-		for _, m := range req.Tiered.Messages {
-			buf.WriteString(m.Role)
-			buf.WriteString(m.Content)
+		writeHashField(h, "tiered_message_count", strconv.Itoa(len(req.Tiered.Messages)))
+		for i, m := range req.Tiered.Messages {
+			prefix := fmt.Sprintf("tiered_message_%d", i)
+			writeHashField(h, prefix+"_role", m.Role)
+			writeHashField(h, prefix+"_content", m.Content)
+			writeHashField(h, prefix+"_cache_policy", strconv.Itoa(int(m.CachePolicy)))
 		}
-		buf.WriteString(req.Tiered.Provider)
-		buf.WriteString(req.Tiered.Model)
 	}
-	return fmt.Sprintf("%x", hashString(buf.String()))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func writeHashField(h interface{ Write([]byte) (int, error) }, key, value string) {
+	_, _ = h.Write([]byte(key))
+	_, _ = h.Write([]byte{'='})
+	_, _ = h.Write([]byte(strconv.Itoa(len(value))))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(value))
+	_, _ = h.Write([]byte{'|'})
 }

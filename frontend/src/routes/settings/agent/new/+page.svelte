@@ -28,11 +28,12 @@
   const roleOptions = ["build", "review", "refine", "devils_advocate"];
   const providerOptions: ProviderKind[] = ALL_PROVIDER_KINDS;
 
-  let credentialHint = "";
-  let modelPlaceholder = "";
+  let credentialHint: string;
+  let modelPlaceholder: string;
 
   $: credentialHint = PROVIDER_CREDENTIAL_HINT[provider as ProviderKind] ?? "";
-  $: modelPlaceholder = PROVIDER_MODEL_PLACEHOLDER[provider as ProviderKind] ?? "e.g. gpt-4o";
+  $: modelPlaceholder =
+    PROVIDER_MODEL_PLACEHOLDER[provider as ProviderKind] ?? "e.g. gpt-4o";
 
   // ── Validation ───────────────────────────────────────────────────────────
 

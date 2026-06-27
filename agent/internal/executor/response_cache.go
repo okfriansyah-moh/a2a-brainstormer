@@ -38,6 +38,9 @@ func (c *ResponseCache) Get(hash string) (responseCacheEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.data[hash]
+	if ok {
+		c.touch(hash)
+	}
 	return e, ok
 }
 
@@ -52,8 +55,20 @@ func (c *ResponseCache) Put(hash string, content, finishReason string) {
 			delete(c.data, oldest)
 		}
 		c.order = append(c.order, hash)
+	} else {
+		c.touch(hash)
 	}
 	c.data[hash] = responseCacheEntry{content: content, finishReason: finishReason}
+}
+
+func (c *ResponseCache) touch(hash string) {
+	for i, h := range c.order {
+		if h == hash {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			break
+		}
+	}
+	c.order = append(c.order, hash)
 }
 
 // Reset clears the cache (for tests).

@@ -8,11 +8,11 @@ import (
 func TestThreadStore_ReplacesStateMessage(t *testing.T) {
 	ts := NewThreadStore(8)
 	payload := BrainstormPayload{
-		SessionID:  "sess-1",
-		AgentID:    "agent-1",
-		Role:       "build",
+		SessionID:    "sess-1",
+		AgentID:      "agent-1",
+		Role:         "build",
 		SystemPrompt: "architect",
-		State:      map[string]any{"idea": map[string]any{"text": "v1"}},
+		State:        map[string]any{"idea": map[string]any{"text": "v1"}},
 	}
 
 	msgs1 := ts.MessagesFor(payload)
@@ -50,5 +50,34 @@ func TestThreadStore_SeparateAgents(t *testing.T) {
 	msgs := ts.MessagesFor(p2)
 	if !strings.Contains(msgs[len(msgs)-1].Content, `"v":2`) {
 		t.Fatal("agent threads should be isolated")
+	}
+}
+
+func TestThreadStore_MissingIDsDoesNotPersistSharedThread(t *testing.T) {
+	ts := NewThreadStore(8)
+	payload := BrainstormPayload{
+		Role:         "build",
+		SystemPrompt: "architect",
+		State:        map[string]any{"idea": map[string]any{"text": "v1"}},
+	}
+
+	msgs1 := ts.MessagesFor(payload)
+	if len(msgs1) != 3 {
+		t.Fatalf("first call: want 3 messages, got %d", len(msgs1))
+	}
+	if got := len(ts.threads); got != 0 {
+		t.Fatalf("missing IDs should not create thread entries, got %d", got)
+	}
+
+	payload.State = map[string]any{"idea": map[string]any{"text": "v2"}}
+	msgs2 := ts.MessagesFor(payload)
+	if len(msgs2) != 3 {
+		t.Fatalf("second call: want 3 messages, got %d", len(msgs2))
+	}
+	if !strings.Contains(msgs2[len(msgs2)-1].Content, `"text":"v2"`) {
+		t.Fatal("expected latest state in fallback message")
+	}
+	if got := len(ts.threads); got != 0 {
+		t.Fatalf("missing IDs should keep store empty, got %d", got)
 	}
 }
