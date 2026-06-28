@@ -17,6 +17,7 @@
     formatDocPhaseLogLine,
     formatDocPhaseRunningLine,
     sectionTransitionLogLine,
+    shouldAppendPhaseLog,
     type DocPhasePayload,
   } from "$lib/services/docPhase";
 
@@ -85,7 +86,9 @@
       };
     }
 
-    const logLine = formatDocPhaseLogLine(payload, docLabel);
+    const logLine = shouldAppendPhaseLog(payload)
+      ? formatDocPhaseLogLine(payload, docLabel)
+      : null;
     if (logLine) {
       logLines = [...logLines, logLine];
     }

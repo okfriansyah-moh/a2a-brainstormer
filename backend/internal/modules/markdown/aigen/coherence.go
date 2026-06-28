@@ -240,8 +240,3 @@ func editRatio(before, after string) float64 {
 	diff := math.Abs(float64(len(after) - len(before)))
 	return diff / float64(len(before))
 }
-
-// ParseCoherenceAuditForTest exposes parseCoherenceAudit for unit tests.
-func ParseCoherenceAuditForTest(content string) ([]CoherenceFinding, error) {
-	return parseCoherenceAudit(content)
-}

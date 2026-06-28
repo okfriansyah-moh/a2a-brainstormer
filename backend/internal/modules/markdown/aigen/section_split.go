@@ -143,7 +143,7 @@ func MergeSections(preamble string, sections []EnhancedSection) string {
 		}
 		b.WriteString(line)
 		b.WriteString("\n\n")
-		body := strings.TrimSpace(sec.Body)
+		body := strings.Trim(sec.Body, "\n")
 		if body != "" {
 			b.WriteString(body)
 			b.WriteString("\n\n")
@@ -207,7 +207,7 @@ func summarizeOneSection(sec EnhancedSection) string {
 }
 
 func headingMatches(title, rubricHeading string) bool {
-	return strings.Contains(title, rubricHeading)
+	return strings.HasPrefix(title, rubricHeading)
 }
 
 // ReplaceSectionBody swaps one section body in merged content.
@@ -234,7 +234,7 @@ func ReplaceSectionBody(content, heading, newBody string) (string, error) {
 	if start > 0 {
 		b.WriteString("\n")
 	}
-	b.WriteString(strings.TrimSpace(newBody))
+	b.WriteString(strings.Trim(newBody, "\n"))
 	if end < len(lines) {
 		b.WriteString("\n")
 		b.WriteString(strings.Join(lines[end:], "\n"))

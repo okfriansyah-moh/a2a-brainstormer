@@ -41,9 +41,6 @@ export function formatDocPhaseRunningLine(
   }
 
   if (payload.detail) {
-    if (verb) {
-      return `${docLabel}: ${payload.detail}`;
-    }
     return `${docLabel}: ${payload.detail}`;
   }
 

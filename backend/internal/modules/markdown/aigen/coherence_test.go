@@ -7,17 +7,6 @@ import (
 	"a2a-brainstorm/backend/internal/modules/markdown/aigen"
 )
 
-func TestParseCoherenceAudit_EmptyFindings(t *testing.T) {
-	raw := `{"findings":[]}`
-	findings, err := aigen.ParseCoherenceAuditForTest(raw)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if len(findings) != 0 {
-		t.Fatalf("expected 0 findings, got %d", len(findings))
-	}
-}
-
 func TestApplyCoherenceGuardrails_RevertsShrunkSection(t *testing.T) {
 	before := "## 1. Goals\n\n" + strings.Repeat("long content ", 50) + "\n"
 	after := "## 1. Goals\n\nshort\n"

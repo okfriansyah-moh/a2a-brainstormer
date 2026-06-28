@@ -3,6 +3,7 @@ import {
   formatDocPhaseLogLine,
   formatDocPhaseRunningLine,
   sectionTransitionLogLine,
+  shouldAppendPhaseLog,
 } from "./docPhase";
 
 describe("formatDocPhaseRunningLine", () => {
@@ -82,5 +83,26 @@ describe("formatDocPhaseLogLine", () => {
       "Architecture",
     );
     expect(line).toBe("✦ Architecture — Document generated successfully.");
+  });
+});
+
+describe("shouldAppendPhaseLog", () => {
+  it("returns true for complete step", () => {
+    expect(shouldAppendPhaseLog({ step: "complete" })).toBe(true);
+  });
+
+  it("returns true for coherence_audit with findings", () => {
+    expect(
+      shouldAppendPhaseLog({
+        step: "coherence_audit",
+        findings_count: 2,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for section_enhance", () => {
+    expect(
+      shouldAppendPhaseLog({ step: "section_enhance", section: "4. Layers" }),
+    ).toBe(false);
   });
 });
