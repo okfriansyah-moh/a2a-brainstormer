@@ -18,6 +18,8 @@ export interface SSEClientOptions {
    * (e.g. session deleted / 404).
    */
   beforeReconnect?: () => Promise<boolean>;
+  /** Fired when the EventSource connection opens (including after reconnect). */
+  onOpen?: () => void;
   /** Max reconnect attempts after errors. 0 = unlimited. Default: 60. */
   maxReconnectAttempts?: number;
   /** Delay between reconnect attempts in ms. Default: 2000. */
@@ -94,6 +96,11 @@ export function createSSEClient(
 
     es = new EventSource(buildURL());
 
+    es.onopen = () => {
+      reconnectAttempts = 0;
+      options?.onOpen?.();
+    };
+
     es.onmessage = (raw: MessageEvent) => {
       handleRaw(raw, "");
     };
@@ -128,7 +135,8 @@ export function createSSEClient(
 
   function handleRaw(raw: MessageEvent, fallbackType: string): void {
     const type = (raw as MessageEvent & { type?: string }).type || fallbackType;
-    const idStr = (raw as MessageEvent & { lastEventId?: string }).lastEventId;
+    const idStr =
+      (raw as MessageEvent & { lastEventId?: string }).lastEventId ?? "";
     const id = idStr ? parseInt(idStr, 10) : 0;
     if (!isNaN(id) && id > lastEventID) {
       lastEventID = id;
@@ -158,6 +166,43 @@ export function createSSEClient(
       es = null;
     },
   };
+}
+
+const DEFAULT_SSE_READY_TIMEOUT_MS = 8000;
+
+/**
+ * Opens an SSE client and resolves once the connection is ready (onopen) or
+ * after readyTimeoutMs — whichever comes first. Use before long-running HTTP
+ * calls that emit progress on the same session stream.
+ */
+export function createSSEClientWhenReady(
+  url: string,
+  onEvent: SSEEventHandler,
+  onError?: () => void,
+  options?: SSEClientOptions & { readyTimeoutMs?: number },
+): Promise<SSEClient> {
+  const readyTimeoutMs = options?.readyTimeoutMs ?? DEFAULT_SSE_READY_TIMEOUT_MS;
+  return new Promise((resolve) => {
+    let settled = false;
+    let client: SSEClient;
+
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(client);
+    };
+
+    const timer = setTimeout(settle, readyTimeoutMs);
+
+    client = createSSEClient(url, onEvent, onError, {
+      ...options,
+      onOpen: () => {
+        options?.onOpen?.();
+        settle();
+      },
+    });
+  });
 }
 
 /** True when the URL targets GET /sessions/{id}/events. */

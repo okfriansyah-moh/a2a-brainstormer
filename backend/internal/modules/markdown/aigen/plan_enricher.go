@@ -99,8 +99,11 @@ func validateOverlay(o PlanEnrichmentOverlay, planLen int) error {
 			}
 		}
 		for j, lt := range ph.LayerTags {
-			if !strings.HasPrefix(lt, "backend/") && !strings.HasPrefix(lt, "agent/") && !strings.HasPrefix(lt, "frontend/") {
-				return fmt.Errorf("phases[%d].layer_tags[%d] %q must start with backend/, agent/, or frontend/", i, j, lt)
+			if strings.TrimSpace(lt) == "" {
+				return fmt.Errorf("phases[%d].layer_tags[%d] is empty", i, j)
+			}
+			if len(lt) > 200 {
+				return fmt.Errorf("phases[%d].layer_tags[%d] exceeds 200 chars", i, j)
 			}
 		}
 	}
@@ -129,22 +132,24 @@ func NewPlanEnricher(provider llm.LLMProvider, logger *slog.Logger) *PlanEnriche
 }
 
 // planEnricherSystemPrompt is the LLM prompt fragment per §8.31.4.
-const planEnricherSystemPrompt = `You are a software architecture assistant. You receive a summary of implementation plan phases and return a structured JSON enrichment that improves the AI-agent readability of each task.
+const planEnricherSystemPrompt = `You are a software architecture assistant for the USER'S PRODUCT in the input — not the A2A Brainstorm orchestrator.
+
+You receive a summary of implementation plan phases and return a structured JSON enrichment that improves task readability for engineers building THIS product.
 
 For each phase, produce:
-- coding_standards: 3-5 SOLID/YAGNI/DRY principles applied to THIS specific phase's code
-- invariant_checks: 2-4 task-specific architectural invariants (in addition to the canonical 4)
-- layer_tags: module paths affected (backend/internal/modules/X/, agent/internal/Y/, frontend/src/...)
-- prompt_context_refs: §8.N references an agent needs to execute this task
+- coding_standards: 3-5 principles applied to THIS phase's deliverables and tech stack
+- invariant_checks: 2-4 task-specific invariants for this product
+- layer_tags: module/service paths affected (from deliverables — e.g. services/reputation-api/, apps/web/, api/)
+- prompt_context_refs: domain schemas, APIs, or algorithms an implementer needs for this task
 
 Also produce:
 - dependency_graph_ascii: ASCII art showing task order and parallelism (use ─►, │, ▼, ┌, ┐, └, ┘)
-- deep_knowledge_sections: 2-4 §8 entries (schemas, algorithms, contracts) needed across the task sessions
+- deep_knowledge_sections: 2-4 entries (schemas, algorithms, contracts) for THIS product's domain
 
 Return ONLY valid JSON matching the schema. No prose. No markdown fences.
 
-Respond in under 4000 tokens. Prefer concrete specifics over generic platitudes.
-For coding_standards: name the actual function/struct, not "SRP: keep it focused".
+Respond in under 4000 tokens. Prefer concrete product specifics over generic platitudes.
+For coding_standards: name the actual function/struct/service, not "SRP: keep it focused".
 For invariant_checks: start with a verb ("No X outside Y", "All Z via W only").`
 
 // Enrich runs the LLM pre-pass against s and returns an updated copy with

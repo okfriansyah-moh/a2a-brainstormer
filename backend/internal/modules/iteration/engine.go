@@ -141,7 +141,7 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 		maxIter = config.GetMaxIterations()
 	}
 
-	current := initialState
+	current := state.Compact(initialState)
 	passNum := current.Meta.Iteration + 1
 	if passNum < 1 {
 		passNum = 1
@@ -190,6 +190,7 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 	}
 
 	merged := state.Merge(current, pipelineOut)
+	merged = state.Compact(merged)
 	merged.Meta.Iteration = passNum
 
 	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -273,10 +274,10 @@ func (e *Engine) Run(ctx context.Context, sess session.Session, initialState sta
 // to the state both before each dispatch (so the LLM sees correct data) and
 // after each dispatch (to prevent LLM drift).
 //
-// Agent dispatch errors (e.g. LLM unreachable) are non-fatal: the engine logs
-// a warning, emits an EventAgentError, keeps the accumulated state unchanged
-// for that agent's slot, and continues with the next agent. Fatal errors
-// (agent not found, session misconfiguration) are still returned as errors.
+// Agent dispatch errors (JSON parse failure, failed A2A task, unreachable LLM)
+// abort the pass immediately after emitting EventAgentError so later agents do
+// not run on stale or empty state. Fatal errors (agent not found, session
+// misconfiguration) are still returned as errors.
 // The returned int is the number of agents that dispatched successfully.
 func (e *Engine) runPipelinePass(
 	ctx context.Context,
@@ -381,15 +382,20 @@ func (e *Engine) runPipelinePass(
 		var agentCancel func()
 		if e.streamDispatch != nil {
 			// Streaming calls may run longer than a fixed HTTP client timeout when
-			// tokens keep arriving. Idle timeout arms on the first streamed token
-			// (see ctxidle) so a long time-to-first-token does not abort the call.
-			streamCtx, bumpIdle := ctxidle.WithIdleTimeout(totalCtx, config.GetAgentStreamIdleTimeout())
+			// tokens keep arriving. A startup deadline aborts stalled models that
+			// never emit the first token; idle timeout arms on the first token.
+			streamCtx, bumpIdle := ctxidle.WithStartupAndIdleTimeout(
+				totalCtx,
+				config.GetAgentFirstTokenTimeout(),
+				config.GetAgentStreamIdleTimeout(),
+			)
 			agentCtx = streamCtx
 			agentCancel = totalCancel
 			// Capture loop variables for the token closure.
 			agentID := sa.AgentID
 			iterN := iterNum
 			batcher := newAgentTokenBatcher()
+			phaseThrottle := &streamPhaseThrottler{}
 			streamChars := 0
 			emitTokens := func(text string) {
 				if text == "" {
@@ -401,13 +407,16 @@ func (e *Engine) runPipelinePass(
 					"agent_id":  agentID,
 					"token":     text,
 				})
-				e.emitter.Emit(sess.ID, EventAgentPhase, map[string]any{
-					"iteration": iterN,
-					"agent_id":  agentID,
-					"role":      sa.Role,
-					"phase":     "generating",
-					"detail":    fmt.Sprintf("Streaming model output… %d characters received", streamChars),
-				})
+				if phaseThrottle.shouldEmit(streamChars) {
+					phaseThrottle.markEmitted(streamChars)
+					e.emitter.Emit(sess.ID, EventAgentPhase, map[string]any{
+						"iteration": iterN,
+						"agent_id":  agentID,
+						"role":      sa.Role,
+						"phase":     "generating",
+						"detail":    fmt.Sprintf("Streaming model output… %d characters received", streamChars),
+					})
+				}
 			}
 			tokenFn := func(token string) {
 				bumpIdle()
@@ -426,11 +435,7 @@ func (e *Engine) runPipelinePass(
 		}
 		agentCancel()
 		if err != nil {
-			// Agent dispatch failure is non-fatal. Log the error, emit an error
-			// event, leave current state unchanged for this agent's slot, and
-			// continue with the next agent. Fatal session misconfiguration errors
-			// (missing agent record, etc.) are already returned above.
-			e.logger.WarnContext(ctx, "agent dispatch error; skipping agent for this pass",
+			e.logger.WarnContext(ctx, "agent dispatch error; aborting pipeline pass",
 				slog.String("session_id", sess.ID),
 				slog.String("agent_id", sa.AgentID),
 				slog.String("role", sa.Role),
@@ -442,7 +447,7 @@ func (e *Engine) runPipelinePass(
 				"agent_id":  sa.AgentID,
 				"error":     err.Error(),
 			})
-			continue
+			return current, successCount, fmt.Errorf("agent %s dispatch failed: %w", sa.AgentID, err)
 		}
 		successCount++
 
@@ -467,10 +472,12 @@ func (e *Engine) runPipelinePass(
 		)
 
 		e.emitter.Emit(sess.ID, EventAgentComplete, map[string]any{
-			"iteration":        iterNum,
-			"agent_id":         sa.AgentID,
-			"confidence_delta": confAfter - confBefore,
-			"output":           out, // included so the frontend can render per-agent output
+			"iteration":            iterNum,
+			"agent_id":             sa.AgentID,
+			"confidence_delta":     confAfter - confBefore,
+			"execution_plan_steps": len(out.ExecutionPlan),
+			"risks_count":          len(out.Risks),
+			"open_questions_count": len(out.OpenQuestions),
 		})
 
 		current = out

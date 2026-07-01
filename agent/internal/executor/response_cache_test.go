@@ -62,6 +62,55 @@ func TestResponseCache_PutExistingRefreshesRecency(t *testing.T) {
 	}
 }
 
+func TestResponseCache_RejectsInvalidJSONOnLookup(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_ENABLED", "true")
+	defaultResponseCache.Reset()
+
+	req := BuildLegacyLLMRequest(BrainstormPayload{
+		Role:         "build",
+		SystemPrompt: "architect",
+		State:        map[string]any{"idea": map[string]any{"text": "x"}},
+	})
+	hash := CanonicalRequestHash(req)
+	defaultResponseCache.Put(hash, `{"architecture":{"layers":[{"name":"API"`, "length")
+
+	if _, ok := lookupRetryCache(req); ok {
+		t.Fatal("expected cache miss for invalid JSON")
+	}
+	if _, ok := defaultResponseCache.Get(hash); ok {
+		t.Fatal("expected invalid JSON entry to be evicted")
+	}
+}
+
+func TestStoreRetryCache_SkipsInvalidJSON(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_ENABLED", "true")
+	defaultResponseCache.Reset()
+
+	req := BuildLegacyLLMRequest(BrainstormPayload{Role: "build", State: map[string]any{}})
+	storeRetryCache(req, generatedContent{text: `{"broken":`, finishReason: "length"})
+
+	hash := CanonicalRequestHash(req)
+	if _, ok := defaultResponseCache.Get(hash); ok {
+		t.Fatal("expected invalid JSON response not to be cached")
+	}
+}
+
+func TestStoreRetryCache_StoresValidJSON(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_ENABLED", "true")
+	defaultResponseCache.Reset()
+
+	req := BuildLegacyLLMRequest(BrainstormPayload{Role: "build", State: map[string]any{}})
+	storeRetryCache(req, generatedContent{text: `{"metrics":{"confidence":0.5}}`, finishReason: "stop"})
+
+	got, ok := lookupRetryCache(req)
+	if !ok {
+		t.Fatal("expected cache hit for valid JSON")
+	}
+	if got.text == "" {
+		t.Fatal("expected cached content")
+	}
+}
+
 func TestAssemblePrompt_LegacyMode(t *testing.T) {
 	t.Setenv("PROMPT_CACHE_ENABLED", "true")
 	t.Setenv("PROMPT_CACHE_MODE", "legacy")

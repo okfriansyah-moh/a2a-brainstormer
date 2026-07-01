@@ -130,15 +130,6 @@ func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalSt
 	if g == nil || g.llm == nil {
 		return scaffolds, nil
 	}
-	if len(g.bundle.Skills) == 0 {
-		g.logger.WarnContext(ctx, "aigen_fallback",
-			slog.String("reason", "empty skill bundle"),
-		)
-		if g.mode == ModeAI {
-			return nil, errors.New("aigen: skill bundle is empty in ai mode")
-		}
-		return scaffolds, nil
-	}
 
 	keys := sortedKeys(scaffolds)
 
@@ -147,7 +138,7 @@ func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalSt
 	enrichedArchState := s
 	if _, hasArch := scaffolds["architecture"]; hasArch && g.archEnricher != nil && config.GetArchEnricherEnabled() {
 		if opts.ProgressFn != nil {
-			opts.ProgressFn("architecture", DocStepEnricher, "Running architecture enricher pre-pass…")
+			opts.ProgressFn("architecture", DocStepEnricher, "Running architecture enricher pre-pass…", ProgressMeta{})
 		}
 		enrichedArchState, _ = g.archEnricher.Enrich(ctx, s)
 	}
@@ -157,7 +148,7 @@ func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalSt
 	enrichedPlanState := s
 	if _, hasPlan := scaffolds["plan"]; hasPlan && g.planEnricher != nil && config.GetPlanEnricherEnabled() {
 		if opts.ProgressFn != nil {
-			opts.ProgressFn("plan", DocStepEnricher, "Running plan enricher pre-pass…")
+			opts.ProgressFn("plan", DocStepEnricher, "Running plan enricher pre-pass…", ProgressMeta{})
 		}
 		enrichedPlanState, _ = g.planEnricher.Enrich(ctx, s)
 	}
@@ -167,7 +158,7 @@ func (g *Generator) EnhanceWithProgress(ctx context.Context, s state.CanonicalSt
 	enrichedReadmeState := s
 	if _, hasReadme := scaffolds["readme"]; hasReadme && g.readmeEnricher != nil && config.GetReadmeEnricherEnabled() {
 		if opts.ProgressFn != nil {
-			opts.ProgressFn("readme", DocStepEnricher, "Running readme enricher pre-pass…")
+			opts.ProgressFn("readme", DocStepEnricher, "Running readme enricher pre-pass…", ProgressMeta{})
 		}
 		enrichedReadmeState, _ = g.readmeEnricher.Enrich(ctx, s)
 	}
@@ -230,12 +221,20 @@ func (g *Generator) enhanceOne(ctx context.Context, key string, scaffold shared.
 // enhanceOneWithOpts produces one AI-rewritten document, emitting optional
 // progress and token-streaming events via opts callbacks.
 func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold shared.GeneratedDocument, s state.CanonicalState, opts EnhanceOpts) (shared.GeneratedDocument, error) {
+	if config.IsSectionSequentialDoc(key) {
+		return g.sectionSequentialEnhance(ctx, key, scaffold, s, opts)
+	}
+	return g.enhanceOneMonolithic(ctx, key, scaffold, s, opts)
+}
+
+// enhanceOneMonolithic rewrites the entire document in one LLM pass (legacy path).
+func (g *Generator) enhanceOneMonolithic(ctx context.Context, key string, scaffold shared.GeneratedDocument, s state.CanonicalState, opts EnhanceOpts) (shared.GeneratedDocument, error) {
 	rubric := RubricFor(key)
-	systemPrompt := g.buildSystemPrompt(key)
+	systemPrompt := g.buildSystemPrompt(key, s)
 	userPrompt := buildInitialUserPrompt(key, scaffold, s)
 
 	if opts.ProgressFn != nil {
-		opts.ProgressFn(key, DocStepDraft, "Generating first draft with AI…")
+		opts.ProgressFn(key, DocStepDraft, "Generating first draft with AI…", ProgressMeta{})
 	}
 
 	var draft string
@@ -282,7 +281,7 @@ func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold
 		findings := Validate(draft, rubric)
 		if len(findings) == 0 {
 			if opts.ProgressFn != nil {
-				opts.ProgressFn(key, DocStepComplete, "Document generated successfully.")
+				opts.ProgressFn(key, DocStepComplete, "Document generated successfully.", ProgressMeta{})
 			}
 			return wrapDocument(scaffold.Filename, draft), nil
 		}
@@ -296,12 +295,12 @@ func (g *Generator) enhanceOneWithOpts(ctx context.Context, key string, scaffold
 				slog.Int("repair_attempts", g.maxRepairs),
 			)
 			if opts.ProgressFn != nil {
-				opts.ProgressFn(key, DocStepComplete, "Document generated (rubric warnings remain).")
+				opts.ProgressFn(key, DocStepComplete, "Document generated (rubric warnings remain).", ProgressMeta{})
 			}
 			return wrapDocument(scaffold.Filename, draft), nil
 		}
 		if opts.ProgressFn != nil {
-			opts.ProgressFn(key, DocStepRepair, fmt.Sprintf("Repair pass %d/%d — fixing %d rubric finding(s)…", attempt+1, g.maxRepairs, len(findings)))
+			opts.ProgressFn(key, DocStepRepair, fmt.Sprintf("Repair pass %d/%d — fixing %d rubric finding(s)…", attempt+1, g.maxRepairs, len(findings)), ProgressMeta{})
 		}
 		repairPrompt := buildRepairPrompt(key, draft, findings)
 		repaired, err := g.llm.Generate(ctx, llm.LLMRequest{
@@ -346,7 +345,7 @@ func (g *Generator) generateStreamingDraft(ctx context.Context, key string, sp l
 	return strings.TrimSpace(sb.String()), nil
 }
 
-func (g *Generator) buildSystemPrompt(docKey string) string {
+func (g *Generator) buildSystemPrompt(docKey string, s state.CanonicalState) string {
 	var sb strings.Builder
 	if docKey == "readme" {
 		sb.WriteString("You are an expert technical writer creating a beginner-friendly product README. Your audience is a developer who has NEVER seen this project — they are asking 'what is this and should I use it?' not 'how do I implement it'.\n")
@@ -361,8 +360,9 @@ func (g *Generator) buildSystemPrompt(docKey string) string {
 		sb.WriteString("7. FORBIDDEN content: configuration tables with 20+ env vars, troubleshooting sections, domain model tables, sequence diagrams, 'For AI Agents' appendix, per-module technical breakdowns, and detailed API documentation. These belong in separate engineering docs, NOT in the README.\n")
 		sb.WriteString("8. Do NOT add a `## For AI Agents` appendix. End with the `## Contributing` section.\n\n")
 	} else {
-		sb.WriteString("You are a Principal Software Architect drafting a production-grade engineering document for a real engineering team that will execute against it.\n")
-		sb.WriteString("Document type: ")
+		sb.WriteString("You are a Principal Software Architect drafting a production-grade engineering document for a real engineering team that will build the USER'S PRODUCT described in the canonical state.\n")
+		sb.WriteString(domainFocusRules(s))
+		sb.WriteString("\nDocument type: ")
 		sb.WriteString(docKey)
 		sb.WriteString(".\n\n")
 		sb.WriteString("## Output rules (non-negotiable)\n")
@@ -372,8 +372,8 @@ func (g *Generator) buildSystemPrompt(docKey string) string {
 		sb.WriteString("4. Every top-level section must contain at minimum: a 2–3 paragraph narrative introduction, 2+ sub-sections (###), at least one table OR mermaid diagram OR fenced code block, and a closing 'Implications' or 'Trade-offs' paragraph.\n")
 		sb.WriteString("5. Never emit literal placeholder strings such as TBD, TODO, Lorem ipsum, placeholder, '...', 'to be defined', or '<insert ...>'. If a detail is genuinely unknowable, make a reasoned recommendation and label it 'Recommended default:'.\n")
 		sb.WriteString("6. Cite numbers (latencies, sizes, throughput, p95, error budgets) wherever you make performance claims. Round to plausible engineering values; never leave a quantity vague.\n")
-		sb.WriteString("7. Quality bar: write at the level of a senior staff engineer publishing an internal RFC — explicit trade-offs, concrete component boundaries, named interfaces, schemas, error paths.\n")
-		sb.WriteString("8. Dual-audience: every document MUST end with a `## For AI Agents` appendix containing `### Stack`, `### Key Contracts`, `### Implementation Order`, and `### Out of Scope` sub-sections with concrete, pasteable guidance for coding agents.\n\n")
+		sb.WriteString("7. Quality bar: write at the level of a senior staff engineer publishing an internal RFC — explicit trade-offs, concrete component boundaries, named interfaces, schemas, error paths — for THIS product's domain.\n")
+		sb.WriteString("8. Dual-audience: when the scaffold includes `## For AI Agents`, that appendix must describe implementing THIS product (stack, domain contracts, build order from execution_plan) — never the A2A Brainstorm orchestrator.\n\n")
 	}
 	sb.WriteString("## Required structural depth for this document type\n")
 	sb.WriteString(docSkeletonHint(docKey))
@@ -403,9 +403,8 @@ For every top-level section, produce these sub-sections:
 - ### Cross-cutting concerns  — observability, security, capacity planning
 - ### Trade-offs & open questions  — explicit list
 
-Section 2 (System Components) must include a per-component sub-section (### N. <Component>) for EVERY component named in the canonical state architecture.components list, each ≥ 200 lines.
-Section 4 (Data Flow) must contain at least TWO mermaid diagrams (sequenceDiagram + flowchart).
-End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, Out of Scope).`
+Section 2 (Solution) must describe the user's product architecture — not a multi-agent brainstorm pipeline.
+End with ## For AI Agents appendix when present in the scaffold — product stack and contracts only.`
 	case "plan":
 		return `For every top-level section, produce these sub-sections:
 - ### Goals detail  — acceptance criteria and success metrics
@@ -417,9 +416,9 @@ End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, 
 CRITICAL naming rule: Every step heading MUST use the format "### Task N — {Name}" (not "Phase N —", not "Phase N:"). If the seed scaffold contains "Phase N" titles, rename them to "Task N" in the output. Never emit "Phase 0", "Phase 1", "Phase 2" or any "Phase N" variant — always say "Task N".
 
 Section 5 (Implementation Tasks) must contain one ### Task N subsection per execution_plan entry with all seven canonical fields.
-Section 7 (How to Use This Plan) must explain the task execution protocol.
-Section 8 (Deep Knowledge Reference) must include the CanonicalState Go struct skeleton.
-End with ## For AI Agents appendix (Stack, Key Contracts, Implementation Order, Out of Scope).`
+Section 7 (How to Use This Plan) must explain the task execution protocol for THIS product.
+Section 8 (Deep Knowledge Reference) must include domain schemas, algorithms, and contracts from canonical state (architecture deep_knowledge_sections and plan enrichments) — NOT the A2A Brainstorm tool's internal CanonicalState struct.
+When present, ## For AI Agents describes THIS product's implementation order and contracts.`
 	case "readme":
 		return `TARGET: A beginner-friendly product README. Model it after the best open-source project READMEs: clear, scannable, under 500 lines.
 
@@ -469,6 +468,7 @@ func buildInitialUserPrompt(key string, scaffold shared.GeneratedDocument, s sta
 		sb.WriteString("- ≥ 1000 lines total (not soft-target — hard floor)\n")
 		sb.WriteString("- every `## ` heading from the scaffold preserved, in the same order\n")
 		sb.WriteString("- every component / risk / assumption / open question / execution_plan entry from the canonical state given its own named sub-section or table row\n")
+		sb.WriteString("- do NOT substitute the user's product with a generic multi-agent framework or the A2A Brainstorm tool\n")
 		sb.WriteString("- zero placeholders (TBD/TODO/Lorem/...); make reasoned 'Recommended default:' calls instead\n")
 		sb.WriteString("- at least one mermaid diagram per top-level section where structure matters\n\n")
 	}
@@ -503,39 +503,6 @@ func buildRepairPrompt(key, draft string, findings []RubricFinding) string {
 	}
 	sb.WriteString("\n## Previous draft (expand, do not summarise)\n\n")
 	sb.WriteString(draft)
-	return sb.String()
-}
-
-// summariseState renders a compact, deterministic textual summary of the parts
-// of the canonical state that matter for document generation. It does not dump
-// raw JSON to keep the prompt token-efficient.
-func summariseState(s state.CanonicalState) string {
-	var sb strings.Builder
-	for _, field := range []string{"title", "problem", "target_users", "value_proposition"} {
-		if v := stringFromMap(s.Idea, field); v != "" {
-			sb.WriteString(capitaliseLabel(field))
-			sb.WriteString(": ")
-			sb.WriteString(v)
-			sb.WriteString("\n")
-		}
-	}
-	if names := componentNames(s.Architecture); len(names) > 0 {
-		sb.WriteString("Architecture components: ")
-		sb.WriteString(strings.Join(names, ", "))
-		sb.WriteString("\n")
-	}
-	if len(s.ExecutionPlan) > 0 {
-		sb.WriteString(fmt.Sprintf("Execution plan items: %d\n", len(s.ExecutionPlan)))
-	}
-	if len(s.Risks) > 0 {
-		sb.WriteString(fmt.Sprintf("Risks identified: %d\n", len(s.Risks)))
-	}
-	if len(s.Assumptions) > 0 {
-		sb.WriteString(fmt.Sprintf("Assumptions: %d\n", len(s.Assumptions)))
-	}
-	if len(s.OpenQuestions) > 0 {
-		sb.WriteString(fmt.Sprintf("Open questions: %d\n", len(s.OpenQuestions)))
-	}
 	return sb.String()
 }
 

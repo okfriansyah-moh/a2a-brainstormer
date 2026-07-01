@@ -79,7 +79,7 @@ func GenerateArchitecture(s state.CanonicalState) (string, error) {
 	if s.Metrics.LatencyBudgetMs > 0 {
 		rows = append(rows, []string{"Latency budget", fmt.Sprintf("%d ms", s.Metrics.LatencyBudgetMs)})
 	}
-	rows = append(rows, []string{"Coding Standards", "AGENTS.md module boundary rules"})
+	rows = append(rows, []string{"Coding Standards", "Product engineering standards from brainstorm session"})
 	b.WriteString(renderTable([]string{"Metric", "Value"}, rows))
 
 	// ── § 12. System Guarantees ──────────────────────────────────────────────

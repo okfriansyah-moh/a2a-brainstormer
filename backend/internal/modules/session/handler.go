@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -76,7 +77,9 @@ type MarkdownWriter = markdownWriter
 // without a cross-package import. *sse.Broadcaster and sse.NoopEmitter both
 // satisfy the anonymous interface structurally.
 type progressAwareMarkdownWriter interface {
-	GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface{ Emit(sessionID, evtType string, data any) }, sessionID string) (map[string]shared.GeneratedDocument, error)
+	GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface {
+		Emit(sessionID, evtType string, data any)
+	}, sessionID string) (map[string]shared.GeneratedDocument, error)
 }
 
 // Handler implements the HTTP layer for the session API.
@@ -249,7 +252,7 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 
 		// Clear the server-level WriteTimeout — AI markdown generation can
 		// exceed the default 300 s limit. The generation is bounded instead
-		// by GetFinalizeTimeout(), which defaults to 10 minutes.
+		// by GetFinalizeTimeout(), which defaults to 60 minutes.
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 		genCtx, genCancel := context.WithTimeout(r.Context(), config.GetFinalizeTimeout())
@@ -268,7 +271,7 @@ func (h *Handler) finalizeSession(w http.ResponseWriter, r *http.Request) {
 		}
 		documents = docs
 
-		if err := h.svc.PersistArtifacts(genCtx, id, documents); err != nil {
+		if err := h.persistGeneratedArtifacts(r.Context(), id, documents); err != nil {
 			if h.logger != nil {
 				h.logger.ErrorContext(r.Context(), "artifact persistence failed",
 					slog.String("session_id", id),
@@ -375,6 +378,14 @@ func (h *Handler) generateDocument(w http.ResponseWriter, r *http.Request) {
 
 	genState := state.EnrichIdeaFromSession(*sess.CurrentState, sess.Idea)
 
+	if h.emitter != nil {
+		h.emitter.Emit(id, "doc.phase", map[string]any{
+			"doc_key": req.Key,
+			"step":    "draft",
+			"detail":  fmt.Sprintf("Starting %s generation…", req.Key),
+		})
+	}
+
 	var docs map[string]shared.GeneratedDocument
 	if h.emitter != nil {
 		if pw, ok := h.markdown.(progressAwareMarkdownWriter); ok {
@@ -401,7 +412,7 @@ func (h *Handler) generateDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "document key missing from result")
 		return
 	}
-	if err := h.svc.PersistArtifacts(genCtx, id, map[string]shared.GeneratedDocument{req.Key: doc}); err != nil {
+	if err := h.persistGeneratedArtifacts(r.Context(), id, map[string]shared.GeneratedDocument{req.Key: doc}); err != nil {
 		if h.logger != nil {
 			h.logger.WarnContext(r.Context(), "artifact persistence failed after generate-document",
 				slog.String("session_id", id),
@@ -409,6 +420,14 @@ func (h *Handler) generateDocument(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, GenerateDocumentResponse{Key: req.Key, Document: doc})
+}
+
+// persistGeneratedArtifacts saves generated docs using a fresh timeout so a
+// long AI generation pass does not leave genCtx expired before the DB upsert.
+func (h *Handler) persistGeneratedArtifacts(parent context.Context, sessionID string, docs map[string]shared.GeneratedDocument) error {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 30*time.Second)
+	defer cancel()
+	return h.svc.PersistArtifacts(persistCtx, sessionID, docs)
 }
 
 // ── Error helpers ─────────────────────────────────────────────────────────────

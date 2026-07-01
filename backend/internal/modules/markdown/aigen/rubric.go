@@ -115,7 +115,7 @@ var defaultRubrics = map[string]Rubric{
 		},
 		Sections: []SectionRule{
 			{Heading: "1. Goals", MinChars: 30},
-			{Heading: "5. Implementation Tasks", MinChars: 200, RequiredKeywords: []string{"**Goal:**", "go build ./..."}},
+			{Heading: "5. Implementation Tasks", MinChars: 200, RequiredKeywords: []string{"**Goal:**"}},
 			{Heading: "7. How to Use This Plan", MinChars: 80},
 			{Heading: "8. Deep Knowledge Reference", MinChars: 80},
 			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Key Contracts", "Implementation Order", "Out of Scope"}},
@@ -205,7 +205,7 @@ func Validate(content string, r Rubric) []RubricFinding {
 		}
 	}
 	for _, rule := range r.Sections {
-		body, ok := extractSectionBody(content, rule.Heading)
+		body, ok := ExtractSectionBody(content, rule.Heading)
 		if !ok {
 			findings = append(findings, RubricFinding{
 				Heading: rule.Heading,
@@ -244,14 +244,14 @@ func Validate(content string, r Rubric) []RubricFinding {
 	return findings
 }
 
-// extractSectionBody returns the substring of content that follows the first
+// ExtractSectionBody returns the substring of content that follows the first
 // line matching the heading and ends before the next heading line. The second
 // return value is false when no matching heading is found.
 //
 // Heading match: the line, trimmed of leading "#" and whitespace, must contain
 // rule.Heading as a substring. This tolerates `## 2. System Components`,
 // `### 2. System Components — Details`, and other formatting variations.
-func extractSectionBody(content, heading string) (string, bool) {
+func ExtractSectionBody(content, heading string) (string, bool) {
 	lines := strings.Split(content, "\n")
 	startIdx := -1
 	for i, ln := range lines {
@@ -276,4 +276,67 @@ func extractSectionBody(content, heading string) (string, bool) {
 		}
 	}
 	return strings.Join(lines[startIdx:endIdx], "\n"), true
+}
+
+// ValidateSection evaluates a section body against one SectionRule.
+func ValidateSection(body string, rule SectionRule) []RubricFinding {
+	wrapped := "## " + rule.Heading + "\n\n" + body
+	return sectionFindingsFromBody(wrapped, rule)
+}
+
+// SectionFindings returns rubric findings for one heading in a full document.
+func SectionFindings(content string, rubric Rubric, heading string) []RubricFinding {
+	for _, rule := range rubric.Sections {
+		if rule.Heading != heading {
+			continue
+		}
+		body, ok := ExtractSectionBody(content, heading)
+		if !ok {
+			return []RubricFinding{{
+				Heading: heading,
+				Reason:  "required section heading not found",
+			}}
+		}
+		return sectionFindingsFromBody("## "+heading+"\n\n"+body, rule)
+	}
+	return nil
+}
+
+func sectionFindingsFromBody(wrapped string, rule SectionRule) []RubricFinding {
+	var findings []RubricFinding
+	body, ok := ExtractSectionBody(wrapped, rule.Heading)
+	if !ok {
+		return []RubricFinding{{
+			Heading: rule.Heading,
+			Reason:  "required section heading not found",
+		}}
+	}
+	bodyLen := len(strings.TrimSpace(body))
+	if rule.MinChars > 0 && bodyLen < rule.MinChars {
+		findings = append(findings, RubricFinding{
+			Heading: rule.Heading,
+			Reason:  fmt.Sprintf("section body has %d chars; minimum is %d", bodyLen, rule.MinChars),
+		})
+	}
+	for _, kw := range rule.RequiredKeywords {
+		if !strings.Contains(body, kw) {
+			findings = append(findings, RubricFinding{
+				Heading: rule.Heading,
+				Reason:  fmt.Sprintf("required keyword %q absent from section body", kw),
+			})
+		}
+	}
+	placeholders := rule.ForbidPlaceholders
+	if placeholders == nil {
+		placeholders = defaultPlaceholders
+	}
+	for _, ph := range placeholders {
+		if strings.Contains(body, ph) {
+			findings = append(findings, RubricFinding{
+				Heading: rule.Heading,
+				Reason:  fmt.Sprintf("forbidden placeholder %q present in section body", ph),
+			})
+		}
+	}
+	return findings
 }

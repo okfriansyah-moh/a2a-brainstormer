@@ -77,12 +77,15 @@ func NewArchEnricher(provider llm.LLMProvider, logger *slog.Logger) *ArchEnriche
 	return &ArchEnricher{llm: provider, logger: logger}
 }
 
-const enricherSystemPrompt = `You are an architecture documentation assistant. Given a compact JSON description of a software project's current brainstorm state, return a JSON object that fills in the gaps needed to render a high-quality architecture.md document.
+const enricherSystemPrompt = `You are an architecture documentation assistant for the USER'S PRODUCT described in the input JSON — not the brainstorm tool that produced the session.
+
+Given a compact JSON description of the product's brainstorm state, return a JSON object that fills in the gaps needed to render a high-quality architecture.md document.
 
 Rules:
 - Return ONLY valid JSON matching the output schema. No markdown fencing. No prose outside the JSON.
 - Keep all strings concise — respect the per-field character limits in the schema.
 - Do NOT invent technical facts not implied by the input. Infer from what is present.
+- Focus on the product domain (users, problem, solution, integrations) — never describe A2A protocols, agent pipelines, or this repository's modules unless they are the product.
 - If a field cannot be meaningfully populated from the input, omit it entirely.
 - ` + "`decision_enrichments[].title`" + ` must EXACTLY match one of the decision titles in the input.
 
@@ -162,14 +165,14 @@ func buildEnricherUserPrompt(s state.CanonicalState) string {
 	decisionTitles := extractDecisionTitles(s)
 
 	payload := map[string]any{
-		"idea":             s.Idea,
-		"architecture":     s.Architecture,
-		"risks_count":      len(s.Risks),
-		"assumptions":      s.Assumptions,
-		"open_questions":   s.OpenQuestions,
-		"decision_titles":  decisionTitles,
-		"iteration":        s.Meta.Iteration,
-		"confidence":       s.Metrics.Confidence,
+		"idea":            s.Idea,
+		"architecture":    s.Architecture,
+		"risks_count":     len(s.Risks),
+		"assumptions":     s.Assumptions,
+		"open_questions":  s.OpenQuestions,
+		"decision_titles": decisionTitles,
+		"iteration":       s.Meta.Iteration,
+		"confidence":      s.Metrics.Confidence,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

@@ -36,6 +36,7 @@ services:
       CONVERGENCE_THRESHOLD: ${CONVERGENCE_THRESHOLD:-0.02}
       ITERATION_TIMEOUT_SECONDS: ${ITERATION_TIMEOUT_SECONDS:-1800}
       AGENT_CALL_TIMEOUT_SECONDS: ${AGENT_CALL_TIMEOUT_SECONDS:-1800}
+      AGENT_FIRST_TOKEN_TIMEOUT_SECONDS: ${AGENT_FIRST_TOKEN_TIMEOUT_SECONDS:-180}
       AGENT_STREAM_IDLE_TIMEOUT_SECONDS: ${AGENT_STREAM_IDLE_TIMEOUT_SECONDS:-600}
       COPILOT_API_KEY: ${COPILOT_API_KEY:-}
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
@@ -46,11 +47,19 @@ services:
       GLOBAL_OPENCODE_BASE_URL: ${GLOBAL_OPENCODE_BASE_URL:-http://opencode:4096}
       GLOBAL_OPENCODE_MODEL: ${GLOBAL_OPENCODE_MODEL:-github-copilot/claude-sonnet-4.6}
       FINALIZE_MODE: ${FINALIZE_MODE:-hybrid}
+      # Per-document AI generation budget (section-sequential needs many LLM calls).
+      FINALIZE_TIMEOUT_SECONDS: ${FINALIZE_TIMEOUT_SECONDS:-3600}
       # Rubric repair passes after the initial AI draft (0–5). Each retry adds
       # one LLM call per document. When repairs are exhausted, the last AI draft
       # is still returned (not the deterministic template).
       AIGEN_MAX_REPAIRS: ${AIGEN_MAX_REPAIRS:-3}
       AIGEN_TEMPERATURE: ${AIGEN_TEMPERATURE:-0.2}
+      # Section-sequential doc generation (architecture,plan by default)
+      AIGEN_SECTION_SEQUENTIAL: ${AIGEN_SECTION_SEQUENTIAL:-architecture,plan}
+      AIGEN_COHERENCE_ENABLED: ${AIGEN_COHERENCE_ENABLED:-true}
+      AIGEN_COHERENCE_MIN_RATIO: ${AIGEN_COHERENCE_MIN_RATIO:-0.95}
+      AIGEN_COHERENCE_MAX_EDIT_RATIO: ${AIGEN_COHERENCE_MAX_EDIT_RATIO:-0.10}
+      AIGEN_PRIOR_SECTION_MAX_CHARS: ${AIGEN_PRIOR_SECTION_MAX_CHARS:-4000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +95,8 @@ services:
       CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Must exceed longest LLM call; align with backend AGENT_CALL_TIMEOUT_SECONDS.
+      AGENT_HTTP_WRITE_TIMEOUT_SECONDS: ${AGENT_HTTP_WRITE_TIMEOUT_SECONDS:-1800}
       # OpenCode proxy (only used when AGENT_LLM_PROVIDER=opencode)
       AGENT_OPENCODE_BASE_URL: ${AGENT_OPENCODE_BASE_URL:-http://opencode:4096}
       AGENT_OPENCODE_MODEL: ${AGENT_OPENCODE_MODEL:-github/gpt-4o}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,6 +165,47 @@ func TestExtractStateFromResult_EmptyTask(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty task, got nil")
 	}
+}
+
+func TestExtractStateFromResult_FailedTask(t *testing.T) {
+	task := &sdk.Task{
+		Status: sdk.TaskStatus{
+			State:   sdk.TaskStateFailed,
+			Message: sdk.NewMessage(sdk.MessageRoleAgent, sdk.NewTextPart("LLM returned non-JSON: truncated")),
+		},
+	}
+	_, err := platA2A.ExtractStateFromResult(task)
+	if err == nil {
+		t.Fatal("expected error for failed task, got nil")
+	}
+	if got := err.Error(); got == "" || !containsAll(got, "failed", "non-JSON") {
+		t.Fatalf("error = %q, want agent failure message", got)
+	}
+}
+
+func TestExtractStateFromResult_HistoryInputNotUsed(t *testing.T) {
+	// Regression: failed tasks used to fall back to the user request DataPart in
+	// History, producing a silent no-op merge.
+	inputState := map[string]any{"idea": map[string]any{"text": "original"}}
+	task := &sdk.Task{
+		Status: sdk.TaskStatus{State: sdk.TaskStateCompleted},
+		History: []*sdk.Message{
+			sdk.NewMessage(sdk.MessageRoleUser, sdk.NewDataPart(inputState)),
+		},
+	}
+	_, err := platA2A.ExtractStateFromResult(task)
+	if err == nil {
+		t.Fatal("expected error when only history contains DataPart, got nil")
+	}
+}
+
+func containsAll(s string, parts ...string) bool {
+	for _, p := range parts {
+		if !strings.Contains(s, p) {
+			return false
+		}
+	}
+	return true
 }
 
 // ── isTransientError (via SendPayload retry behaviour) ───────────────────────

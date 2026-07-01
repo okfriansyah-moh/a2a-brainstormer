@@ -96,7 +96,9 @@ func (o *Orchestrator) GenerateAll(ctx context.Context, s state.CanonicalState, 
 // The emitter parameter is an anonymous interface so that the method signature
 // matches session/handler.go's progressAwareMarkdownWriter exactly, enabling
 // the type assertion to succeed without a cross-package import.
-func (o *Orchestrator) GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface{ Emit(sessionID, evtType string, data any) }, sessionID string) (map[string]shared.GeneratedDocument, error) {
+func (o *Orchestrator) GenerateAllWithProgress(ctx context.Context, s state.CanonicalState, keys []string, emitter interface {
+	Emit(sessionID, evtType string, data any)
+}, sessionID string) (map[string]shared.GeneratedDocument, error) {
 	scaffolds, err := GenerateAll(s, keys)
 	if err != nil {
 		return nil, err
@@ -105,12 +107,19 @@ func (o *Orchestrator) GenerateAllWithProgress(ctx context.Context, s state.Cano
 		return o.aiEnhanceOrPassthrough(ctx, s, scaffolds)
 	}
 
-	progressFn := func(docKey string, step aigen.DocStep, detail string) {
-		emitter.Emit(sessionID, "doc.phase", map[string]any{
+	progressFn := func(docKey string, step aigen.DocStep, detail string, meta aigen.ProgressMeta) {
+		payload := map[string]any{
 			"doc_key": docKey,
 			"step":    string(step),
 			"detail":  detail,
-		})
+		}
+		if meta.Section != "" {
+			payload["section"] = meta.Section
+		}
+		if meta.FindingsCount > 0 {
+			payload["findings_count"] = meta.FindingsCount
+		}
+		emitter.Emit(sessionID, "doc.phase", payload)
 	}
 	tokenFn := func(docKey, token string) {
 		emitter.Emit(sessionID, "doc.token", map[string]any{

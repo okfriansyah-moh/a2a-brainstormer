@@ -55,3 +55,80 @@ func TestGenerateStateContent_ContinuesOnLength(t *testing.T) {
 		t.Fatalf("expected architecture in JSON, got %#v", got)
 	}
 }
+
+type singleShotLLM struct {
+	calls int
+}
+
+func (m *singleShotLLM) Generate(_ context.Context, _ llm.LLMRequest) (llm.LLMResponse, error) {
+	m.calls++
+	return llm.LLMResponse{
+		Content:      `{"metrics":{"confidence":0.7}}`,
+		FinishReason: "stop",
+	}, nil
+}
+
+func TestGenerateStateContent_BypassesInvalidCachedJSON(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_ENABLED", "true")
+	defaultResponseCache.Reset()
+
+	provider := &singleShotLLM{}
+	exec := New(nil, provider, nil)
+	execCtx := &a2asrv.ExecutorContext{TaskID: "task-cache"}
+	req := llm.LLMRequest{UserMessage: "return json delta"}
+	payload := BrainstormPayload{Role: "build", State: map[string]any{}}
+
+	hash := CanonicalRequestHash(req)
+	defaultResponseCache.Put(hash, `{"architecture":{"layers":[{"name":"API"`, "length")
+
+	content, err := exec.generateStateContent(
+		context.Background(),
+		execCtx,
+		provider,
+		req,
+		func(a2a.Event, error) bool { return true },
+		payload,
+	)
+	if err != nil {
+		t.Fatalf("generateStateContent() error = %v", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("expected fresh LLM call after invalid cache, got %d calls", provider.calls)
+	}
+	if _, err := extractJSON(content); err != nil {
+		t.Fatalf("extractJSON() error = %v", err)
+	}
+}
+
+func TestGenerateStateContent_SkipsCacheWhenFeedbackPresent(t *testing.T) {
+	t.Setenv("PROMPT_CACHE_ENABLED", "true")
+	defaultResponseCache.Reset()
+
+	provider := &singleShotLLM{}
+	exec := New(nil, provider, nil)
+	execCtx := &a2asrv.ExecutorContext{TaskID: "task-feedback"}
+	req := llm.LLMRequest{UserMessage: "return json delta"}
+	payload := BrainstormPayload{
+		Role:         "build",
+		State:        map[string]any{},
+		UserFeedback: "Add mobile offline support",
+	}
+
+	hash := CanonicalRequestHash(req)
+	defaultResponseCache.Put(hash, `{"metrics":{"confidence":0.9}}`, "stop")
+
+	_, err := exec.generateStateContent(
+		context.Background(),
+		execCtx,
+		provider,
+		req,
+		func(a2a.Event, error) bool { return true },
+		payload,
+	)
+	if err != nil {
+		t.Fatalf("generateStateContent() error = %v", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("expected cache bypass on feedback pass, got %d calls", provider.calls)
+	}
+}

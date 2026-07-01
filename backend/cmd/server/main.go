@@ -105,10 +105,9 @@ func run(ctx context.Context, log *logger.Logger) error {
 		Addr:              ":" + port,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
-		// WriteTimeout must exceed FINALIZE_TIMEOUT_SECONDS (default 600s) plus
-		// headroom for parallel doc generation (~600s) + response marshalling.
-		// 1500s (25 min) covers worst-case: 4 docs × one slow LLM turn each.
-		WriteTimeout: 1500 * time.Second,
+		// WriteTimeout must exceed FINALIZE_TIMEOUT_SECONDS (default 3600s) plus
+		// headroom for response marshalling.
+		WriteTimeout: 3900 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -183,11 +182,10 @@ func buildMarkdownWriter(ctx context.Context, log *slog.Logger) sessmod.Markdown
 
 	bundle, err := aigen.LoadBundle(os.DirFS("."), config.GetSkillBundlePaths())
 	if err != nil {
-		if mode == markdown.FinalizeModeAI {
-			// In strict AI mode do NOT fall back to the deterministic writer —
-			// the operator explicitly opted in to AI-only generation. Proceed
-			// with an empty skill bundle so the generator still runs; the AI
-			// will produce output based on canonical-state context alone.
+		if mode == markdown.FinalizeModeHybrid || mode == markdown.FinalizeModeAI {
+			// Missing skill files should not disable AI — domain focus comes from
+			// canonical state. Only fail in strict AI mode when paths were set but
+			// files are unreadable (LoadBundle error with non-empty paths).
 			log.Warn("aigen_skill_load_partial",
 				slog.String("reason", "skill files unavailable — AI generation continues with empty bundle"),
 				slog.Any("error", err),

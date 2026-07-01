@@ -167,12 +167,13 @@ func SendPayload(ctx context.Context, client *a2aclient.Client, payload Brainsto
 	return nil, fmt.Errorf("send a2a message after %d retries: %w", maxRetries, lastErr)
 }
 
-// ExtractStateFromResult walks the SendMessageResult to find the first DataPart
-// across all artifact parts and message parts, returning its value.
+// ExtractStateFromResult walks the SendMessageResult to find the agent's
+// output DataPart artifact and returns its value.
 //
-// The agent executor emits the updated CanonicalState as a DataPart artifact.
-// ExtractStateFromResult unwraps it so the iteration engine can pass the result
-// to state.Merge.
+// The agent executor emits the updated CanonicalState as a DataPart artifact on
+// success. Failed tasks must not fall back to request history — the user
+// message also carries a DataPart (input state) and would masquerade as a
+// successful no-op merge.
 func ExtractStateFromResult(result a2a.SendMessageResult) (any, error) {
 	if result == nil {
 		return nil, errors.New("extract state: nil SendMessageResult")
@@ -180,33 +181,13 @@ func ExtractStateFromResult(result a2a.SendMessageResult) (any, error) {
 
 	switch r := result.(type) {
 	case *a2a.Task:
-		for _, artifact := range r.Artifacts {
-			if artifact == nil {
-				continue
-			}
-			for _, part := range artifact.Parts {
-				if part == nil {
-					continue
-				}
-				if d := part.Data(); d != nil {
-					return d, nil
-				}
-			}
+		if r.Status.State == a2a.TaskStateFailed {
+			return nil, taskFailureError(r)
 		}
-		// Fall through to check history messages if no artifact DataPart found.
-		for _, msg := range r.History {
-			if msg == nil {
-				continue
-			}
-			for _, part := range msg.Parts {
-				if part == nil {
-					continue
-				}
-				if d := part.Data(); d != nil {
-					return d, nil
-				}
-			}
+		if data, ok := dataPartFromArtifacts(r.Artifacts); ok {
+			return data, nil
 		}
+		return nil, errors.New("extract state: no agent artifact DataPart in task")
 
 	case *a2a.Message:
 		for _, part := range r.Parts {
@@ -220,6 +201,37 @@ func ExtractStateFromResult(result a2a.SendMessageResult) (any, error) {
 	}
 
 	return nil, errors.New("extract state: no DataPart found in SendMessageResult")
+}
+
+func dataPartFromArtifacts(artifacts []*a2a.Artifact) (any, bool) {
+	for _, artifact := range artifacts {
+		if artifact == nil {
+			continue
+		}
+		for _, part := range artifact.Parts {
+			if part == nil {
+				continue
+			}
+			if d := part.Data(); d != nil {
+				return d, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func taskFailureError(task *a2a.Task) error {
+	if task == nil {
+		return errors.New("extract state: agent task failed")
+	}
+	if task.Status.Message != nil {
+		for _, part := range task.Status.Message.Parts {
+			if t := part.Text(); t != "" {
+				return fmt.Errorf("extract state: agent task failed: %s", t)
+			}
+		}
+	}
+	return errors.New("extract state: agent task failed")
 }
 
 // isTransientError reports whether err is a transient failure that warrants a retry.
