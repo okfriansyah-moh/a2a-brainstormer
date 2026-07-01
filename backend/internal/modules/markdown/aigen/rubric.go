@@ -115,7 +115,7 @@ var defaultRubrics = map[string]Rubric{
 		},
 		Sections: []SectionRule{
 			{Heading: "1. Goals", MinChars: 30},
-			{Heading: "5. Implementation Tasks", MinChars: 200, RequiredKeywords: []string{"**Goal:**", "go build ./..."}},
+			{Heading: "5. Implementation Tasks", MinChars: 200, RequiredKeywords: []string{"**Goal:**"}},
 			{Heading: "7. How to Use This Plan", MinChars: 80},
 			{Heading: "8. Deep Knowledge Reference", MinChars: 80},
 			{Heading: "For AI Agents", MinChars: 800, RequiredKeywords: []string{"Stack", "Key Contracts", "Implementation Order", "Out of Scope"}},

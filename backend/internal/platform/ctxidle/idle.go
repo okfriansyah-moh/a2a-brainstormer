@@ -11,11 +11,13 @@ import (
 
 type idleCtx struct {
 	context.Context
-	idle   time.Duration
-	timer  *time.Timer
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	armed  bool
+	idle         time.Duration
+	startup      time.Duration
+	timer        *time.Timer
+	startupTimer *time.Timer
+	cancel       context.CancelFunc
+	mu           sync.Mutex
+	armed        bool
 }
 
 // WithIdleTimeout returns a child context that is cancelled when idle elapses
@@ -23,7 +25,14 @@ type idleCtx struct {
 // first Bump — so a long LLM think phase before the first token does not trip
 // the idle deadline. Subsequent Bump calls reset the timer.
 func WithIdleTimeout(parent context.Context, idle time.Duration) (context.Context, func()) {
-	if idle <= 0 {
+	return WithStartupAndIdleTimeout(parent, 0, idle)
+}
+
+// WithStartupAndIdleTimeout cancels when Bump is not called within startup
+// (time-to-first-token), then enforces idle between subsequent Bump calls.
+// Pass startup=0 to disable the first-token deadline.
+func WithStartupAndIdleTimeout(parent context.Context, startup, idle time.Duration) (context.Context, func()) {
+	if idle <= 0 && startup <= 0 {
 		return parent, func() {}
 	}
 
@@ -31,12 +40,26 @@ func WithIdleTimeout(parent context.Context, idle time.Duration) (context.Contex
 	ic := &idleCtx{
 		Context: ctx,
 		idle:    idle,
+		startup: startup,
 		cancel:  cancel,
+	}
+
+	if startup > 0 {
+		ic.startupTimer = time.AfterFunc(startup, func() {
+			ic.cancel()
+		})
 	}
 
 	bump := func() {
 		ic.mu.Lock()
 		defer ic.mu.Unlock()
+		if ic.startupTimer != nil {
+			ic.startupTimer.Stop()
+			ic.startupTimer = nil
+		}
+		if ic.idle <= 0 {
+			return
+		}
 		if ic.armed {
 			if ic.timer != nil {
 				ic.timer.Reset(ic.idle)

@@ -43,3 +43,20 @@ func TestWithIdleTimeout_ParentCancel(t *testing.T) {
 	parentCancel()
 	<-ctx.Done()
 }
+
+func TestWithStartupAndIdleTimeout_CancelsBeforeFirstBump(t *testing.T) {
+	ctx, _ := WithStartupAndIdleTimeout(context.Background(), 50*time.Millisecond, time.Minute)
+	<-ctx.Done()
+	if ctx.Err() != context.Canceled {
+		t.Fatalf("expected canceled before first bump, got %v", ctx.Err())
+	}
+}
+
+func TestWithStartupAndIdleTimeout_FirstBumpClearsStartup(t *testing.T) {
+	ctx, bump := WithStartupAndIdleTimeout(context.Background(), 50*time.Millisecond, time.Minute)
+	bump()
+	time.Sleep(120 * time.Millisecond)
+	if ctx.Err() != nil {
+		t.Fatalf("expected startup timer cleared after bump, got %v", ctx.Err())
+	}
+}

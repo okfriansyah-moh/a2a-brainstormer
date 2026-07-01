@@ -55,13 +55,13 @@ func (g *Generator) sectionSequentialEnhance(ctx context.Context, key string, sc
 	}
 
 	merged := MergeSections(preamble, enhanced)
-	merged, err = g.repairDocumentSections(ctx, key, merged, rubric, opts)
+	merged, err = g.repairDocumentSections(ctx, key, merged, rubric, s, opts)
 	if err != nil {
 		return shared.GeneratedDocument{}, err
 	}
 
 	if config.GetAIGenCoherenceEnabled() {
-		coherent, err := g.runCoherencePass(ctx, key, merged, rubric, opts)
+		coherent, err := g.runCoherencePass(ctx, key, merged, rubric, s, opts)
 		if err != nil && g.mode == ModeAI {
 			return shared.GeneratedDocument{}, fmt.Errorf("coherence: %w", err)
 		}
@@ -80,7 +80,7 @@ func (g *Generator) sectionSequentialEnhance(ctx context.Context, key string, sc
 }
 
 func (g *Generator) enhanceSectionBody(ctx context.Context, docKey string, rule SectionRule, bucket EnhancedSection, priorSummary string, s state.CanonicalState, opts EnhanceOpts) (body string, fallback bool, err error) {
-	systemPrompt := g.buildSectionSystemPrompt(docKey, rule)
+	systemPrompt := g.buildSectionSystemPrompt(docKey, rule, s)
 	userPrompt := buildSectionUserPrompt(docKey, bucket, priorSummary, s, rule)
 
 	resp, err := g.llm.Generate(ctx, llm.LLMRequest{
@@ -139,7 +139,7 @@ func (g *Generator) enhanceSectionBody(ctx context.Context, docKey string, rule 
 	return draft, false, nil
 }
 
-func (g *Generator) repairDocumentSections(ctx context.Context, docKey, merged string, rubric Rubric, opts EnhanceOpts) (string, error) {
+func (g *Generator) repairDocumentSections(ctx context.Context, docKey, merged string, rubric Rubric, s state.CanonicalState, opts EnhanceOpts) (string, error) {
 	draft := merged
 	for attempt := 0; attempt <= g.maxRepairs; attempt++ {
 		findings := Validate(draft, rubric)
@@ -175,7 +175,7 @@ func (g *Generator) repairDocumentSections(ctx context.Context, docKey, merged s
 			opts.EmitProgress(docKey, DocStepSectionRepair, fmt.Sprintf("Document repair §%s…", f.Heading), ProgressMeta{
 				Section: f.Heading,
 			})
-			systemPrompt := g.buildSectionSystemPrompt(docKey, *rule)
+			systemPrompt := g.buildSectionSystemPrompt(docKey, *rule, s)
 			repairPrompt := buildSectionRepairPrompt(docKey, f.Heading, body, []RubricFinding{f})
 			repaired, err := g.llm.Generate(ctx, llm.LLMRequest{
 				SystemPrompt:   systemPrompt,
@@ -221,8 +221,8 @@ func findSectionRule(rubric Rubric, heading string) *SectionRule {
 	return nil
 }
 
-func (g *Generator) buildSectionSystemPrompt(docKey string, rule SectionRule) string {
-	base := g.buildSystemPrompt(docKey)
+func (g *Generator) buildSectionSystemPrompt(docKey string, rule SectionRule, s state.CanonicalState) string {
+	base := g.buildSystemPrompt(docKey, s)
 	var sb strings.Builder
 	sb.WriteString(base)
 	sb.WriteString("\n\n## Section-only output\n")
@@ -240,7 +240,8 @@ func buildSectionUserPrompt(docKey string, bucket EnhancedSection, priorSummary 
 	sb.WriteString(rule.Heading)
 	sb.WriteString("` of the `")
 	sb.WriteString(docKey)
-	sb.WriteString("` document. Expand the scaffold slice into production-grade depth with sub-headings (###), tables, and diagrams as appropriate.\n\n")
+	sb.WriteString("` document. Expand the scaffold slice into production-grade depth with sub-headings (###), tables, and diagrams as appropriate.\n")
+	sb.WriteString("Stay focused on the USER'S PRODUCT from canonical state — do not write about the A2A Brainstorm tool or generic multi-agent frameworks.\n\n")
 	sb.WriteString("## Canonical state context\n\n")
 	sb.WriteString(summariseState(s))
 	if priorSummary != "" {

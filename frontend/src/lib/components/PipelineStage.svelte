@@ -84,8 +84,16 @@
 
   $: loadingPhrases =
     AGENT_LOADING_PHRASES[agent.role] ?? DEFAULT_LOADING_PHRASES;
+  $: streamingCharCount = (() => {
+    const m = /streaming model output…?\s*(\d+)\s*characters/i.exec(
+      phaseDetail,
+    );
+    return m ? Number(m[1]) : 0;
+  })();
+  $: hasStreamBody = streamingText.trim().length > 0;
+  $: hasStreamingPhase = streamingCharCount > 0;
   $: showRotating =
-    status === "running" && !streamingText && !phaseDetail;
+    status === "running" && !hasStreamBody && !phaseDetail;
   $: statusLine =
     phaseDetail ||
     (showRotating ? loadingPhrases[rotateIndex % loadingPhrases.length] : "");
@@ -98,13 +106,26 @@
 
   $: chatPresent =
     status === "running"
-      ? streamingText
+      ? hasStreamBody
         ? presentStreamBuffer(streamingText, statusLine, agent.role)
-        : waitingPresentation(statusLine, agent.role)
+        : hasStreamingPhase
+          ? {
+              headline:
+                phaseDetail ||
+                `Streaming model output… ${streamingCharCount} characters received`,
+              bullets: [
+                loadingPhrases[rotateIndex % loadingPhrases.length],
+              ],
+              hasContent: true,
+            }
+          : waitingPresentation(statusLine, agent.role)
       : null;
 
+  $: keepRotating =
+    showRotating || (status === "running" && hasStreamingPhase && !hasStreamBody);
+
   $: {
-    if (showRotating) {
+    if (keepRotating) {
       if (!rotateTimer) {
         rotateIndex = 0;
         rotateTimer = setInterval(() => {

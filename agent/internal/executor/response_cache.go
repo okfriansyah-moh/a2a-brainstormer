@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"encoding/json"
+	"strings"
 	"sync"
 
 	"a2a-brainstorm/agent/internal/config"
@@ -44,6 +46,22 @@ func (c *ResponseCache) Get(hash string) (responseCacheEntry, bool) {
 	return e, ok
 }
 
+// Evict removes a cached response for hash.
+func (c *ResponseCache) Evict(hash string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.data[hash]; !exists {
+		return
+	}
+	delete(c.data, hash)
+	for i, h := range c.order {
+		if h == hash {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			break
+		}
+	}
+}
+
 // Put stores a response for hash.
 func (c *ResponseCache) Put(hash string, content, finishReason string) {
 	c.mu.Lock()
@@ -80,6 +98,7 @@ func (c *ResponseCache) Reset() {
 }
 
 // lookupRetryCache checks the response cache for an exact request hash.
+// Invalid JSON entries are evicted so a prior truncated response cannot be replayed.
 func lookupRetryCache(req llm.LLMRequest) (generatedContent, bool) {
 	if !config.GetPromptCacheEnabled() {
 		return generatedContent{}, false
@@ -89,14 +108,33 @@ func lookupRetryCache(req llm.LLMRequest) (generatedContent, bool) {
 	if !ok {
 		return generatedContent{}, false
 	}
+	if !isCacheableJSONResponse(e.content) {
+		defaultResponseCache.Evict(hash)
+		return generatedContent{}, false
+	}
 	return generatedContent{text: e.content, finishReason: e.finishReason}, true
 }
 
 // storeRetryCache saves a successful LLM response for retry reuse.
+// Only complete, strictly parseable JSON objects are cached.
 func storeRetryCache(req llm.LLMRequest, content generatedContent) {
 	if !config.GetPromptCacheEnabled() {
 		return
 	}
+	if !isCacheableJSONResponse(content.text) {
+		return
+	}
 	hash := CanonicalRequestHash(req)
 	defaultResponseCache.Put(hash, content.text, content.finishReason)
+}
+
+// isCacheableJSONResponse requires a complete JSON object without repair
+// heuristics so truncated model output is never replayed from cache.
+func isCacheableJSONResponse(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !strings.HasPrefix(raw, "{") || !strings.HasSuffix(raw, "}") {
+		return false
+	}
+	var v map[string]any
+	return json.Unmarshal([]byte(raw), &v) == nil
 }

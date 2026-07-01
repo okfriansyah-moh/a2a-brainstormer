@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 
+	"a2a-brainstorm/backend/internal/modules/state"
 	"a2a-brainstorm/backend/internal/platform/config"
 	"a2a-brainstorm/backend/internal/platform/llm"
 )
@@ -28,7 +29,7 @@ type coherenceAuditResponse struct {
 }
 
 // runCoherencePass executes always-on audit and guarded micro-fixes.
-func (g *Generator) runCoherencePass(ctx context.Context, docKey, merged string, rubric Rubric, opts EnhanceOpts) (string, error) {
+func (g *Generator) runCoherencePass(ctx context.Context, docKey, merged string, rubric Rubric, s state.CanonicalState, opts EnhanceOpts) (string, error) {
 	if g == nil || g.llm == nil {
 		return merged, nil
 	}
@@ -71,7 +72,7 @@ func (g *Generator) runCoherencePass(ctx context.Context, docKey, merged string,
 		if !ok {
 			continue
 		}
-		fixed, err := g.microFixCoherence(ctx, docKey, f.SectionHeading, body, f)
+		fixed, err := g.microFixCoherence(ctx, docKey, f.SectionHeading, body, f, s)
 		if err != nil {
 			g.logger.WarnContext(ctx, "aigen_coherence_microfix_failed",
 				slog.String("doc_key", docKey),
@@ -144,8 +145,8 @@ func parseCoherenceAudit(content string) ([]CoherenceFinding, error) {
 	return parsed.Findings, nil
 }
 
-func (g *Generator) microFixCoherence(ctx context.Context, docKey, heading, body string, finding CoherenceFinding) (string, error) {
-	system := g.buildSystemPrompt(docKey) + "\n\nYou fix ONLY the identified inconsistency. Output section body only (no ## heading). Do not shorten tables or code blocks."
+func (g *Generator) microFixCoherence(ctx context.Context, docKey, heading, body string, finding CoherenceFinding, s state.CanonicalState) (string, error) {
+	system := g.buildSystemPrompt(docKey, s) + "\n\nYou fix ONLY the identified inconsistency. Output section body only (no ## heading). Do not shorten tables or code blocks."
 	user := fmt.Sprintf(`Section: %q
 Issue: %s
 Fix type: %s

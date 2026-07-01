@@ -25,7 +25,7 @@ import (
 const (
 	ringCap    = 100 // ring buffer capacity per session
 	maxSubs    = 10  // max subscribers per session
-	chanBuffer = 32  // per-subscriber channel buffer
+	chanBuffer = 128 // per-subscriber channel buffer
 )
 
 // Event is the unit of communication between the broadcaster and SSE handlers.

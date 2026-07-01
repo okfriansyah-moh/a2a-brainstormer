@@ -10,7 +10,7 @@
     API_BASE,
     ApiError,
   } from "$lib/services/api";
-  import { createSSEClient } from "$lib/services/sse";
+  import { createSSEClientWhenReady } from "$lib/services/sse";
   import type { SSEClient } from "$lib/services/sse";
   import type { Session, GeneratedDocument } from "$lib/types";
   import {
@@ -20,6 +20,10 @@
     shouldAppendPhaseLog,
     type DocPhasePayload,
   } from "$lib/services/docPhase";
+  import {
+    docLoadingPhrases,
+    isGenericDocRunningLine,
+  } from "$lib/docLoadingPhrases";
 
   // ── Component state ─────────────────────────────────────────────────────
   let session: Session | null = null;
@@ -62,6 +66,76 @@
   /** Tracks last section per doc for transition log lines. */
   let lastSectionByDoc: Record<string, string> = {};
 
+  const DOC_ROTATE_MS = 2600;
+  let docRotateIndex = 0;
+  let docRotateTimer: ReturnType<typeof setInterval> | null = null;
+
+  function docLabelFor(key: string): string {
+    return ALL_DOCS.find((doc) => doc.key === key)?.label ?? key;
+  }
+
+  $: activeGeneratingKey = generating
+    ? (queuedKeys.find((k) => perDocStatus[k] === "generating") ?? null)
+    : null;
+
+  /** Tracks whether live doc.phase SSE events arrived per doc. */
+  let livePhaseByDoc: Record<string, boolean> = {};
+
+  $: hasLivePhaseLine =
+    runningLine != null && !isGenericDocRunningLine(runningLine);
+
+  $: scaffoldOnlyCount = Object.values(documents).filter(
+    (d) => d.source === "deterministic",
+  ).length;
+  $: hasScaffoldOnly =
+    scaffoldOnlyCount > 0 && !generating && Object.keys(documents).length > 0;
+
+  $: showDocRotating =
+    generating &&
+    activeGeneratingKey != null &&
+    !docTokenBuffers[activeGeneratingKey ?? ""]?.trim() &&
+    !hasLivePhaseLine &&
+    !livePhaseByDoc[activeGeneratingKey ?? ""];
+
+  $: displayRunningLine = (() => {
+    if (!generating || !activeGeneratingKey) {
+      return runningLine;
+    }
+    if (docTokenBuffers[activeGeneratingKey]?.trim()) {
+      return runningLine;
+    }
+    if (hasLivePhaseLine && runningLine) {
+      return runningLine;
+    }
+    const phrases = docLoadingPhrases(activeGeneratingKey);
+    const label = docLabelFor(activeGeneratingKey);
+    return `${label} — ${phrases[docRotateIndex % phrases.length]}`;
+  })();
+
+  $: {
+    if (showDocRotating) {
+      if (!docRotateTimer) {
+        docRotateIndex = 0;
+        docRotateTimer = setInterval(() => {
+          docRotateIndex += 1;
+        }, DOC_ROTATE_MS);
+      }
+    } else if (docRotateTimer) {
+      clearInterval(docRotateTimer);
+      docRotateTimer = null;
+    }
+  }
+
+  function cardGeneratingLine(key: string): string {
+    if (docTokenBuffers[key]?.trim()) {
+      return "";
+    }
+    if (key === activeGeneratingKey) {
+      return displayRunningLine ?? `Generating ${docLabelFor(key)}…`;
+    }
+    return `Generating ${docLabelFor(key)}…`;
+  }
+
   function handleDocPhase(payload: DocPhasePayload) {
     if (!payload.doc_key) return;
     const docLabel =
@@ -96,6 +170,7 @@
     const running = formatDocPhaseRunningLine(payload, docLabel);
     if (running) {
       runningLine = running;
+      livePhaseByDoc = { ...livePhaseByDoc, [payload.doc_key]: true };
     }
   }
 
@@ -134,6 +209,7 @@
     documents = {};
     docTokenBuffers = {};
     lastSectionByDoc = {};
+    livePhaseByDoc = {};
 
     // Show all selected docs as pending cards immediately.
     const ordered = ALL_DOCS.filter((d) => selectedDocs.includes(d.key));
@@ -142,37 +218,52 @@
 
     // ── Option A + B: SSE phase events and token streaming ──────────────
     sseClient?.close();
-    sseClient = createSSEClient(
-      `${API_BASE}/sessions/${sid}/events`,
-      (evt) => {
-        if (evt.type === "doc.phase") {
-          const d = evt.data as DocPhasePayload | null;
-          if (d?.doc_key) {
-            handleDocPhase(d);
-          }
+
+    const handleSSEEvent = (evt: { type: string; data: unknown }) => {
+      if (evt.type === "doc.phase") {
+        const d = evt.data as DocPhasePayload | null;
+        if (d?.doc_key) {
+          handleDocPhase(d);
         }
-        if (evt.type === "doc.token") {
-          const d = evt.data as { doc_key?: string; token?: string } | null;
-          if (d?.doc_key && d?.token) {
-            docTokenBuffers[d.doc_key] =
-              (docTokenBuffers[d.doc_key] ?? "") + d.token;
-            // Svelte reactivity triggers on assignment; avoid per-token object copies.
-            docTokenBuffers = docTokenBuffers;
-          }
+      }
+      if (evt.type === "doc.token") {
+        const d = evt.data as { doc_key?: string; token?: string } | null;
+        if (d?.doc_key && d?.token) {
+          docTokenBuffers[d.doc_key] =
+            (docTokenBuffers[d.doc_key] ?? "") + d.token;
+          // Svelte reactivity triggers on assignment; avoid per-token object copies.
+          docTokenBuffers = docTokenBuffers;
         }
-        if (evt.type === "doc.complete") {
-          const d = evt.data as { doc_key?: string } | null;
-          if (d?.doc_key) {
-            const updated = { ...docTokenBuffers };
-            delete updated[d.doc_key];
-            docTokenBuffers = updated;
-          }
+      }
+      if (evt.type === "doc.complete") {
+        const d = evt.data as { doc_key?: string } | null;
+        if (d?.doc_key) {
+          const updated = { ...docTokenBuffers };
+          delete updated[d.doc_key];
+          docTokenBuffers = updated;
+        }
+      }
+    };
+
+    const sseOptions = {
+      maxReconnectAttempts: 0,
+      reconnectDelayMs: 3000,
+      beforeReconnect: async () => {
+        try {
+          await getSession(sid);
+          return true;
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) return false;
+          return true;
         }
       },
+    };
+
+    sseClient = await createSSEClientWhenReady(
+      `${API_BASE}/sessions/${sid}/events`,
+      handleSSEEvent,
       () => {
         // ── Option C: poll fallback — SSE unavailable ─────────────────
-        // Generation continues via the sequential HTTP calls below.
-        // Just log the disconnection so the user knows phase events are off.
         if (generating) {
           logLines = [
             ...logLines,
@@ -180,23 +271,13 @@
           ];
         }
       },
-      {
-        beforeReconnect: async () => {
-          try {
-            await getSession(sid);
-            return true;
-          } catch (err) {
-            if (err instanceof ApiError && err.status === 404) return false;
-            return true;
-          }
-        },
-      },
+      sseOptions,
     );
 
     try {
-      for (const { key, label } of ordered) {
+      for (const { key } of ordered) {
         perDocStatus = { ...perDocStatus, [key]: "generating" };
-        runningLine = `Generating ${label}…`;
+        runningLine = `Starting ${docLabelFor(key)}…`;
 
         const resp = await generateDocument(sid, key);
 
@@ -207,7 +288,7 @@
 
         documents = { ...documents, [key]: resp.document };
         perDocStatus = { ...perDocStatus, [key]: "done" };
-        logLines = [...logLines, `${label} ready. ✓`];
+        logLines = [...logLines, `${docLabelFor(key)} ready. ✓`];
         runningLine = null;
       }
 
@@ -229,6 +310,10 @@
   }
 
   onDestroy(() => {
+    if (docRotateTimer) {
+      clearInterval(docRotateTimer);
+      docRotateTimer = null;
+    }
     sseClient?.close();
   });
 
@@ -356,7 +441,12 @@
         queuedKeys = [];
       }
     }
-    // converged / active: picker is seeded, user clicks Generate to start
+    // converged: auto-start AI generation on first visit (Finalize navigates here).
+    if (session?.status === "converged" && !loadedFromCache) {
+      queueMicrotask(() => {
+        void generate();
+      });
+    }
   });
 </script>
 
@@ -409,6 +499,16 @@
   <div class="fin-body">
     {#if error}
       <div class="feedback-error" role="alert">{error}</div>
+    {/if}
+
+    {#if hasScaffoldOnly}
+      <div class="fin-scaffold-notice" role="status">
+        These documents are <strong>scaffold-only</strong> (no AI rewrite ran).
+        Use <strong>Select all</strong> → <strong>Regenerate Selected
+        Documents</strong> to run full AI generation. Session confidence
+        ({(session?.current_state?.metrics?.confidence ?? 0).toFixed(2)})
+        measures agent agreement — not document quality.
+      </div>
     {/if}
 
     {#if pageLoading}
@@ -484,11 +584,13 @@
         </button>
         <p class="fin-cta-hint">
           {#if alreadyFinalized}
-            Runs the AI agent (with skills) to rewrite each selected document.
-            Existing documents stay until the new run completes.
+            Session confidence reflects agent agreement on the design — not
+            document AI quality. Click <strong>Select all</strong> then
+            <strong>Regenerate Selected Documents</strong> for a full AI rewrite
+            (may take up to 60 min per large doc).
           {:else}
-            Finalizes the session and runs the AI agent (with skills) to
-            generate the selected documents.
+            Finalizes the session and runs the AI agent to generate the selected
+            documents from your brainstorm state.
           {/if}
         </p>
       </div>
@@ -506,14 +608,13 @@
             {#each logLines as line}
               <div class="gen-entry gen-done-line">{line}</div>
             {/each}
-            {#if runningLine}
+            {#if displayRunningLine}
               <div class="gen-entry gen-running-line">
-                <span class="dots">{runningLine}</span>
+                <span class="dots">{displayRunningLine}</span>
               </div>
-            {/if}
-            {#if !runningLine && !logDone && !alreadyFinalized && (generating || generated)}
+            {:else if !logDone && generating}
               <div class="gen-entry gen-running-line">
-                <span class="dots">Initializing…</span>
+                <span class="dots">Initializing document generator…</span>
               </div>
             {/if}
           </div>
@@ -558,7 +659,8 @@
                   {:else if doc.source === "deterministic"}
                     <span
                       class="src-badge src-det"
-                      title="Template-generated (no AI)">⬡ Template</span
+                      title="Deterministic scaffold only — the AI rewrite did not run. Click Regenerate Selected Documents for a full AI pass."
+                      >⬡ Scaffold only</span
                     >
                   {/if}
                 </div>
@@ -582,7 +684,7 @@
                   <div class="output-stream">{docTokenBuffers[key]}</div>
                 {:else}
                   <div class="output-generating">
-                    <span class="dots">Generating {docLabel}…</span>
+                    <span class="dots">{cardGeneratingLine(key)}</span>
                   </div>
                 {/if}
               {:else}
@@ -671,6 +773,21 @@
   }
 
   /* ─── Error / loading ─────────────────────────────────────────────── */
+  .feedback-error {
+    margin-bottom: 12px;
+  }
+
+  .fin-scaffold-notice {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--warn-border, #f59e0b);
+    background: var(--warn-bg, #fffbeb);
+    color: var(--ink-800);
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+
   .feedback-error {
     margin-bottom: 14px;
     padding: 10px 14px;

@@ -4,12 +4,15 @@
 // Merge rules (§8.5 of docs/PLAN.md):
 //  1. Union risks: deduplicate by normalised text; keep unique risks from both.
 //  2. Remove resolved: risks with Resolved=true are dropped.
-//  3. Collapse duplicate plan steps: steps sharing a title are merged; the
+//  3. Collapse duplicate plan steps: steps with the same intent (after stripping
+//     Phase/Task labels, or with highly similar descriptions) are merged; the
 //     longer description wins.
 //  4. Reject vague steps: steps whose description is fewer than 10 words are
 //     discarded.
-//  5. Stability rule: if base and incoming agree on a field, it is not changed.
-//  6. Persistent conflict: if an item has appeared in open_questions with a
+//  5. Union assumptions and open questions with intent-based deduplication so
+//     near-duplicate points are combined before the next agent reads state.
+//  6. Stability rule: if base and incoming agree on a field, it is not changed.
+//  7. Persistent conflict: if an item has appeared in open_questions with a
 //     conflict marker before, it is not duplicated.
 package state
 
@@ -26,7 +29,7 @@ func MergeAgentDelta(base, delta CanonicalState) CanonicalState {
 		out.Metrics = base.Metrics
 	}
 	out.Meta = base.Meta
-	return out
+	return Compact(out)
 }
 
 func isZeroMetrics(m StateMetrics) bool {
@@ -45,8 +48,8 @@ func Merge(base, incoming CanonicalState) CanonicalState {
 		Architecture:  mergeMap(base.Architecture, incoming.Architecture),
 		ExecutionPlan: mergeSteps(base.ExecutionPlan, incoming.ExecutionPlan),
 		Risks:         mergeRisks(base.Risks, incoming.Risks),
-		Assumptions:   mergeStrings(base.Assumptions, incoming.Assumptions),
-		OpenQuestions: mergeStrings(base.OpenQuestions, incoming.OpenQuestions),
+		Assumptions:   mergeIntentStrings(base.Assumptions, incoming.Assumptions),
+		OpenQuestions: mergeIntentStrings(base.OpenQuestions, incoming.OpenQuestions),
 		Metrics:       incoming.Metrics,
 		Meta:          incoming.Meta,
 	}
@@ -128,26 +131,23 @@ func wordCount(s string) int {
 }
 
 // mergeSteps applies §8.5 rules 3–4:
-//   - Collapse steps with identical titles (keep the more detailed description)
+//   - Collapse steps with the same intent (title after stripping Phase/Task labels,
+//     or highly similar descriptions) and keep the more detailed entry
 //   - Reject steps with description < 10 words
 func mergeSteps(base, incoming []Step) []Step {
-	byTitle := make(map[string]Step)
-	order := make([]string, 0)
+	var slots []Step
 
 	record := func(s Step) {
-		key := normaliseText(s.Title)
-		if key == "" {
+		if strings.TrimSpace(s.Title) == "" && strings.TrimSpace(s.Description) == "" {
 			return
 		}
-		if existing, ok := byTitle[key]; ok {
-			// Keep the more detailed description.
-			if wordCount(s.Description) > wordCount(existing.Description) {
-				byTitle[key] = s
+		for i, existing := range slots {
+			if stepsSameIntent(existing, s) {
+				slots[i] = mergePreferDetailedStep(existing, s)
+				return
 			}
-		} else {
-			byTitle[key] = s
-			order = append(order, key)
 		}
+		slots = append(slots, s)
 	}
 
 	for _, s := range base {
@@ -157,30 +157,11 @@ func mergeSteps(base, incoming []Step) []Step {
 		record(s)
 	}
 
-	out := make([]Step, 0, len(order))
-	for _, key := range order {
-		s := byTitle[key]
+	out := make([]Step, 0, len(slots))
+	for _, s := range slots {
 		if wordCount(s.Description) < 10 {
 			continue // §8.5 rule 4: reject vague steps
 		}
-		out = append(out, s)
-	}
-	return out
-}
-
-// mergeStrings unions two string slices, deduplicating by normalised form.
-func mergeStrings(base, incoming []string) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, s := range append(append([]string{}, base...), incoming...) {
-		key := normaliseText(s)
-		if key == "" {
-			continue
-		}
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
 		out = append(out, s)
 	}
 	return out

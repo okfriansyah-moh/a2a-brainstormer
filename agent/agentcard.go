@@ -26,6 +26,9 @@ func NewAgentCard() *a2a.AgentCard {
 		},
 		DefaultInputModes:  []string{"application/json"},
 		DefaultOutputModes: []string{"application/json"},
+		Capabilities: a2a.AgentCapabilities{
+			Streaming: true,
+		},
 		Skills: []a2a.AgentSkill{
 			{
 				ID:          "build",

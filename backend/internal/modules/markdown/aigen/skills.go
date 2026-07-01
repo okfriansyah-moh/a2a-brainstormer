@@ -56,7 +56,7 @@ func (b SkillBundle) Compose() string {
 // when the bundle fails to load.
 func LoadBundle(fsys fs.FS, paths []string) (SkillBundle, error) {
 	if len(paths) == 0 {
-		return SkillBundle{}, fmt.Errorf("aigen: skill bundle paths is empty")
+		return SkillBundle{}, nil
 	}
 	skills := make([]Skill, 0, len(paths))
 	for _, p := range paths {

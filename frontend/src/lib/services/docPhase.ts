@@ -69,6 +69,15 @@ export function sectionTransitionLogLine(
   return `${docLabel} · §${prev.section} — done`;
 }
 
+const INTERACTIVE_LOG_STEPS = new Set([
+  "enricher",
+  "draft",
+  "section_enhance",
+  "section_repair",
+  "coherence_fix",
+  "repair",
+]);
+
 /** Whether this phase event should append a permanent log line (not just runningLine). */
 export function shouldAppendPhaseLog(payload: DocPhasePayload): boolean {
   if (payload.step === "complete") {
@@ -79,6 +88,9 @@ export function shouldAppendPhaseLog(payload: DocPhasePayload): boolean {
     payload.findings_count &&
     payload.findings_count > 0
   ) {
+    return true;
+  }
+  if (payload.step && INTERACTIVE_LOG_STEPS.has(payload.step)) {
     return true;
   }
   return false;
@@ -98,6 +110,10 @@ export function formatDocPhaseLogLine(
     payload.findings_count > 0
   ) {
     return `${docLabel} — ${payload.findings_count} consistency issue(s) found`;
+  }
+  const running = formatDocPhaseRunningLine(payload, docLabel);
+  if (running && payload.step && INTERACTIVE_LOG_STEPS.has(payload.step)) {
+    return running;
   }
   return null;
 }

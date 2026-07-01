@@ -18,6 +18,10 @@
     ApiError,
   } from "$lib/services/api";
   import { createSSEClient, type SSEClientOptions } from "$lib/services/sse";
+  import {
+    isServerPassComplete,
+    passCountsFromState,
+  } from "$lib/sessionPassSync";
   import { API_BASE } from "$lib/services/api";
   import type { Agent, PreviewResult, SessionAgent, AgentPassContribution } from "$lib/types";
   import type { SSEClient } from "$lib/services/sse";
@@ -47,16 +51,98 @@
   let plainIterPending = false;
 
   // ─── Iterate retry config ──────────────────────────────────────────────────
-  // When the iterate HTTP call results in a TypeError (browser dropped the
-  // long-running connection while the pipeline was still processing), we poll
-  // getSession() in the background to confirm the server received the request.
-  // Both values can be raised without UI changes — interval in ms, max attempts.
-  const ITER_RETRY_INTERVAL_MS = 8_000; // poll every 8 s
-  const ITER_RETRY_MAX = 30; // 30 × 8 s ≈ 4 min
+  // When the iterate HTTP call drops (browser timeout) while the pipeline keeps
+  // running on the server, we poll getSession() until status leaves "running".
+  const ITER_RETRY_INTERVAL_MS = 10_000; // poll every 10 s
+  const ITER_RETRY_MAX = 240; // 240 × 10 s ≈ 40 min
+  const SESSION_WATCH_INTERVAL_MS = 10_000;
 
   let iterRetryCount = 0;
   let iterRetryActive = false;
   let iterRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pass number we expect the server to finish while loading=true. */
+  let expectedPassIteration = 0;
+  let sessionWatchTimer: ReturnType<typeof setInterval> | null = null;
+
+  function stopSessionWatch() {
+    if (sessionWatchTimer !== null) {
+      clearInterval(sessionWatchTimer);
+      sessionWatchTimer = null;
+    }
+  }
+
+  function ensurePassHistoryRecorded(
+    iteration: number,
+    st: import("$lib/types").CanonicalState | null | undefined,
+  ) {
+    const counts = passCountsFromState(st ?? get(sessionStore).state);
+    for (const agent of get(sessionStore).agents) {
+      if (!agentCompletedPass(agent.id, iteration)) {
+        recordPassContribution(agent.id, iteration, agent, counts);
+      }
+    }
+  }
+
+  async function applyCompletedSession(sess: import("$lib/types").Session) {
+    if (sess.current_state) {
+      sessionStore.updateState(sess.current_state);
+    }
+    converged = sess.status === "converged" || sess.status === "approved";
+    const iter =
+      sess.current_state?.meta?.iteration ?? expectedPassIteration;
+    if (iter > 0) {
+      ensurePassHistoryRecorded(iter, sess.current_state);
+      syncLivePass(iter);
+    }
+    sessionStore.applyEvent({
+      id: 0,
+      type: "iteration.complete",
+      data: {
+        iteration: iter,
+        converged,
+        state: sess.current_state ?? undefined,
+      },
+    });
+    activeAgentId = null;
+    agentTokenBuffers = {};
+    agentPhaseDetail = {};
+    agentActivityStartedAt = null;
+    passTransitionMessage = "";
+    awaitingPassStart = false;
+    plainIterPending = false;
+    actionError = "";
+    stopSessionWatch();
+    clearIterRetry();
+    snapPipelinePassToState();
+  }
+
+  async function pollSessionWhileInFlight(): Promise<boolean> {
+    if (!sessionId) return false;
+    const loading = get(sessionStore).loading;
+    if (!loading && !plainIterPending && !iterRetryActive) return false;
+    try {
+      const sess = await getSession(sessionId);
+      if (sess.status === "running") {
+        sessionStore.setLoading(true);
+        return false;
+      }
+      if (isServerPassComplete(sess, expectedPassIteration)) {
+        await applyCompletedSession(sess);
+        return true;
+      }
+    } catch {
+      // Transient network error — caller will retry.
+    }
+    return false;
+  }
+
+  function startSessionWatch() {
+    stopSessionWatch();
+    if (!sessionId) return;
+    sessionWatchTimer = setInterval(() => {
+      void pollSessionWhileInFlight();
+    }, SESSION_WATCH_INTERVAL_MS);
+  }
 
   function clearIterRetry() {
     if (iterRetryTimer !== null) {
@@ -79,38 +165,53 @@
   function startIterRetry(sid: string, fallbackConverged: boolean) {
     clearIterRetry();
     iterRetryActive = true;
+    startSessionWatch();
 
     function tick() {
       iterRetryTimer = setTimeout(async () => {
         iterRetryCount += 1;
-        let resolved = false;
-        try {
-          const sess = await getSession(sid);
-          if (sess.status === "converged" || sess.status === "approved") {
-            // Pipeline completed but SSE missed the final event — apply inline.
-            if (sess.current_state)
-              sessionStore.updateState(sess.current_state);
-            converged = true;
-            resolved = true;
-            clearIterRetry();
-            sessionStore.setLoading(false);
-          }
-          // "running" → SSE is watching; keep retrying.
-          // "active"/"failed" → server never received it or hard failure; keep retrying.
-        } catch {
-          // Network still unreachable — keep retrying until exhausted.
+        const resolved = await pollSessionWhileInFlight();
+        if (resolved) {
+          clearIterRetry();
+          return;
         }
 
-        if (!resolved) {
-          if (iterRetryCount < ITER_RETRY_MAX) {
-            tick();
+        if (!get(sessionStore).loading && !plainIterPending) {
+          clearIterRetry();
+          return;
+        }
+
+        if (iterRetryCount < ITER_RETRY_MAX) {
+          tick();
+          return;
+        }
+
+        // Final probe before surfacing a retryable error.
+        if (await pollSessionWhileInFlight()) {
+          clearIterRetry();
+          return;
+        }
+
+        clearIterRetry();
+        converged = fallbackConverged;
+        try {
+          const sess = await getSession(sid);
+          if (sess.status === "running") {
+            sessionStore.setLoading(true);
+            startSessionWatch();
+            actionError =
+              'Connection interrupted while the pipeline is still running. Reconnecting — or click "Run Next Iteration" if this persists.';
+          } else if (isServerPassComplete(sess, expectedPassIteration)) {
+            await applyCompletedSession(sess);
           } else {
-            clearIterRetry();
-            converged = fallbackConverged;
             sessionStore.setLoading(false);
             actionError =
               'Lost connection to the server. The pipeline may still be running — click "Run Next Iteration" to retry.';
           }
+        } catch {
+          sessionStore.setLoading(false);
+          actionError =
+            'Lost connection to the server. The pipeline may still be running — click "Run Next Iteration" to retry.';
         }
       }, ITER_RETRY_INTERVAL_MS);
     }
@@ -196,11 +297,37 @@
   /** Shared preflight for normal iteration and feedback-injection runs. */
   function beginPipelinePass() {
     const nextPass = (get(sessionStore).state?.meta?.iteration ?? 0) + 1;
+    expectedPassIteration = nextPass;
     syncLivePass(nextPass);
+    startSessionWatch();
+    // Open the SSE lifecycle gate immediately — do not wait for iteration.start
+    // from the wire (feedback passes begin while converged=true on the client).
+    converged = false;
     sessionStore.setLoading(true);
+    sessionStore.applyEvent({
+      id: 0,
+      type: "iteration.start",
+      data: { iteration: nextPass },
+    });
+    activeAgentId = null;
+    agentTokenBuffers = {};
+    agentPhaseDetail = {};
+    agentErrorMessages = {};
     plainIterPending = true;
     actionError = "";
     previewMap = {};
+  }
+
+  const SSE_LIFECYCLE_EVENTS = new Set([
+    "iteration.start",
+    "agent.started",
+    "agent.complete",
+    "agent.error",
+    "iteration.complete",
+  ]);
+
+  function shouldIgnoreConvergedLifecycleEvent(): boolean {
+    return converged && !get(sessionStore).loading && !plainIterPending;
   }
 
   $: activeAgent = activeAgentId
@@ -258,7 +385,7 @@
   $: pipelineActivityDetail = (() => {
     if (!$sessionStore.loading || converged || passTransitionMessage) return "";
     if (activeAgent) {
-      const detail = agentPhaseDetail[activeAgent.id];
+      const detail = effectivePhaseDetail(activeAgent.id);
       const elapsed =
         agentActivityStartedAt != null
           ? formatElapsed(activityClock - agentActivityStartedAt)
@@ -292,7 +419,7 @@
     if (!$sessionStore.loading) return "";
     if (passTransitionMessage) return passTransitionMessage;
     if (activeAgent) {
-      const detail = agentPhaseDetail[activeAgent.id];
+      const detail = effectivePhaseDetail(activeAgent.id);
       return detail || `${activeAgent.name} is working`;
     }
     const runningIdx = stageStatuses.findIndex((s) => s === "running");
@@ -306,14 +433,85 @@
     agentId: string,
     iteration: number,
     agent: SessionAgent,
+    counts?: {
+      risks_count?: number;
+      open_questions_count?: number;
+      execution_plan_steps?: number;
+    },
   ) {
-    const { headline, bullets } = stageSummary(agent);
+    const { headline, bullets } = counts
+      ? passSummaryFromCounts(agent, counts)
+      : stageSummary(agent);
     const prev = agentPassHistory[agentId] ?? [];
     const next = [
       ...prev.filter((p) => p.iteration !== iteration),
       { iteration, headline, bullets },
     ].sort((a, b) => a.iteration - b.iteration);
     agentPassHistory = { ...agentPassHistory, [agentId]: next };
+  }
+
+  function passSummaryFromCounts(
+    agent: SessionAgent,
+    counts: {
+      risks_count?: number;
+      open_questions_count?: number;
+      execution_plan_steps?: number;
+    },
+  ): { headline: string; bullets: string[] } {
+    const planCount = counts.execution_plan_steps ?? 0;
+    const riskCount = counts.risks_count ?? 0;
+    const questionCount = counts.open_questions_count ?? 0;
+
+    const parts: string[] = [];
+    if (planCount > 0) parts.push(`a ${planCount}-step execution plan`);
+    if (riskCount > 0) {
+      parts.push(`${riskCount} risk${riskCount === 1 ? "" : "s"}`);
+    }
+    if (questionCount > 0) {
+      parts.push(
+        `${questionCount} open question${questionCount === 1 ? "" : "s"}`,
+      );
+    }
+
+    const role = agent.role.toLowerCase();
+    let verb = "Contributed";
+    if (role.includes("review") || role.includes("critic")) {
+      verb = "Reviewed the canonical state and added";
+    } else if (role.includes("refine") || role.includes("synth")) {
+      verb = "Synthesised the pass with";
+    } else if (role.includes("build") || role.includes("architect")) {
+      verb = "Drafted";
+    }
+
+    const headline =
+      parts.length === 0
+        ? `${agent.name} ran but produced no new structured findings this pass.`
+        : `${verb} ${joinHuman(parts)} to the canonical state.`;
+
+    return { headline, bullets: [] };
+  }
+
+  /** Generic backend wait lines suppress rotating role phrases in PipelineStage. */
+  function effectivePhaseDetail(agentId: string): string {
+    const d = agentPhaseDetail[agentId] ?? "";
+    if (!d) return "";
+    if (/^waiting for model response/i.test(d)) return "";
+    return d;
+  }
+
+  /** Tail slice keeps streamPresenter responsive on large feedback-pass JSON. */
+  const STREAM_DISPLAY_TAIL = 8192;
+  function streamDisplayText(buf: string): string {
+    if (buf.length <= STREAM_DISPLAY_TAIL) return buf;
+    return buf.slice(-STREAM_DISPLAY_TAIL);
+  }
+
+  /** True when an agent is already running for the current in-flight pass. */
+  function passAlreadyInFlight(): boolean {
+    return (
+      get(sessionStore).loading &&
+      Object.values(get(sessionStore).agentStatuses).some((s) => s === "running")
+    );
   }
 
   /**
@@ -482,6 +680,8 @@
 
   function sessionSSEOptions(): SSEClientOptions {
     return {
+      maxReconnectAttempts: 0,
+      reconnectDelayMs: 3000,
       beforeReconnect: async () => {
         if (!sessionId) return false;
         try {
@@ -500,22 +700,23 @@
     sseClient = createSSEClient(
       `${API_BASE}/sessions/${sessionId}/events`,
       (evt) => {
-        if (converged) {
-          if (
-            evt.type === "iteration.start" ||
-            evt.type === "agent.started" ||
-            evt.type === "agent.complete" ||
-            evt.type === "agent.error" ||
-            evt.type === "iteration.complete"
-          ) {
-            return;
-          }
+        if (
+          shouldIgnoreConvergedLifecycleEvent() &&
+          SSE_LIFECYCLE_EVENTS.has(evt.type)
+        ) {
+          return;
         }
         sessionStore.applyEvent(evt);
 
         if (evt.type === "iteration.start") {
           const d = evt.data as { iteration?: number } | null;
           syncLivePass(d?.iteration);
+          // Skip destructive reset on SSE replay while agents are still running.
+          // beginPipelinePass already cleared state for a fresh pass; a late or
+          // replayed iteration.start must not wipe live token buffers mid-stream.
+          if (passAlreadyInFlight()) {
+            return;
+          }
           activeAgentId = null;
           agentTokenBuffers = {};
           agentPhaseDetail = {};
@@ -537,8 +738,13 @@
             delete updatedErrors[d.agent_id];
             agentErrorMessages = updatedErrors;
             const updatedTokens = { ...agentTokenBuffers };
-            delete updatedTokens[d.agent_id];
-            agentTokenBuffers = updatedTokens;
+            if (
+              !passAlreadyInFlight() ||
+              !updatedTokens[d.agent_id]?.length
+            ) {
+              delete updatedTokens[d.agent_id];
+              agentTokenBuffers = updatedTokens;
+            }
           }
         }
 
@@ -572,6 +778,9 @@
           const d = evt.data as {
             agent_id?: string;
             iteration?: number;
+            risks_count?: number;
+            open_questions_count?: number;
+            execution_plan_steps?: number;
           } | null;
           syncLivePass(d?.iteration);
           if (d?.agent_id) {
@@ -579,8 +788,12 @@
             const agent = get(sessionStore).agents.find(
               (a) => a.id === d.agent_id,
             );
-            if (agent?.output && iter > 0) {
-              recordPassContribution(d.agent_id, iter, agent);
+            if (agent && iter > 0) {
+              recordPassContribution(d.agent_id, iter, agent, {
+                risks_count: d.risks_count,
+                open_questions_count: d.open_questions_count,
+                execution_plan_steps: d.execution_plan_steps,
+              });
             }
             if (d.agent_id === activeAgentId) {
               activeAgentId = null;
@@ -595,14 +808,23 @@
         }
 
         if (evt.type === "iteration.complete") {
-          const d = evt.data as { converged?: boolean; iteration?: number } | null;
+          const d = evt.data as {
+            converged?: boolean;
+            iteration?: number;
+            state?: import("$lib/types").CanonicalState;
+          } | null;
           if (d?.iteration) {
             syncLivePass(d.iteration);
+            ensurePassHistoryRecorded(d.iteration, d.state);
           }
           activeAgentId = null;
           agentActivityStartedAt = null;
           passTransitionMessage = "";
           awaitingPassStart = false;
+          plainIterPending = false;
+          actionError = "";
+          stopSessionWatch();
+          clearIterRetry();
           if (d?.converged) {
             converged = true;
           }
@@ -612,7 +834,9 @@
           sessionStore.setLoading(false);
         }
       },
-      undefined,
+      () => {
+        void pollSessionWhileInFlight();
+      },
       sessionSSEOptions(),
     );
   }
@@ -634,6 +858,9 @@
       iterationInFlight = session.status === "running";
       if (iterationInFlight) {
         sessionStore.setLoading(true);
+        expectedPassIteration =
+          (session.current_state?.meta?.iteration ?? 0) + 1;
+        startSessionWatch();
       }
       loadedIteration = session.current_state?.meta?.iteration ?? 0;
       sessionStore.setSession(session.id, session.idea);
@@ -708,25 +935,8 @@
     // longer "running" we know the iteration finished and can sync state.
     if (iterationInFlight) {
       setTimeout(async () => {
-        if (!get(sessionStore).loading) return; // SSE already resolved it
-        try {
-          const refreshed = await getSession(sessionId);
-          if (refreshed.status !== "running") {
-            if (refreshed.current_state) {
-              sessionStore.updateState(refreshed.current_state);
-            }
-            sessionStore.setLoading(false);
-            if (
-              refreshed.status === "converged" ||
-              refreshed.status === "approved"
-            ) {
-              converged = true;
-            }
-          }
-        } catch {
-          // Best-effort: clear loading so the UI isn't permanently stuck.
-          sessionStore.setLoading(false);
-        }
+        if (!get(sessionStore).loading) return;
+        if (await pollSessionWhileInFlight()) return;
       }, 5000);
     }
 
@@ -751,6 +961,7 @@
       activityClockTimer = null;
     }
     sseClient?.close();
+    stopSessionWatch();
     clearIterRetry();
   });
 
@@ -762,10 +973,6 @@
     const feedback = userFeedback?.trim();
     if (userFeedback !== undefined && !feedback) return;
 
-    if (feedback) {
-      converged = false;
-    }
-
     beginPipelinePass();
 
     let iterInFlight = false;
@@ -774,6 +981,9 @@
       sessionStore.updateState(result.state);
       converged = result.converged;
       syncLivePass(result.state.meta?.iteration);
+      stopSessionWatch();
+      clearIterRetry();
+      actionError = "";
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         iterInFlight = true;
@@ -800,11 +1010,19 @@
       } else {
         actionError = err instanceof Error ? err.message : "Iteration failed.";
       }
+      if (!iterInFlight) {
+        activeAgentId = null;
+        agentTokenBuffers = {};
+        agentPhaseDetail = {};
+        agentActivityStartedAt = null;
+        sessionStore.markRunningAgentsAsError();
+      }
     } finally {
       plainIterPending = false;
       if (!iterInFlight) {
         sessionStore.setLoading(false);
         snapPipelinePassToState();
+        stopSessionWatch();
       }
     }
   }
@@ -976,8 +1194,8 @@
             status={stageStatuses[i] ?? "waiting"}
             passHistory={agentPassHistory[agent.id] ?? []}
             activePass={stageStatuses[i] === "running" ? displayPass : 0}
-            streamingText={agentTokenBuffers[agent.id] ?? ""}
-            phaseDetail={agentPhaseDetail[agent.id] ?? ""}
+            streamingText={streamDisplayText(agentTokenBuffers[agent.id] ?? "")}
+            phaseDetail={effectivePhaseDetail(agent.id)}
             errorMessage={agentErrorMessages[agent.id] ?? ""}
             summary={stageSummary(agent).headline}
             summaryBullets={stageSummary(agent).bullets}

@@ -81,15 +81,17 @@ func (e *BrainstormExecutor) generateOnce(
 	role string,
 	payload BrainstormPayload,
 ) (generatedContent, error) {
-	if cached, ok := lookupRetryCache(llmReq); ok {
-		if e.logger != nil {
-			e.logger.InfoContext(ctx, "prompt cache response hit",
-				slog.String("session_id", payload.SessionID),
-				slog.String("agent_id", payload.AgentID),
-				slog.String("provider", payload.LLMConfig.Provider),
-			)
+	if payload.UserFeedback == "" {
+		if cached, ok := lookupRetryCache(llmReq); ok {
+			if e.logger != nil {
+				e.logger.InfoContext(ctx, "prompt cache response hit",
+					slog.String("session_id", payload.SessionID),
+					slog.String("agent_id", payload.AgentID),
+					slog.String("provider", payload.LLMConfig.Provider),
+				)
+			}
+			return cached, nil
 		}
-		return cached, nil
 	}
 
 	if sp, streamOK := activeLLM.(llm.StreamingLLMProvider); streamOK {

@@ -146,15 +146,15 @@ func GetOpenCodeHTTPTimeout() time.Duration {
 
 // GetHTTPWriteTimeout returns the HTTP server write timeout for the agent.
 // Must be longer than the longest expected LLM call duration.
-// Defaults to 15 minutes. Set AGENT_HTTP_WRITE_TIMEOUT_SECONDS to override.
-// Set to 0 to disable the write timeout entirely.
+// Defaults to 30 minutes (aligned with backend AGENT_CALL_TIMEOUT_SECONDS).
+// Set AGENT_HTTP_WRITE_TIMEOUT_SECONDS to override. Set to 0 to disable.
 func GetHTTPWriteTimeout() time.Duration {
 	if v := os.Getenv("AGENT_HTTP_WRITE_TIMEOUT_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			return time.Duration(n) * time.Second
 		}
 	}
-	return 15 * time.Minute
+	return 30 * time.Minute
 }
 
 // ── Prompt cache ─────────────────────────────────────────────────────────────

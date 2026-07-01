@@ -296,17 +296,17 @@ func renderFilesToCreate(step state.Step) string {
 
 // renderCodingStandards renders coding standards from the phase enrichment overlay
 // or falls back to canonical generic standards.
-func renderCodingStandards(s state.CanonicalState, idx int, _ state.Step) string {
+func renderCodingStandards(s state.CanonicalState, idx int, step state.Step) string {
 	var b strings.Builder
 	b.WriteString("**Coding standards:**\n")
 	enrichment := phaseEnrichmentAt(s, idx)
 	for _, cs := range enrichment.CodingStandards {
 		b.WriteString(fmt.Sprintf("- %s\n", cs))
 	}
-	// Always append canonical fallback items.
-	b.WriteString("- SRP: Each file has a single, well-named responsibility\n")
-	b.WriteString("- DIP: Depend on interfaces (LLMProvider, Repository) not concrete types\n")
-	b.WriteString("- No `fmt.Println`, no `os.Getenv` outside `config.go`\n")
+	if stepUsesGo(step) {
+		b.WriteString("- SRP: Each file has a single, well-named responsibility\n")
+		b.WriteString("- DIP: Depend on interfaces, not concrete types\n")
+	}
 	b.WriteString("\n")
 	return b.String()
 }
@@ -318,8 +318,10 @@ func renderCodingStandards(s state.CanonicalState, idx int, _ state.Step) string
 func renderValidation(step state.Step) string {
 	var b strings.Builder
 	b.WriteString("**Validation:**\n")
-	b.WriteString("- `cd backend && go build ./...`: zero build errors\n")
-	b.WriteString("- `cd backend && go vet ./...`: zero vet issues\n")
+	if stepUsesGo(step) {
+		b.WriteString("- `cd backend && go build ./...`: zero build errors\n")
+		b.WriteString("- `cd backend && go vet ./...`: zero vet issues\n")
+	}
 
 	// Add frontend check when a frontend deliverable is present.
 	hasFrontend := false
@@ -343,18 +345,19 @@ func renderValidation(step state.Step) string {
 
 // renderInvariantCheck renders the **Invariant check:** section with enricher
 // items followed by the 4 canonical invariants (unconditionally).
-func renderInvariantCheck(s state.CanonicalState, idx int, _ state.Step) string {
+func renderInvariantCheck(s state.CanonicalState, idx int, step state.Step) string {
 	var b strings.Builder
 	b.WriteString("**Invariant check:**\n")
 	enrichment := phaseEnrichmentAt(s, idx)
 	for _, ic := range enrichment.InvariantChecks {
 		b.WriteString(fmt.Sprintf("- [ ] %s\n", ic))
 	}
-	// Canonical 4 — always unconditional.
 	b.WriteString("- [ ] No file modified outside \"Files to create/modify\" list\n")
-	b.WriteString("- [ ] No cross-module import introduced\n")
-	b.WriteString("- [ ] No `os.Getenv` outside `config.go`\n")
-	b.WriteString("- [ ] All SQL via parameterized queries only (if DB-touching)\n")
+	if stepUsesGo(step) {
+		b.WriteString("- [ ] No cross-module import introduced\n")
+		b.WriteString("- [ ] No `os.Getenv` outside `config.go`\n")
+		b.WriteString("- [ ] All SQL via parameterized queries only (if DB-touching)\n")
+	}
 	b.WriteString("\n")
 	return b.String()
 }
@@ -367,7 +370,7 @@ func renderPromptContext(s state.CanonicalState, idx int) string {
 		return fmt.Sprintf("**Prompt context needed:** %s\n\n",
 			strings.Join(enrichment.PromptContextRefs, ", "))
 	}
-	return "**Prompt context needed:** §8.1 (CanonicalState), §8.31 (PLAN.md quality standard)\n\n"
+	return "**Prompt context needed:** Product architecture, execution plan step objectives, and clarifying questions from the brainstorm session\n\n"
 }
 
 // ─── §6 Task Summary ──────────────────────────────────────────────────────────
@@ -419,22 +422,13 @@ A task is NOT complete until:
 
 **Quality Gate Sequence**
 
-Run these commands in order. Each must return zero findings before proceeding:
+Run the validation commands listed in each task block in order. Each must return zero findings before proceeding to the next task.
 
-` + "```" + `bash
-cd backend && go test ./...
-cd backend && go vet ./...
-cd backend && go build ./...
-cd frontend && pnpm check
-cd frontend && pnpm build
-` + "```" + `
+**Execution Rules**
 
-**Agent Dispatch Rules**
-
-- Each task is dispatched to a single agent per session.
-- The agent receives the canonical state and the task prompt context.
-- The agent returns the updated canonical state as a DataPart artifact.
-- The orchestrator merges the updated state and advances to the next task.
+- Complete tasks in dependency order (see §4 Dependency Graph).
+- Each task maps to one focused implementation session.
+- Update risks and open questions when new information emerges during build-out.
 
 `
 }
@@ -444,33 +438,7 @@ cd frontend && pnpm build
 func renderDeepKnowledgeReference(s state.CanonicalState) string {
 	var b strings.Builder
 
-	// CanonicalState Go struct skeleton (§8.1).
-	b.WriteString("### §8.1 CanonicalState Shape\n\n")
-	b.WriteString("```go\n")
-	b.WriteString(`type CanonicalState struct {
-    Idea          map[string]any ` + "`" + `json:"idea"` + "`" + `
-    Architecture  map[string]any ` + "`" + `json:"architecture"` + "`" + `
-    ExecutionPlan []Step         ` + "`" + `json:"execution_plan"` + "`" + `
-    Risks         []Risk         ` + "`" + `json:"risks"` + "`" + `
-    Assumptions   []string       ` + "`" + `json:"assumptions"` + "`" + `
-    OpenQuestions []string       ` + "`" + `json:"open_questions"` + "`" + `
-    Metrics       StateMetrics   ` + "`" + `json:"metrics"` + "`" + `
-    Meta          StateMeta      ` + "`" + `json:"meta"` + "`" + `
-}
-
-type Step struct {
-    Title                string   ` + "`" + `json:"title"` + "`" + `
-    Description          string   ` + "`" + `json:"description"` + "`" + `
-    Objective            string   ` + "`" + `json:"objective,omitempty"` + "`" + `
-    BlockingDependencies []string ` + "`" + `json:"blocking_dependencies,omitempty"` + "`" + `
-    Scope                string   ` + "`" + `json:"scope,omitempty"` + "`" + `
-    Deliverables         []string ` + "`" + `json:"deliverables,omitempty"` + "`" + `
-    FunctionContracts    []string ` + "`" + `json:"function_contracts,omitempty"` + "`" + `
-    FailureHandling      string   ` + "`" + `json:"failure_handling,omitempty"` + "`" + `
-    ExitCriteria         []string ` + "`" + `json:"exit_criteria,omitempty"` + "`" + `
-}
-`)
-	b.WriteString("```\n\n")
+	b.WriteString("Domain-specific schemas, algorithms, and contracts captured during the brainstorm session.\n\n")
 
 	// Tech stack rationale from Architecture.
 	if v, ok := s.Architecture["tech_stack_rationale"]; ok {
@@ -524,13 +492,7 @@ func extractDKSections(v any) []dkSection {
 }
 
 func renderModuleResponsibilityTable(s state.CanonicalState) string {
-	// Build from execution plan layer tags or architecture keys.
-	rows := [][]string{
-		{"backend/internal/modules/", "Domain modules (handler → service → repository → model)"},
-		{"backend/internal/platform/", "Shared infra: LLM, A2A, config, SSE"},
-		{"agent/internal/executor/", "A2A agent executor — LLM dispatch + state emission"},
-		{"frontend/src/", "SvelteKit UI: stores, services, components"},
-	}
+	rows := [][]string{}
 
 	// Override or extend from actual architecture if present.
 	if v, ok := s.Architecture["layers"]; ok {
@@ -548,6 +510,9 @@ func renderModuleResponsibilityTable(s state.CanonicalState) string {
 				rows = append(rows, []string{name, resp})
 			}
 		}
+	}
+	if len(rows) == 0 {
+		return "_Module responsibilities will appear here once architecture.layers is defined in the brainstorm session._\n\n"
 	}
 	return renderTable([]string{"Module Path", "Responsibility"}, rows)
 }
@@ -610,4 +575,14 @@ func extractPhaseEnrichments(v any) []phaseEnrichmentData {
 		}
 	}
 	return out
+}
+
+// stepUsesGo reports whether a task step targets Go/backend deliverables.
+func stepUsesGo(step state.Step) bool {
+	for _, d := range step.Deliverables {
+		if strings.HasSuffix(d, ".go") || strings.HasPrefix(d, "backend/") || strings.HasPrefix(d, "agent/") {
+			return true
+		}
+	}
+	return false
 }

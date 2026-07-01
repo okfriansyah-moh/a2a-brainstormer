@@ -103,6 +103,16 @@ function createSessionStore() {
             // Reset all agent statuses to waiting and mark as loading for the
             // new pass. This also fires on SSE replay after a page reload so
             // clients reconnecting mid-iteration enter the correct loading state.
+            //
+            // Skip the destructive reset when a pass is already in flight — a
+            // replayed iteration.start must not demote a running agent back to
+            // waiting or wipe live streaming state in the parent page.
+            const anyRunning = Object.values(s.agentStatuses).some(
+              (st) => st === "running",
+            );
+            if (anyRunning && s.loading) {
+              return { ...s, loading: true };
+            }
             const reset: Record<string, AgentStatus> = {};
             for (const agent of s.agents) {
               reset[agent.id] = "waiting";
@@ -134,30 +144,23 @@ function createSessionStore() {
           }
           case "agent.started": {
             if (!agentID) return s;
-            return {
-              ...s,
-              agentStatuses: { ...s.agentStatuses, [agentID]: "running" },
-            };
+            const idx = s.agents.findIndex((a) => a.id === agentID);
+            const statuses = { ...s.agentStatuses };
+            if (idx > 0) {
+              for (let i = 0; i < idx; i++) {
+                const prevID = s.agents[i]?.id;
+                if (prevID && statuses[prevID] === "running") {
+                  statuses[prevID] = "done";
+                }
+              }
+            }
+            statuses[agentID] = "running";
+            return { ...s, agentStatuses: statuses };
           }
           case "agent.complete": {
             if (!agentID) return s;
-            // The backend embeds the agent's output CanonicalState so the
-            // frontend can render per-agent contributions immediately. Only
-            // overwrite when a non-undefined output is present — some events
-            // (e.g. partial-state deltas) intentionally omit it, and we must
-            // not clobber a previously cached value.
-            const agentOutput = payload?.["output"] as
-              | CanonicalState
-              | undefined;
-            const updatedAgents =
-              agentOutput === undefined
-                ? s.agents
-                : s.agents.map((a) =>
-                    a.id === agentID ? { ...a, output: agentOutput } : a,
-                  );
             return {
               ...s,
-              agents: updatedAgents,
               agentStatuses: { ...s.agentStatuses, [agentID]: "done" },
             };
           }
@@ -171,6 +174,19 @@ function createSessionStore() {
           default:
             return s;
         }
+      });
+    },
+
+    /** Mark any in-flight agent as error after a failed iteration HTTP response. */
+    markRunningAgentsAsError() {
+      update((s) => {
+        const statuses = { ...s.agentStatuses };
+        for (const agent of s.agents) {
+          if (statuses[agent.id] === "running") {
+            statuses[agent.id] = "error";
+          }
+        }
+        return { ...s, agentStatuses: statuses };
       });
     },
   };

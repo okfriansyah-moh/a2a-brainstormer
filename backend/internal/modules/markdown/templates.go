@@ -1236,23 +1236,20 @@ func renderForAIAgentsAppendix(s state.CanonicalState, docKey string) string {
 	}
 	b.WriteString("### Key Contracts\n\n")
 
-	// LLM interface name from state or canonical default.
-	llmIface := "LLMProvider"
-	if v, ok := s.Architecture["llm_interface_name"]; ok {
-		if str := strings.TrimSpace(fmt.Sprintf("%v", v)); str != "" && str != "<nil>" {
-			llmIface = str
+	if v, ok := s.Architecture["key_contracts"]; ok {
+		if items := stringsFromAny(v); len(items) > 0 {
+			for _, item := range items {
+				b.WriteString(fmt.Sprintf("- %s\n", item))
+			}
+			b.WriteString("\n")
 		}
+	} else if names := extractLayerNames(s); len(names) > 0 {
+		b.WriteString(fmt.Sprintf("- Primary modules/services: %s\n", strings.Join(names, ", ")))
+		b.WriteString("- Preserve API and data contracts defined in architecture decisions\n\n")
+	} else {
+		b.WriteString("- Domain APIs, data models, and integration contracts from §8 Deep Knowledge Reference\n\n")
 	}
 
-	// Layer names from actual layers.
-	layerNames := extractLayerNames(s)
-
-	b.WriteString("- Module paths follow vertical-slice layout under `backend/internal/modules/`\n")
-	b.WriteString("- Cross-module communication uses exported service interfaces only\n")
-	b.WriteString(fmt.Sprintf("- LLM calls go through `%s`; A2A via platform wrapper\n", llmIface))
-	if len(layerNames) > 0 {
-		b.WriteString(fmt.Sprintf("- Layer boundaries: %s\n", strings.Join(layerNames, " → ")))
-	}
 	b.WriteString(fmt.Sprintf("- Primary artifact: `%s` — preserve heading order when editing\n\n", docKey))
 
 	b.WriteString("### Implementation Order\n\n")
@@ -1267,13 +1264,12 @@ func renderForAIAgentsAppendix(s state.CanonicalState, docKey string) string {
 
 	b.WriteString("### Out of Scope\n\n")
 
-	// Forbidden patterns from state or canonical defaults.
+	// Forbidden patterns from state or product-appropriate defaults.
 	forbidden := stringsFromAny(s.Architecture["forbidden_patterns"])
 	if len(forbidden) == 0 {
 		forbidden = []string{
-			"Microservices between modules",
-			"Direct LLM SDK usage in business modules",
-			"Non-deterministic IDs or runtime role alternation",
+			"Scope creep beyond §3 Scope boundaries",
+			"Undocumented breaking API changes",
 		}
 	}
 	for _, f := range forbidden {

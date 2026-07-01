@@ -185,12 +185,23 @@ func GetAgentStreamIdleTimeout() time.Duration {
 	return time.Duration(envInt("AGENT_STREAM_IDLE_TIMEOUT_SECONDS", 600)) * time.Second
 }
 
+// GetAgentFirstTokenTimeout returns how long the backend waits for the first
+// streamed token from an agent before aborting the call. Defaults to 3 minutes.
+// Set AGENT_FIRST_TOKEN_TIMEOUT_SECONDS to override.
+func GetAgentFirstTokenTimeout() time.Duration {
+	return time.Duration(envInt("AGENT_FIRST_TOKEN_TIMEOUT_SECONDS", 180)) * time.Second
+}
+
 // GetFinalizeTimeout returns the maximum duration allowed for one finalize
 // document-generation call (deterministic scaffold + optional AI enhance pass).
 // This timeout is applied per-request, independently of the server WriteTimeout.
-// Defaults to 10 minutes. Set FINALIZE_TIMEOUT_SECONDS to override.
+//
+// Section-sequential docs (architecture, plan) issue many LLM calls (one per
+// section plus rubric repairs and coherence). The previous 10-minute default
+// routinely expired before the last sections, marking the whole doc ai_fallback.
+// Defaults to 60 minutes. Set FINALIZE_TIMEOUT_SECONDS to override.
 func GetFinalizeTimeout() time.Duration {
-	return time.Duration(envInt("FINALIZE_TIMEOUT_SECONDS", 600)) * time.Second
+	return time.Duration(envInt("FINALIZE_TIMEOUT_SECONDS", 3600)) * time.Second
 }
 
 // GetFinalizeMode returns the document-generation strategy for session
@@ -201,12 +212,13 @@ func GetFinalizeMode() string {
 	return envString("FINALIZE_MODE", "hybrid")
 }
 
-// GetSkillBundlePaths returns the comma-separated list of skill file paths
-// (relative to the repository root) loaded into the AI doc-generator system
-// prompt. The default set covers the five canonical skills used for output
-// documents. Set SKILL_BUNDLE_PATHS to override (comma-separated).
+// GetSkillBundlePaths returns skill file paths loaded into the AI doc-generator
+// system prompt. Empty by default — set SKILL_BUNDLE_PATHS to opt in.
 func GetSkillBundlePaths() []string {
-	raw := envString("SKILL_BUNDLE_PATHS", strings.Join(defaultSkillBundlePaths, ","))
+	raw := envString("SKILL_BUNDLE_PATHS", "")
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
 	parts := strings.Split(raw, ",")
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
@@ -217,15 +229,12 @@ func GetSkillBundlePaths() []string {
 	return out
 }
 
-// defaultSkillBundlePaths is the canonical ordered list of skills injected as
-// system-prompt context for AI document generation. See docs/PLAN.md §8.27.
-var defaultSkillBundlePaths = []string{
-	".github/skills/modularity/SKILL.md",
-	".github/skills/vertical-slice/SKILL.md",
-	".github/skills/api-design/SKILL.md",
-	".github/skills/roadmap-spec/SKILL.md",
-	".github/skills/plan-management/SKILL.md",
-}
+// defaultSkillBundlePaths is empty by default so AI document generation stays
+// anchored to the user's product canonical state. The previous defaults loaded
+// this repository's engineering skills (modularity, vertical-slice, etc.) and
+// caused plan/architecture docs to describe the A2A Brainstorm tool instead of
+// the user's idea. Set SKILL_BUNDLE_PATHS to opt in (comma-separated).
+var defaultSkillBundlePaths []string
 
 // GetDeepSeekBaseURL returns the DeepSeek API base URL.
 // Reads DEEPSEEK_BASE_URL; defaults to "https://api.deepseek.com".

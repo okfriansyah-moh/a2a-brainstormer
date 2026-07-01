@@ -84,6 +84,18 @@ describe("formatDocPhaseLogLine", () => {
     );
     expect(line).toBe("✦ Architecture — Document generated successfully.");
   });
+
+  it("formats section_enhance as interactive log line", () => {
+    const line = formatDocPhaseLogLine(
+      {
+        doc_key: "architecture",
+        step: "section_enhance",
+        section: "4. Layers",
+      },
+      "Architecture",
+    );
+    expect(line).toBe("Architecture · §4. Layers — enhancing…");
+  });
 });
 
 describe("shouldAppendPhaseLog", () => {
@@ -100,9 +112,18 @@ describe("shouldAppendPhaseLog", () => {
     ).toBe(true);
   });
 
-  it("returns false for section_enhance", () => {
+  it("returns true for section_enhance", () => {
     expect(
       shouldAppendPhaseLog({ step: "section_enhance", section: "4. Layers" }),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("returns true for enricher step", () => {
+    expect(
+      shouldAppendPhaseLog({
+        step: "enricher",
+        detail: "Running architecture enricher pre-pass…",
+      }),
+    ).toBe(true);
   });
 });

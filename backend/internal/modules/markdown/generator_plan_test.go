@@ -116,8 +116,8 @@ func TestGeneratePlan_SparseState(t *testing.T) {
 // TestGeneratePlan_ForbiddenStrings ensures the output never contains forbidden strings.
 func TestGeneratePlan_ForbiddenStrings(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		s       state.CanonicalState
+		name      string
+		s         state.CanonicalState
 		forbidden []string
 	}{
 		{
@@ -294,8 +294,8 @@ func TestGeneratePlan_DeepKnowledgeSection(t *testing.T) {
 	if !strings.Contains(got, "## 8. Deep Knowledge Reference") {
 		t.Error("expected '## 8. Deep Knowledge Reference' section")
 	}
-	if !strings.Contains(got, "CanonicalState") {
-		t.Error("expected CanonicalState struct in §8 Deep Knowledge Reference")
+	if !strings.Contains(got, "Domain-specific schemas") {
+		t.Error("expected domain-focused deep knowledge intro in §8")
 	}
 }
 

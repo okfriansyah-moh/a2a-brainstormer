@@ -73,9 +73,13 @@ func TestLoadBundle_MissingFileErrors(t *testing.T) {
 	}
 }
 
-func TestLoadBundle_EmptyPathsErrors(t *testing.T) {
-	if _, err := aigen.LoadBundle(fstest.MapFS{}, nil); err == nil {
-		t.Fatal("expected error for empty paths, got nil")
+func TestLoadBundle_EmptyPathsReturnsEmptyBundle(t *testing.T) {
+	bundle, err := aigen.LoadBundle(fstest.MapFS{}, nil)
+	if err != nil {
+		t.Fatalf("expected nil error for empty paths, got %v", err)
+	}
+	if len(bundle.Skills) != 0 {
+		t.Fatalf("expected empty bundle, got %d skills", len(bundle.Skills))
 	}
 }
 
@@ -285,20 +289,20 @@ func TestGenerator_Enhance_AIModeReturnsError(t *testing.T) {
 	}
 }
 
-func TestGenerator_Enhance_EmptyBundleFallsBack(t *testing.T) {
-	stub := &stubProvider{}
-	g := aigen.New(stub, aigen.SkillBundle{}, 2, 0.2, aigen.ModeHybrid, slog.Default())
+func TestGenerator_Enhance_EmptyBundleStillRunsAI(t *testing.T) {
+	stub := &stubProvider{responses: []string{newPassingReadme()}}
+	g := aigen.New(stub, aigen.SkillBundle{}, 0, 0.2, aigen.ModeHybrid, slog.Default())
 
 	scaffold := newReadmeScaffold()
 	out, err := g.Enhance(context.Background(), state.CanonicalState{}, map[string]shared.GeneratedDocument{testDocKey: scaffold})
 	if err != nil {
 		t.Fatalf("Enhance err: %v", err)
 	}
-	if out[testDocKey].Content != scaffold.Content {
-		t.Errorf("expected scaffold passthrough on empty bundle")
+	if stub.calls == 0 {
+		t.Fatal("expected LLM calls with empty bundle — domain context drives generation")
 	}
-	if stub.calls != 0 {
-		t.Errorf("expected zero LLM calls with empty bundle, got %d", stub.calls)
+	if out[testDocKey].Source != "ai" {
+		t.Errorf("expected ai source, got %q", out[testDocKey].Source)
 	}
 }
 

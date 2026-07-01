@@ -229,6 +229,10 @@ func (s *Service) GetSession(ctx context.Context, id string) (Session, error) {
 	if err != nil {
 		return Session{}, fmt.Errorf("get session: %w", err)
 	}
+	if sess.CurrentState != nil {
+		compacted := state.Compact(*sess.CurrentState)
+		sess.CurrentState = &compacted
+	}
 	return sess, nil
 }
 
